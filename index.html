@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M-Track | Offline Financial Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom Brand Colors based on your Android Themes */
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brandOrange: '#FF6D00',
+                        obsidian: '#121212',
+                        obsidianSurface: '#1E1E1E'
+                    }
+                }
+            }
+        }
+    </style>
+</head>
+<body class="bg-obsidian text-gray-200 font-sans antialiased selection:bg-brandOrange selection:text-white">
+
+    <main class="min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 text-center relative overflow-hidden">
+        
+        <div class="absolute top-0 left-1/2 transform -translate-x-1/2 w-[800px] h-[400px] bg-brandOrange opacity-10 blur-[120px] rounded-full pointer-events-none"></div>
+
+        <div class="z-10 max-w-3xl">
+            <div class="inline-flex items-center px-3 py-1 rounded-full bg-obsidianSurface border border-gray-700 text-sm font-medium text-brandOrange mb-6">
+                <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path></svg>
+                100% Offline & Private
+            </div>
+
+            <h1 class="text-5xl sm:text-7xl font-extrabold text-white tracking-tight mb-6">
+                M-TRACK
+            </h1>
+            <p class="text-xl sm:text-2xl text-gray-400 mb-8 max-w-2xl mx-auto leading-relaxed">
+                The privacy-first financial command center. Automated CSV reconciliation and alternative credit scoring for SMEs and consultants in Kenya.
+            </p>
+
+            <div id="download-container" class="min-h-[80px] flex flex-col items-center justify-center mb-12">
+                <div class="animate-pulse text-gray-500">Detecting OS...</div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-left mt-8 border-t border-gray-800 pt-12">
+                <div class="bg-obsidianSurface p-6 rounded-2xl border border-gray-800">
+                    <h3 class="text-lg font-bold text-white mb-2">Zero Internet Permission</h3>
+                    <p class="text-sm text-gray-400">Your financial data never leaves your device. No cloud sync, no tracking, complete privacy.</p>
+                </div>
+                <div class="bg-obsidianSurface p-6 rounded-2xl border border-gray-800">
+                    <h3 class="text-lg font-bold text-white mb-2">M-PESA & Airtel Ready</h3>
+                    <p class="text-sm text-gray-400">Intelligent local parsing of your transaction SMS history into structured, actionable data.</p>
+                </div>
+                <div class="bg-obsidianSurface p-6 rounded-2xl border border-gray-800">
+                    <h3 class="text-lg font-bold text-white mb-2">CSV Reconciliation</h3>
+                    <p class="text-sm text-gray-400">Export structured data directly to CSV for seamless handoffs to accountants and Google Sheets.</p>
+                </div>
+            </div>
+        </div>
+        
+        <footer class="absolute bottom-6 text-sm text-gray-600">
+            &copy; 2026 M-Track Data Systems. Built for Kenya.
+        </footer>
+    </main>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const downloadContainer = document.getElementById('download-container');
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            
+            // Check if device is Android
+            if (/android/i.test(userAgent)) {
+                // USER IS ON ANDROID -> Show Download Button
+                downloadContainer.innerHTML = `
+                    <a href="M-Track-v1.apk" download 
+                       class="inline-flex items-center justify-center px-8 py-4 text-lg font-bold text-obsidian bg-brandOrange rounded-xl hover:bg-orange-500 transition-all shadow-[0_0_20px_rgba(255,109,0,0.4)]">
+                        <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Download APK for Android
+                    </a>
+                    <p class="text-xs text-gray-500 mt-3">Requires Android 9.0 or higher</p>
+                `;
+            } else {
+                // USER IS NOT ON ANDROID -> Block and show message
+                downloadContainer.innerHTML = `
+                    <div class="bg-red-900/20 border border-red-900/50 rounded-xl p-4 flex items-center text-red-400">
+                        <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        <span><strong>Device Incompatible.</strong> M-Track is strictly an Android-only application.</span>
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>
