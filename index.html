@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M-Track | Offline Financial Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom Brand Colors based on your Android Themes */
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brandOrange: '#FF6D00',
+                        obsidian: '#121212',
+                        obsidianSurface: '#1E1E1E'
+                    }
+                }
+            }
+        }
+    </style>
+</head>
+<body class="bg-obsidian text-gray-200 font-sans antialiased selection:bg-brandOrange selection:text-white pb-20">
+
+    <main class="flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 text-center relative overflow-hidden pt-20 pb-12">
+        
+        <div class="absolute top-0 left-1/2 transform -translate-x-1/2 w-[800px] h-[400px] bg-brandOrange opacity-10 blur-[120px] rounded-full pointer-events-none"></div>
+
+        <div class="z-10 max-w-4xl mx-auto">
+            
+            <div class="inline-flex items-center px-4 py-2 rounded-full bg-red-900/20 border border-red-700/50 text-sm font-bold text-red-400 mb-8 animate-pulse shadow-[0_0_15px_rgba(153,27,27,0.3)]">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                CBK UPDATE: Safaricom is now hiding customer phone numbers (0722XXXXXX).
+            </div>
+
+            <h1 class="text-5xl sm:text-7xl font-extrabold text-white tracking-tight mb-6 leading-tight">
+                Reconciling payments <br>just got <span class="text-brandOrange">harder.</span>
+            </h1>
+            <p class="text-xl sm:text-2xl text-gray-400 mb-10 max-w-3xl mx-auto leading-relaxed">
+                With customer numbers masked, manual tracking via WhatsApp or ledgers is a nightmare. M-Track automatically extracts exact M-PESA Transaction IDs from your Till SMS and exports them to clean CSVs. <strong class="text-white">100% Offline.</strong>
+            </p>
+
+            <div id="download-container" class="min-h-[100px] flex flex-col items-center justify-center mb-16">
+                <div class="animate-pulse text-gray-500">Detecting OS...</div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-left border-t border-gray-800 pt-12 mt-4">
+                <div class="bg-obsidianSurface p-6 rounded-2xl border border-gray-800">
+                    <h3 class="text-lg font-bold text-white mb-2">Zero Internet Permission</h3>
+                    <p class="text-sm text-gray-400">Your financial data never leaves your device. No cloud sync, no tracking, complete privacy.</p>
+                </div>
+                <div class="bg-obsidianSurface p-6 rounded-2xl border border-gray-800">
+                    <h3 class="text-lg font-bold text-white mb-2">M-PESA & Airtel Ready</h3>
+                    <p class="text-sm text-gray-400">Intelligent local parsing of your transaction SMS history into structured, actionable data.</p>
+                </div>
+                <div class="bg-obsidianSurface p-6 rounded-2xl border border-gray-800">
+                    <h3 class="text-lg font-bold text-white mb-2">CSV Reconciliation</h3>
+                    <p class="text-sm text-gray-400">Export structured data directly to CSV for seamless handoffs to accountants and Google Sheets.</p>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-16 relative z-10">
+        
+        <div class="text-center mb-12">
+            <h2 class="text-3xl font-bold text-white mb-4">Under The Hood</h2>
+            <p class="text-gray-400">Everything you need to know about your personal finance command center.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <div class="bg-obsidianSurface p-8 rounded-2xl border border-gray-800 hover:border-brandOrange/40 transition-colors md:col-span-2">
+                <div class="flex items-center mb-4">
+                    <span class="text-brandOrange font-black text-xl mr-3">01.</span>
+                    <h3 class="text-xl font-bold text-white uppercase tracking-wider">Fort Knox Privacy (100% Offline)</h3>
+                </div>
+                <h4 class="font-bold text-gray-300 mb-2">Your Data Stays Yours</h4>
+                <p class="text-gray-400 leading-relaxed">M-Track does not have internet access. It is physically impossible for the app to send your financial data to the cloud, to us, or to anyone else. Everything is processed and stored securely right here on your device.</p>
+            </div>
+
+            <div class="bg-obsidianSurface p-8 rounded-2xl border border-gray-800 hover:border-brandOrange/40 transition-colors">
+                <div class="flex items-center mb-4">
+                    <span class="text-brandOrange font-black text-xl mr-3">02.</span>
+                    <h3 class="text-xl font-bold text-white uppercase tracking-wider">The Scanning Engine</h3>
+                </div>
+                <h4 class="font-bold text-gray-300 mb-2">Laser-Focused on Mobile Money</h4>
+                <p class="text-gray-400 leading-relaxed text-sm">We ignore regular texts and spam. The engine is trained exclusively to read M-PESA and Airtel Money receipts. When you first install the app, it looks back through the last 6 months of your inbox to build your financial history instantly, tracking spending in neat 30-day cycles.</p>
+            </div>
+
+            <div class="bg-obsidianSurface p-8 rounded-2xl border border-gray-800 hover:border-brandOrange/40 transition-colors">
+                <div class="flex items-center mb-4">
+                    <span class="text-brandOrange font-black text-xl mr-3">03.</span>
+                    <h3 class="text-xl font-bold text-white uppercase tracking-wider">Smart Learning</h3>
+                </div>
+                <h4 class="font-bold text-gray-300 mb-2">An App That Learns From You</h4>
+                <p class="text-gray-400 leading-relaxed text-sm">Sometimes the app might not know what a transaction was for. When you manually assign a category, M-Track will ask if you want to create a 'Smart Rule'. Say yes, and it automatically remembers and categorizes all future payments to that specific person or business.</p>
+            </div>
+
+            <div class="bg-obsidianSurface p-8 rounded-2xl border border-gray-800 hover:border-brandOrange/40 transition-colors">
+                <div class="flex items-center mb-4">
+                    <span class="text-brandOrange font-black text-xl mr-3">04.</span>
+                    <h3 class="text-xl font-bold text-white uppercase tracking-wider">Built-In Calculators</h3>
+                </div>
+                <h4 class="font-bold text-gray-300 mb-2">Salary & VAT Math Made Easy</h4>
+                <p class="text-gray-400 leading-relaxed text-sm"><strong class="text-gray-200">Salary Calculator:</strong> Wondering what your actual take-home pay is? This tool factors in all current Kenyan tax laws—including PAYE, SHIF, Housing Levy, and NSSF. <br><br><strong class="text-gray-200">VAT Calculator:</strong> Easily add 16% tax to an amount, or reverse-engineer a receipt to find the base price.</p>
+            </div>
+
+            <div class="bg-obsidianSurface p-8 rounded-2xl border border-gray-800 hover:border-brandOrange/40 transition-colors">
+                <div class="flex items-center mb-4">
+                    <span class="text-brandOrange font-black text-xl mr-3">05.</span>
+                    <h3 class="text-xl font-bold text-white uppercase tracking-wider">Pro-Level Exporting</h3>
+                </div>
+                <h4 class="font-bold text-gray-300 mb-2">Tidy CSV Reports</h4>
+                <p class="text-gray-400 leading-relaxed text-sm">Whether you need to submit expenses to your boss, or you're a data nerd who wants to plug your spending into Excel or Python, our Export feature handles it. Select specific transactions and generate a perfectly clean, machine-readable CSV file straight to your Downloads folder.</p>
+            </div>
+
+        </div>
+    </section>
+
+    <footer class="text-center text-sm text-gray-600 mt-20">
+        &copy; 2026 M-Track Data Systems. Built for Kenya.
+    </footer>
+
+   <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const downloadContainer = document.getElementById('download-container');
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            
+            // Check if device is Android
+            if (/android/i.test(userAgent)) {
+                // USER IS ON ANDROID -> Show Download Button
+                // FIX: Use the simple relative link pointing directly to the file in this repo
+                downloadContainer.innerHTML = `
+                    <a href="M-Track-v1.apk" 
+                       class="inline-flex items-center justify-center px-10 py-5 text-xl font-bold text-obsidian bg-brandOrange rounded-xl hover:bg-orange-500 transition-all shadow-[0_0_30px_rgba(255,109,0,0.4)] transform hover:scale-105">
+                        <svg class="w-7 h-7 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Download APK for Android
+                    </a>
+                    <p class="text-sm text-gray-500 mt-4 font-medium">Requires Android 9.0 or higher</p>
+                `;
+            } else {
+                // USER IS NOT ON ANDROID -> Block and show message
+                downloadContainer.innerHTML = `
+                    <div class="bg-red-900/20 border border-red-900/50 rounded-xl p-5 flex items-center text-red-400 max-w-lg text-left">
+                        <svg class="w-8 h-8 mr-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        <span><strong>Device Incompatible.</strong> M-Track is strictly an Android-only application. Please visit this link on your Android device to download.</span>
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>
