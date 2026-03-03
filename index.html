@@ -124,32 +124,31 @@
     </footer>
 
    <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            const downloadContainer = document.getElementById('download-container');
-            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-            
-            // Check if device is Android
-            if (/android/i.test(userAgent)) {
-                // USER IS ON ANDROID -> Show Download Button
-                // FIX: Use the simple relative link pointing directly to the file in this repo
-                downloadContainer.innerHTML = `
-                    <a href="app-release.apk"
+       document.addEventListener("DOMContentLoaded", function() {
+           const downloadContainer = document.getElementById('download-container');
+           const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+           
+           // Check if device is Android
+           if (/android/i.test(userAgent)) {
+               // USER IS ON ANDROID -> Show Download Button pointing to GitHub Release
+               downloadContainer.innerHTML = `
+                   <a href="https://github.com/Thiani-dk/mtrack-web/releases/download/v1.0/app-release.apk"
                        class="inline-flex items-center justify-center px-10 py-5 text-xl font-bold text-obsidian bg-brandOrange rounded-xl hover:bg-orange-500 transition-all shadow-[0_0_30px_rgba(255,109,0,0.4)] transform hover:scale-105">
-                        <svg class="w-7 h-7 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                        Download APK for Android
-                    </a>
-                    <p class="text-sm text-gray-500 mt-4 font-medium">Requires Android 9.0 or higher</p>
-                `;
-            } else {
-                // USER IS NOT ON ANDROID -> Block and show message
-                downloadContainer.innerHTML = `
-                    <div class="bg-red-900/20 border border-red-900/50 rounded-xl p-5 flex items-center text-red-400 max-w-lg text-left">
-                        <svg class="w-8 h-8 mr-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                        <span><strong>Device Incompatible.</strong> M-Track is strictly an Android-only application. Please visit this link on your Android device to download.</span>
-                    </div>
-                `;
-            }
-        });
-    </script>
+                       <svg class="w-7 h-7 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                       Download APK for Android
+                   </a>
+                   <p class="text-sm text-gray-500 mt-4 font-medium">Requires Android 9.0 or higher</p>
+               `;
+           } else {
+               // USER IS NOT ON ANDROID -> Block and show message
+               downloadContainer.innerHTML = `
+                   <div class="bg-red-900/20 border border-red-900/50 rounded-xl p-5 flex items-center text-red-400 max-w-lg text-left">
+                       <svg class="w-8 h-8 mr-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                       <span><strong>Device Incompatible.</strong> M-Track is strictly an Android-only application. Please visit this link on your Android device to download.</span>
+                   </div>
+               `;
+           }
+       });
+   </script>
 </body>
 </html>
