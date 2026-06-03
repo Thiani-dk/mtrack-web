@@ -1,0 +1,12 @@
+{
+  "model": "claude-3-5-sonnet-20240620",
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_AUTH_TOKEN": "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",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "anthropic/claude-3.5-sonnet",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "anthropic/claude-3.5-haiku",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "true"
+  }
+}

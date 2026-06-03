@@ -1,0 +1,20 @@
+# M-Track Agent Rules: The Financial Lawyer Protocol
+
+## Core Directive
+Build a modular, secure, and "Vibe-Coded" agentic layer. M-Track is the user's "Lawyer," not a government "Clerk." Prioritize user benefit (Income Defense) over pure compliance.
+
+## Technical Execution Rules
+- **Modular Architecture:** Keep the "Daraja Listener" (Node.js/TypeScript), "Logic Engine" (OpenClaw), and "PDF Intelligence" (Python/Gemma) in separate service directories.
+- **Financial Integrity:** ALWAYS use `Decimal` or `BigInt` for KES values. NEVER use `Float` for money.
+- **Privacy First:** - Never log PII (Names, Phone numbers, Transaction IDs) in console logs. 
+  - All uploaded PDFs must be processed in memory or encrypted/shredded immediately after parsing.
+- **Agentic Permissions:** You have permission to use `ls`, `mkdir`, `touch`, and `npm/pip install` to scaffold and manage the 13-day sprint.
+
+## Domain Specifics (Kenya Context)
+- **Daraja 3.0:** Handle STK Push, C2B, and B2C webhooks using Safaricom's standard security headers.
+- **eTIMS/KRA:** Format all outgoing tax JSONs to match GavaConnect sandbox specs.
+- **Language:** Use professional formal English for PDF reports, but a witty, supportive "Sheng-adjacent" or friendly tone for WhatsApp messages.
+
+## Formatting Instructions
+- Use LaTeX for complex financial formulas (e.g., Credit Score weights or Debt-to-Income ratios).
+- Always provide a "TL;DR" summary after generating long code snippets.

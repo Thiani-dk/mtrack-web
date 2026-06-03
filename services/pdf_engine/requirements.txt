@@ -1,0 +1,4 @@
+pikepdf
+pdfplumber
+pandas
+

@@ -1,0 +1,17 @@
+{
+  "heuristics": {
+    "222222": {"tag": "CIVIC", "reason": "e-Citizen payment / Government engagement verified."},
+    "572572": {"tag": "CIVIC", "reason": "KRA tax compliance marker mapped."},
+    "888888": {"tag": "UTILITY", "reason": "KPLC power stability index verified."},
+    "400444": {"tag": "UTILITY", "reason": "NHIF/SHIF health coverage protection contribution."},
+    "400222": {"tag": "UTILITY", "reason": "NSSF retirement asset backing."},
+    "SAFARICOMHOME": {"tag": "UTILITY", "reason": "Safaricom Home Internet connectivity."},
+    "ZUKU": {"tag": "UTILITY", "reason": "Zuku Fiber digital infrastructure payment."},
+    "PAY BILL": {"tag": "BUSINESS", "reason": "Lipa na M-Pesa Paybill payment outbound flow."},
+    "MERCHANT PAYMENT": {"tag": "BUSINESS", "reason": "Buy Goods merchant retail transaction."}
+  },
+  "income_defense": {
+    "max_p2p_safe_threshold": 5000.00,
+    "non_taxable_keywords": ["FUNDS RECEIVED", "REIMBURSEMENT", "LOAN DISBURSED", "M-SHWARI WITHDRAWAL"]
+  }
+}

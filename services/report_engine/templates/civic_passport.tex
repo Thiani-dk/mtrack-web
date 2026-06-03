@@ -1,0 +1,54 @@
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage[margin=1in]{geometry}
+\usepackage{mathjax}
+
+\definecolor{kraBlue}{RGB}{0, 0, 255}
+\definecolor{ntsagreen}{RGB}{0, 128, 0}
+\definecolor{citizengreen}{RGB}{34, 139, 34}
+
+\title{\\textbf{Civic Identity Passport}}
+\author{M-Track Financial Intelligence }
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{\\textbf{Civic Consistency Score}}
+The \it\c{civic\_}Consistency Score quantifies your verified government payments:
+\[
+\text{Score} = \frac{\sum_{i=1}^{n} \text{Monthly Payments}_{i}}{n} \times 100\n
+This score assesses your paysbill payment patterns across:
+,\begin{itemize}
+    \item Kenyan Revenue Authority (KRA)
+    \item National Transport Authority (NTSA)
+    \item eCitizen Public Services
+\end{itemize}
+
+\end{justify}
+
+\section*{\\textbf{Verified Government Payments}}
+\begin{longtable}{@{}p{3cm}p{3cm}p{5cm}p{2.5cm}@{}}
+\toprule
+\institution & \text{payment\_type} & \text{description} & \text{amount (KES)} \\
+\midrule
+\textbf{Kenyan Revenue Authority (KRA)} & \text{Statistical \& Removal}  & Business Registration Fees & 1,500 \\
+ & \text{Tax \& Licences} & Annual Licence Fees & 25,000 \\
+\midrule
+\textbf{National Transport Authority (NTSA)} & \text{Registration} & Vehicle Registration & 20,000 \\
+\end{longtable}
+
+\begin{center}
+    \begin{tabular}{|c|S|}
+        \toprule
+        \textbf{Civic Consistency Score} & \textbf{Rating} \\
+        \midrule
+        \textbf{85.7} & \textbf{Excellent} \\
+        \bottomrule
+    \end{tabular}
+\end{center}
+
+\end{document}
