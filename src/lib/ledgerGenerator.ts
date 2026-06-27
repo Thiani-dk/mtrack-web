@@ -1,7 +1,11 @@
 import { ParsedTransaction } from '../types';
 
-function escapeCSVField(field: string): string {
-    return field.includes(',') ? `"${field}"` : field;
+function escapeCSVField(field: string | number): string {
+    const str = String(field);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
 }
 
 export function generateLedgerCSV(transactions: ParsedTransaction[], dateRange: string): string {
@@ -11,13 +15,13 @@ export function generateLedgerCSV(transactions: ParsedTransaction[], dateRange: 
     transactions.forEach(t => {
         runningBalance = t.balance ?? runningBalance;
         csv += [
-            t.date.toLocaleDateString('en-GB'),
-            t.time,
-            t.transactionCode,
-            t.type,
+            escapeCSVField(t.date.toLocaleDateString('en-GB')),
+            escapeCSVField(t.time),
+            escapeCSVField(t.transactionCode),
+            escapeCSVField(t.type),
             escapeCSVField(t.recipient),
-            t.amount.toFixed(2),
-            runningBalance.toFixed(2)
+            escapeCSVField(t.amount.toFixed(2)),
+            escapeCSVField(runningBalance.toFixed(2))
         ].join(',') + '\n';
     });
 
@@ -56,11 +60,11 @@ export function generateLedgerSummaryCSV(transactions: ParsedTransaction[]): str
     Object.values(dailySummaries).forEach(day => {
         const net = day.totalReceived - day.totalSent;
         csv += [
-            day.date.toLocaleDateString('en-GB'),
-            day.totalSent.toFixed(2),
-            day.totalReceived.toFixed(2),
-            net.toFixed(2),
-            day.count
+            escapeCSVField(day.date.toLocaleDateString('en-GB')),
+            escapeCSVField(day.totalSent.toFixed(2)),
+            escapeCSVField(day.totalReceived.toFixed(2)),
+            escapeCSVField(net.toFixed(2)),
+            escapeCSVField(day.count)
         ].join(',') + '\n';
     });
 

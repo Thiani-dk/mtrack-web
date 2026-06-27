@@ -62,6 +62,13 @@ function App() {
     }));
   };
 
+  const handleOutputBack = () => {
+    setState(prev => ({
+      ...prev,
+      step: 'input',
+    }));
+  };
+
   const handleOutputReset = () => {
     setState({
       mode: null,
@@ -103,6 +110,7 @@ function App() {
             transactions={transactions}
             dateRangeLabel={getDaysLabel(state.timeRange!)}
             onReset={handleOutputReset}
+            onBack={handleOutputBack}
           />
         );
       default:
@@ -111,8 +119,10 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-white max-w-md mx-auto">
-      {renderStep()}
+    <div className="min-h-screen bg-gray-100">
+      <div className="max-w-md mx-auto min-h-screen bg-white shadow-sm">
+        {renderStep()}
+      </div>
     </div>
   );
 }

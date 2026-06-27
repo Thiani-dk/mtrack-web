@@ -11,7 +11,7 @@ export function downloadHTML(content: string, filename: string) {
 }
 
 export function downloadCSV(content: string, filename: string) {
-    const blob = new Blob([content], { type: 'text/csv' });
+    const blob = new Blob(['\uFEFF' + content], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -22,9 +22,10 @@ export function downloadCSV(content: string, filename: string) {
     URL.revokeObjectURL(url);
 }
 
-export function generateFilename(base: string, range: string): string {
+export function generateFilename(mode: 'receipt' | 'ledger' | 'summary', range: string, ext: 'html' | 'csv'): string {
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
     const timeStr = now.toTimeString().split(':').slice(0, 2).join('');
-    return `mpesa-${base}-${range}-${dateStr}-${timeStr}.${base === 'receipt' ? 'html' : 'csv'}`;
+    const sanitizedRange = range.toLowerCase().replace(/\s+/g, '-');
+    return `mpesa-${mode}-${sanitizedRange}-${dateStr}-${timeStr}.${ext}`;
 }

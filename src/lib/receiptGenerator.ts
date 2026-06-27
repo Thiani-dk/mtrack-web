@@ -120,7 +120,7 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
             </div>
             <div class="summary-item total">
                 <span>Net Amount:</span>
-                <span>Ksh ${net.toFixed(2)}</span>
+                <span style="color: ${net >= 0 ? '#00A651' : '#dc2626'}">${net >= 0 ? '' : '-'}Ksh ${Math.abs(net).toFixed(2)}</span>
             </div>
             <div class="summary-item">
                 <span>Transactions:</span>
