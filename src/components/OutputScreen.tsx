@@ -14,204 +14,297 @@ interface OutputScreenProps {
 }
 
 export function OutputScreen({ mode, range, transactions, dateRangeLabel, onReset, onBack }: OutputScreenProps) {
-    // Calculate statistics
+
+    // --- Totals by subType ---
     const totalTransactions = transactions.length;
-    const totalSent = transactions
-        .filter(t => t.type === 'sent')
-        .reduce((sum, t) => sum + t.amount, 0);
+
     const totalReceived = transactions
-        .filter(t => t.type === 'received')
+        .filter(t => t.subType === 'person_receive')
         .reduce((sum, t) => sum + t.amount, 0);
-    const netAmount = totalReceived - totalSent;
 
-    // Format currency with commas
-    const formatCurrency = (amount: number) => {
-        return `Ksh ${amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
-    };
+    const personSendTotal = transactions
+        .filter(t => t.subType === 'person_send')
+        .reduce((sum, t) => sum + t.amount, 0);
 
-    // Handle downloads
+    const paybillTotal = transactions
+        .filter(t => t.subType === 'paybill')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+    const airtimeTotal = transactions
+        .filter(t => t.subType === 'airtime')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+    const withdrawalTotal = transactions
+        .filter(t => t.subType === 'withdrawal')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+    const mshwariTotal = transactions
+        .filter(t => t.subType === 'mshwari')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+    // M-Shwari excluded from net — it's a savings movement, not expenditure
+    const trueOutflow = personSendTotal + paybillTotal + airtimeTotal + withdrawalTotal;
+    const netFlow = totalReceived - trueOutflow;
+
+    const fmt = (n: number) =>
+        `Ksh ${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+
+    // --- Downloads ---
     const handleDownloadReceipt = () => {
-        const htmlContent = generateReceiptHTML(transactions, dateRangeLabel);
-        const filename = generateFilename('receipt', range, 'html');
-        downloadHTML(htmlContent, filename);
+        downloadHTML(generateReceiptHTML(transactions, dateRangeLabel), generateFilename('receipt', range, 'html'));
     };
-
     const handleDownloadFullLedger = () => {
-        const csvContent = generateLedgerCSV(transactions, dateRangeLabel);
-        const filename = generateFilename('ledger', range, 'csv');
-        downloadCSV(csvContent, filename);
+        downloadCSV(generateLedgerCSV(transactions, dateRangeLabel), generateFilename('ledger', range, 'csv'));
     };
-
     const handleDownloadSummaryLedger = () => {
-        const csvContent = generateLedgerSummaryCSV(transactions);
-        const filename = generateFilename('summary', range, 'csv');
-        downloadCSV(csvContent, filename);
+        downloadCSV(generateLedgerSummaryCSV(transactions), generateFilename('summary', range, 'csv'));
     };
 
-    if (transactions.length === 0) {
+    // --- subType label + colour for preview table ---
+    const subTypeLabel = (t: ParsedTransaction): string => {
+        switch (t.subType) {
+            case 'person_send':    return 'Send';
+            case 'person_receive': return 'Received';
+            case 'paybill':        return 'Paybill';
+            case 'airtime':        return 'Airtime';
+            case 'withdrawal':     return 'Withdrawal';
+            case 'mshwari':        return 'M-Shwari';
+            default:               return t.type;
+        }
+    };
+    const subTypeBadgeClass = (t: ParsedTransaction): string => {
+        switch (t.subType) {
+            case 'person_receive': return 'bg-green-100 text-green-800';
+            case 'paybill':        return 'bg-blue-100 text-blue-800';
+            case 'airtime':        return 'bg-yellow-100 text-yellow-800';
+            case 'withdrawal':     return 'bg-purple-100 text-purple-800';
+            case 'mshwari':        return 'bg-emerald-100 text-emerald-800';
+            default:               return 'bg-red-100 text-red-800'; // person_send + unknown
+        }
+    };
+
+    // --- Empty state ---
+    if (totalTransactions === 0) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen p-4 animate-in fade-in slide-in-from-bottom-4 duration-200">
-                <div className="max-w-md w-full space-y-6 text-center">
-                    <div className="text-gray-400">
-                        <Inbox className="w-16 h-16 mx-auto" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-gray-900">No M-PESA messages detected</h2>
-                    <p className="text-gray-600">
-                        Make sure you pasted the full confirmation messages.
+                <div className="max-w-md w-full space-y-4 text-center">
+                    <Inbox className="w-16 h-16 mx-auto text-gray-300" />
+                    <h2 className="text-xl font-bold text-gray-900">No M-PESA messages detected</h2>
+                    <p className="text-gray-500 text-sm">
+                        Make sure you pasted full M-PESA confirmation messages, or that your XML backup file is complete.
                     </p>
                     <button
-                        onClick={onReset}
+                        onClick={onBack}
                         className="w-full min-h-[48px] py-3 px-4 bg-[#00A651] text-white font-medium rounded-lg hover:bg-[#008a43] transition-colors"
                     >
-                        Try Again
+                        Go back and try again
                     </button>
                     <button
-                        onClick={onBack}
-                        className="w-full min-h-[48px] py-3 px-4 bg-white text-[#00A651] font-medium rounded-lg border border-[#00A651] hover:bg-gray-50 transition-colors"
+                        onClick={onReset}
+                        className="w-full min-h-[48px] py-3 px-4 bg-white text-gray-600 font-medium rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
                     >
-                        Go back and try again
+                        Start over
                     </button>
                 </div>
             </div>
         );
     }
 
-    // Preview transactions
     const previewTransactions = transactions.slice(0, 5);
-    const remainingCount = transactions.length - 5;
+    const remainingCount = totalTransactions - 5;
 
     return (
         <div className="flex flex-col min-h-screen animate-in fade-in slide-in-from-bottom-4 duration-200">
-            {/* Persistent Header */}
+
+            {/* Header */}
             <div className="sticky top-0 z-10 h-14 bg-white border-b border-gray-200 flex items-center px-4">
                 <button
                     onClick={onBack}
-                    className="flex items-center text-gray-600 hover:text-gray-900"
+                    className="flex items-center text-gray-600 hover:text-gray-900 min-w-[40px]"
+                    aria-label="Go back"
                 >
-                    <ArrowLeft className="w-5 h-5 mr-1" />
+                    <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div className="flex-1 text-center">
                     <span className="text-sm font-medium text-gray-900">M-PESA Manager</span>
                 </div>
-                <div className="w-10"></div> {/* Spacer for balance */}
+                <div className="min-w-[40px]" />
             </div>
 
             <div className="flex-1 p-4">
-                <div className="max-w-4xl mx-auto w-full space-y-8">
-                    {/* Success Header */}
-                    <div className="text-center space-y-4">
-                        <div className="flex justify-center">
-                            <CheckCircle2 className="w-16 h-16 text-[#00A651]" />
-                        </div>
-                        <h1 className="text-3xl font-bold text-gray-900">
-                            {mode === 'receipt' ? 'Receipt Ready' : 'Ledger Ready'}
+                <div className="max-w-md mx-auto w-full space-y-6">
+
+                    {/* Success header */}
+                    <div className="text-center space-y-2 pt-2">
+                        <CheckCircle2 className="w-12 h-12 text-[#00A651] mx-auto" />
+                        <h1 className="text-2xl font-bold text-gray-900">
+                            {mode === 'receipt' ? 'Receipt ready' : 'Ledger ready'}
                         </h1>
-                        <p className="text-gray-600">
-                            Showing {totalTransactions} transactions for {dateRangeLabel}
+                        <p className="text-sm text-gray-500">
+                            {totalTransactions} transaction{totalTransactions !== 1 ? 's' : ''} — {dateRangeLabel}
                         </p>
                     </div>
 
-                    {/* Stats Grid */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-white p-6 rounded-lg border shadow-sm">
-                            <h3 className="text-sm font-medium text-gray-500">Total Transactions</h3>
-                            <p className="text-2xl font-bold text-gray-900">{totalTransactions}</p>
+                    {/* Stats breakdown */}
+                    <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
+                        <div className="px-4 py-3 border-b border-gray-200">
+                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Breakdown</span>
                         </div>
-                        <div className="bg-white p-6 rounded-lg border shadow-sm">
-                            <h3 className="text-sm font-medium text-gray-500">Total Sent</h3>
-                            <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalSent)}</p>
+
+                        {/* Received */}
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+                                <span className="text-sm text-gray-700">Received</span>
+                            </div>
+                            <span className="text-sm font-semibold text-green-700">{fmt(totalReceived)}</span>
                         </div>
-                        <div className="bg-white p-6 rounded-lg border shadow-sm">
-                            <h3 className="text-sm font-medium text-gray-500">Total Received</h3>
-                            <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalReceived)}</p>
+
+                        {/* Sent to people */}
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
+                                <span className="text-sm text-gray-700">Sent to people</span>
+                            </div>
+                            <span className="text-sm font-medium text-gray-900">{fmt(personSendTotal)}</span>
                         </div>
-                        <div className="bg-white p-6 rounded-lg border shadow-sm">
-                            <h3 className="text-sm font-medium text-gray-500">Net Amount</h3>
-                            <p className={`text-2xl font-bold ${netAmount >= 0 ? 'text-[#00A651]' : 'text-red-600'}`}>
-                                {formatCurrency(netAmount)}
-                            </p>
+
+                        {/* Paybill & Till */}
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
+                                <span className="text-sm text-gray-700">Paybill &amp; Till</span>
+                            </div>
+                            <span className="text-sm font-medium text-gray-900">{fmt(paybillTotal)}</span>
                         </div>
+
+                        {/* Airtime */}
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" />
+                                <span className="text-sm text-gray-700">Airtime</span>
+                            </div>
+                            <span className="text-sm font-medium text-gray-900">{fmt(airtimeTotal)}</span>
+                        </div>
+
+                        {/* Withdrawals */}
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-purple-400 inline-block" />
+                                <span className="text-sm text-gray-700">Cash withdrawals</span>
+                            </div>
+                            <span className="text-sm font-medium text-gray-900">{fmt(withdrawalTotal)}</span>
+                        </div>
+
+                        {/* M-Shwari — called out separately */}
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                                <span className="text-sm text-gray-700">M-Shwari transfers</span>
+                            </div>
+                            <span className="text-sm font-medium text-gray-900">{fmt(mshwariTotal)}</span>
+                        </div>
+
+                        {/* Net flow */}
+                        <div className="flex items-center justify-between px-4 py-3">
+                            <span className="text-sm font-semibold text-gray-700">Net flow</span>
+                            <span className={`text-sm font-bold ${netFlow >= 0 ? 'text-[#00A651]' : 'text-red-600'}`}>
+                                {netFlow >= 0 ? '' : '-'}{fmt(Math.abs(netFlow))}
+                            </span>
+                        </div>
+                        <p className="text-xs text-gray-400 px-4 pb-3">
+                            M-Shwari transfers excluded from net — savings movement, not expenditure.
+                        </p>
                     </div>
 
-                    {/* Transaction Preview */}
-                    <div className="overflow-x-auto">
-                        <div className="text-sm font-medium text-gray-500 mb-2">Recent Transactions</div>
-                        <table className="w-full border-collapse border border-gray-200 rounded-lg overflow-hidden">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="border border-gray-200 p-2 text-left">Date</th>
-                                    <th className="border border-gray-200 p-2 text-left">Type</th>
-                                    <th className="border border-gray-200 p-2 text-left">Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {previewTransactions.map((t, idx) => (
-                                    <tr key={idx} className="hover:bg-gray-50">
-                                        <td className="border border-gray-200 p-2">{t.date.toLocaleDateString('en-GB')}</td>
-                                        <td className="border border-gray-200 p-2 capitalize">{t.type}</td>
-                                        <td className="border border-gray-200 p-2">{formatCurrency(t.amount)}</td>
+                    {/* Transaction preview */}
+                    <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                            Preview
+                        </p>
+                        <div className="rounded-xl border border-gray-200 overflow-hidden">
+                            <table className="w-full text-sm">
+                                <thead className="bg-gray-50 border-b border-gray-200">
+                                    <tr>
+                                        <th className="text-left p-3 font-medium text-gray-500 text-xs">Date</th>
+                                        <th className="text-left p-3 font-medium text-gray-500 text-xs">Type</th>
+                                        <th className="text-right p-3 font-medium text-gray-500 text-xs">Amount</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    {previewTransactions.map((t, idx) => (
+                                        <tr key={idx} className="border-b border-gray-100 last:border-0">
+                                            <td className="p-3 text-xs text-gray-600">
+                                                {t.date.toLocaleDateString('en-GB')}
+                                            </td>
+                                            <td className="p-3">
+                                                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${subTypeBadgeClass(t)}`}>
+                                                    {subTypeLabel(t)}
+                                                </span>
+                                            </td>
+                                            <td className={`p-3 text-xs font-medium text-right ${t.type === 'received' ? 'text-green-700' : 'text-gray-900'}`}>
+                                                {fmt(t.amount)}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                         {remainingCount > 0 && (
-                            <div className="text-center text-sm text-gray-500 mt-2">
+                            <p className="text-center text-xs text-gray-400 mt-2">
                                 + {remainingCount} more transaction{remainingCount !== 1 ? 's' : ''}
-                            </div>
+                            </p>
                         )}
                     </div>
 
-                    {/* Download Section */}
-                    <div className="space-y-6">
+                    {/* Download buttons */}
+                    <div className="space-y-3">
                         {mode === 'receipt' ? (
                             <>
                                 <button
                                     onClick={handleDownloadReceipt}
                                     className="w-full min-h-[48px] py-3 px-4 bg-[#00A651] text-white font-medium rounded-lg hover:bg-[#008a43] transition-colors"
                                 >
-                                    Download Receipt (HTML)
+                                    Download receipt (HTML)
                                 </button>
-                                <p className="text-sm text-gray-500 text-center">
-                                    Opens in any browser, printable as PDF
+                                <p className="text-xs text-gray-400 text-center">
+                                    Open in any browser · print to PDF from there
                                 </p>
                             </>
                         ) : (
                             <>
-                                <div className="space-y-4">
-                                    <button
-                                        onClick={handleDownloadFullLedger}
-                                        className="w-full min-h-[48px] py-3 px-4 bg-[#00A651] text-white font-medium rounded-lg hover:bg-[#008a43] transition-colors"
-                                    >
-                                        Download Full Ledger (CSV)
-                                    </button>
-                                    <button
-                                        onClick={handleDownloadSummaryLedger}
-                                        className="w-full min-h-[48px] py-3 px-4 bg-white text-[#00A651] font-medium rounded-lg border border-[#00A651] hover:bg-gray-50 transition-colors"
-                                    >
-                                        Download Daily Summary (CSV)
-                                    </button>
-                                </div>
-                                <p className="text-sm text-gray-500 text-center">
-                                    Compatible with Excel, Google Sheets, and KRA filing systems
+                                <button
+                                    onClick={handleDownloadFullLedger}
+                                    className="w-full min-h-[48px] py-3 px-4 bg-[#00A651] text-white font-medium rounded-lg hover:bg-[#008a43] transition-colors"
+                                >
+                                    Download full ledger (CSV)
+                                </button>
+                                <button
+                                    onClick={handleDownloadSummaryLedger}
+                                    className="w-full min-h-[48px] py-3 px-4 bg-white text-[#00A651] font-medium rounded-lg border border-[#00A651] hover:bg-gray-50 transition-colors"
+                                >
+                                    Download daily summary (CSV)
+                                </button>
+                                <p className="text-xs text-gray-400 text-center">
+                                    Compatible with Excel, Google Sheets &amp; KRA filing
                                 </p>
                             </>
                         )}
                     </div>
 
-                    {/* Start Over Button */}
-                    <div className="pt-8 border-t">
+                    {/* Start over */}
+                    <div className="border-t border-gray-100 pt-4 pb-8">
                         <button
                             onClick={onReset}
-                            className="w-full min-h-[48px] py-3 px-4 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors"
+                            className="w-full min-h-[48px] py-3 px-4 bg-gray-100 text-gray-600 font-medium rounded-lg hover:bg-gray-200 transition-colors"
                         >
-                            Start Over
+                            Start over
                         </button>
+                        <p className="text-center text-xs text-gray-400 mt-4">
+                            Powered by M-PESA SMS data
+                        </p>
                     </div>
 
-                    {/* Footer note */}
-                    <div className="text-center text-xs text-gray-400 pt-4">
-                        Powered by M-PESA SMS data
-                    </div>
                 </div>
             </div>
         </div>

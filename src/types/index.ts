@@ -2,6 +2,15 @@ export type TimeRange = 'week' | 'month' | '3months' | '6months' | 'year';
 export type AppMode = 'receipt' | 'ledger';
 export type AppStep = 'home' | 'timeRange' | 'input' | 'output';
 
+export type TransactionSubType =
+    | 'person_send'
+    | 'person_receive'
+    | 'paybill'
+    | 'airtime'
+    | 'withdrawal'
+    | 'mshwari'
+    | 'unknown';
+
 export interface AppState {
     mode: AppMode | null;
     step: AppStep;
@@ -14,6 +23,7 @@ export interface ParsedTransaction {
     date: Date;
     time: string;
     type: 'sent' | 'received';
+    subType: TransactionSubType;
     amount: number;
     recipient: string;
     transactionCode: string;
