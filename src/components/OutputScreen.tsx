@@ -3,6 +3,8 @@ import { generateReceiptHTML } from '../lib/receiptGenerator';
 import { generateLedgerCSV, generateLedgerSummaryCSV } from '../lib/ledgerGenerator';
 import { downloadHTML, downloadCSV, generateFilename } from '../lib/downloadUtils';
 import { ArrowLeft, CheckCircle2, Inbox } from 'lucide-react';
+import {  generateReceiptPDF } from '../lib/receiptGenerator';
+import {   downloadPDF, } from '../lib/downloadUtils';
 
 interface OutputScreenProps {
     mode: 'receipt' | 'ledger';
@@ -58,6 +60,10 @@ export function OutputScreen({ mode, range, transactions, dateRangeLabel, onRese
     };
     const handleDownloadSummaryLedger = () => {
         downloadCSV(generateLedgerSummaryCSV(transactions), generateFilename('summary', range, 'csv'));
+    };
+    const handleDownloadReceiptPDF = () => {
+        const blob = generateReceiptPDF(transactions, dateRangeLabel);
+        downloadPDF(blob, generateFilename('receipt', range, 'pdf'));
     };
 
     // --- subType label + colour for preview table ---
@@ -262,13 +268,19 @@ export function OutputScreen({ mode, range, transactions, dateRangeLabel, onRese
                         {mode === 'receipt' ? (
                             <>
                                 <button
-                                    onClick={handleDownloadReceipt}
+                                    onClick={handleDownloadReceiptPDF}
                                     className="w-full min-h-[48px] py-3 px-4 bg-[#00A651] text-white font-medium rounded-lg hover:bg-[#008a43] transition-colors"
-                                >
-                                    Download receipt (HTML)
+                            >
+                                    Download Receipt (PDF)
+                                </button>
+                                <button
+                                    onClick={handleDownloadReceipt}
+                                    className="w-full min-h-[48px] py-3 px-4 bg-white text-[#00A651] font-medium rounded-lg border border-[#00A651] hover:bg-gray-50 transition-colors"
+                            >
+                                    Download Receipt (HTML)
                                 </button>
                                 <p className="text-xs text-gray-400 text-center">
-                                    Open in any browser · print to PDF from there
+                                    PDF · 80mm thermal format &nbsp;|&nbsp; HTML · print to PDF from browser
                                 </p>
                             </>
                         ) : (

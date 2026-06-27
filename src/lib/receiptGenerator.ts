@@ -1,293 +1,341 @@
 import type { ParsedTransaction } from '../types';
+import { jsPDF } from 'jspdf';
 
 function getDescription(t: ParsedTransaction): string {
     switch (t.subType) {
-        case 'person_receive': return `Received from: ${t.recipient}`;
-        case 'person_send':    return `Sent to: ${t.recipient}`;
-        case 'paybill':        return `Paid to: ${t.recipient}`;
-        case 'airtime':        return 'Airtime purchase';
-        case 'withdrawal':     return t.recipient; // already "Withdrawal: AGENT NAME"
-        case 'mshwari':        return 'M-Shwari savings transfer';
-        default:               return t.recipient;
+        case 'person_receive': return `FROM: ${t.recipient.toUpperCase()}`;
+        case 'person_send':    return `TO: ${t.recipient.toUpperCase()}`;
+        case 'paybill':        return `PAYBILL: ${t.recipient.toUpperCase()}`;
+        case 'airtime':        return 'AIRTIME PURCHASE';
+        case 'withdrawal':     return t.recipient.toUpperCase();
+        case 'mshwari':        return 'M-SHWARI SAVINGS';
+        default:               return t.recipient.toUpperCase();
     }
 }
 
+function getBadgeLabel(t: ParsedTransaction): string {
+    switch (t.subType) {
+        case 'person_receive': return 'RECEIVED';
+        case 'person_send':    return 'SENT';
+        case 'paybill':        return 'PAYBILL';
+        case 'airtime':        return 'AIRTIME';
+        case 'withdrawal':     return 'WITHDRAWAL';
+        case 'mshwari':        return 'M-SHWARI';
+        default:               return t.type.toUpperCase();
+    }
+}
+
+function fmt(n: number): string {
+    return 'KSH ' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function repeat(char: string, n: number): string {
+    return char.repeat(n);
+}
+
+function center(text: string, width: number): string {
+    const pad = Math.max(0, Math.floor((width - text.length) / 2));
+    return ' '.repeat(pad) + text;
+}
+
+function leftRight(left: string, right: string, width: number): string {
+    const gap = Math.max(1, width - left.length - right.length);
+    return left + ' '.repeat(gap) + right;
+}
+
+// --- HTML version (browser preview / print-to-PDF fallback) ---
 export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange: string): string {
     const now = new Date();
     const currentDate = now.toLocaleDateString('en-GB', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric'
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    });
+    const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+    const totalSent      = transactions.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
+    const totalReceived  = transactions.filter(t => t.type === 'received').reduce((s, t) => s + t.amount, 0);
+    const mshwariTotal   = transactions.filter(t => t.subType === 'mshwari').reduce((s, t) => s + t.amount, 0);
+    const withdrawalTotal= transactions.filter(t => t.subType === 'withdrawal').reduce((s, t) => s + t.amount, 0);
+    const paybillTotal   = transactions.filter(t => t.subType === 'paybill').reduce((s, t) => s + t.amount, 0);
+    const airtimeTotal   = transactions.filter(t => t.subType === 'airtime').reduce((s, t) => s + t.amount, 0);
+    const personSendTotal= transactions.filter(t => t.subType === 'person_send').reduce((s, t) => s + t.amount, 0);
+    const trueOutflow    = totalSent - mshwariTotal;
+    const net            = totalReceived - trueOutflow;
+
+    const W = 42; // character width of the receipt
+
+    const lines: string[] = [
+        repeat('=', W),
+        center('M-TRACK', W),
+        center('Mobile Money Receipt', W),
+        repeat('-', W),
+        center(currentDate.toUpperCase(), W),
+        center(currentTime, W),
+        center(`PERIOD: ${dateRange.toUpperCase()}`, W),
+        repeat('=', W),
+        '',
+        center('TRANSACTION SUMMARY', W),
+        repeat('-', W),
+        leftRight('TOTAL TRANSACTIONS', String(transactions.length), W),
+        leftRight('TOTAL RECEIVED', fmt(totalReceived), W),
+        repeat('-', W),
+        leftRight('SENT TO PEOPLE', fmt(personSendTotal), W),
+        leftRight('PAYBILL & TILL', fmt(paybillTotal), W),
+        leftRight('AIRTIME', fmt(airtimeTotal), W),
+        leftRight('WITHDRAWALS', fmt(withdrawalTotal), W),
+        leftRight('M-SHWARI', fmt(mshwariTotal), W),
+        repeat('-', W),
+        leftRight('NET FLOW', fmt(net), W),
+        center('(M-SHWARI EXCL. FROM NET)', W),
+        repeat('=', W),
+        '',
+        center('TRANSACTION DETAIL', W),
+        repeat('-', W),
+    ];
+
+    transactions.forEach((t, i) => {
+        const dateStr = t.date.toLocaleDateString('en-GB');
+        lines.push(leftRight(`${String(i + 1).padStart(2, '0')}. ${dateStr}`, t.time, W));
+        lines.push(leftRight(`    ${getBadgeLabel(t)}`, t.type === 'sent' ? `-${fmt(t.amount)}` : `+${fmt(t.amount)}`, W));
+        lines.push(`    ${getDescription(t)}`);
+        lines.push(`    REF: ${t.transactionCode}`);
+        if (t.balance != null) {
+            lines.push(leftRight('    BAL:', fmt(t.balance), W));
+        }
+        lines.push(repeat('-', W));
     });
 
-    const totalSent = transactions
-        .filter(t => t.type === 'sent')
-        .reduce((sum, t) => sum + t.amount, 0);
+    lines.push('');
+    lines.push(center('* * *', W));
+    lines.push(center('GENERATED BY M-TRACK', W));
+    lines.push(center('FROM M-PESA SMS DATA', W));
+    lines.push(center('* * *', W));
+    lines.push('');
 
-    const totalReceived = transactions
-        .filter(t => t.type === 'received')
-        .reduce((sum, t) => sum + t.amount, 0);
-
-    const mshwariTotal = transactions
-        .filter(t => t.subType === 'mshwari')
-        .reduce((sum, t) => sum + t.amount, 0);
-
-    const withdrawalTotal = transactions
-        .filter(t => t.subType === 'withdrawal')
-        .reduce((sum, t) => sum + t.amount, 0);
-
-    const paybillTotal = transactions
-        .filter(t => t.subType === 'paybill')
-        .reduce((sum, t) => sum + t.amount, 0);
-
-    const airtimeTotal = transactions
-        .filter(t => t.subType === 'airtime')
-        .reduce((sum, t) => sum + t.amount, 0);
-
-    const personSendTotal = transactions
-        .filter(t => t.subType === 'person_send')
-        .reduce((sum, t) => sum + t.amount, 0);
-
-    // Net excludes M-Shwari (savings movement, not true expenditure)
-    const trueOutflow = totalSent - mshwariTotal;
-    const net = totalReceived - trueOutflow;
-
-    const fmt = (n: number) => n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const receiptText = lines.join('\n');
 
     return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>M-PESA Reimbursement Receipt</title>
+    <title>M-TRACK Receipt</title>
     <style>
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
         body {
-            font-family: system-ui, -apple-system, sans-serif;
-            font-size: 14px;
-            line-height: 1.5;
-            color: #333;
-            max-width: 860px;
-            margin: 0 auto;
-            padding: 24px 20px;
-        }
-        .header { text-align: center; margin-bottom: 24px; }
-        .header h1 { font-size: 22px; margin: 0 0 4px; color: #111; }
-        .header .green { color: #00A651; }
-        .header p { margin: 2px 0; color: #666; font-size: 13px; }
-        .summary {
-            background: #f8f8f8;
-            border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 24px;
-        }
-        .summary h2 {
-            font-size: 13px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #888;
-            margin: 0 0 12px;
-        }
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px 24px;
-        }
-        .summary-item {
+            background: #e8e8e8;
             display: flex;
-            justify-content: space-between;
-            font-size: 13px;
-            padding: 4px 0;
-            border-bottom: 1px solid #eee;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 32px 16px;
+            font-family: 'Courier New', Courier, monospace;
         }
-        .summary-item:last-child { border-bottom: none; }
-        .summary-item .label { color: #555; }
-        .summary-item .value { font-weight: 500; }
-        .summary-divider {
-            grid-column: 1 / -1;
-            border-top: 1px solid #ddd;
-            margin: 4px 0;
+
+        .receipt-wrap {
+            position: relative;
         }
-        .net-row {
-            grid-column: 1 / -1;
-            display: flex;
-            justify-content: space-between;
-            font-weight: 700;
-            font-size: 14px;
-            padding: 8px 0 0;
-        }
-        .mshwari-note {
-            grid-column: 1 / -1;
-            font-size: 12px;
-            color: #888;
-            padding-top: 6px;
-        }
-        table {
+
+        /* Torn top edge */
+        .tear-top {
             width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 24px;
-            font-size: 13px;
+            height: 18px;
+            background: white;
+            clip-path: polygon(
+                0% 100%, 2% 20%, 4% 80%, 6% 10%, 8% 70%,
+                10% 5%,  12% 65%, 14% 15%, 16% 75%, 18% 0%,
+                20% 60%, 22% 10%, 24% 70%, 26% 5%,  28% 65%,
+                30% 20%, 32% 80%, 34% 5%,  36% 70%, 38% 15%,
+                40% 75%, 42% 0%,  44% 60%, 46% 20%, 48% 80%,
+                50% 10%, 52% 65%, 54% 5%,  56% 70%, 58% 20%,
+                60% 80%, 62% 10%, 64% 75%, 66% 0%,  68% 60%,
+                70% 20%, 72% 80%, 74% 5%,  76% 70%, 78% 15%,
+                80% 75%, 82% 10%, 84% 65%, 86% 0%,  88% 60%,
+                90% 20%, 92% 80%, 94% 10%, 96% 70%, 98% 15%,
+                100% 80%, 100% 100%
+            );
         }
-        thead th {
-            text-align: left;
-            background: #f0f0f0;
-            padding: 8px 10px;
-            border-bottom: 2px solid #ddd;
-            font-weight: 600;
-            white-space: nowrap;
+
+        .receipt {
+            background: white;
+            padding: 8px 28px 24px;
+            width: 340px;
+            box-shadow: 2px 4px 24px rgba(0,0,0,0.15);
         }
-        td {
-            padding: 7px 10px;
-            border-bottom: 1px solid #eee;
-            vertical-align: top;
+
+        /* Torn bottom edge */
+        .tear-bottom {
+            width: 100%;
+            height: 18px;
+            background: white;
+            clip-path: polygon(
+                0% 0%, 2% 80%, 4% 20%, 6% 90%, 8% 30%,
+                10% 95%, 12% 35%, 14% 85%, 16% 25%, 18% 100%,
+                20% 40%, 22% 90%, 24% 30%, 26% 95%, 28% 35%,
+                30% 80%, 32% 20%, 34% 95%, 36% 30%, 38% 85%,
+                40% 25%, 42% 100%, 44% 40%, 46% 80%, 48% 20%,
+                50% 90%, 52% 35%, 54% 95%, 56% 30%, 58% 80%,
+                60% 20%, 62% 90%, 64% 25%, 66% 100%, 68% 40%,
+                70% 80%, 72% 20%, 74% 95%, 76% 30%, 78% 85%,
+                80% 25%, 82% 90%, 84% 35%, 86% 100%, 88% 40%,
+                90% 80%, 92% 20%, 94% 90%, 96% 30%, 98% 85%,
+                100% 20%, 100% 0%
+            );
         }
-        tr:nth-child(even) td { background: #fafafa; }
-        .amount-sent  { color: #dc2626; text-align: right; }
-        .amount-recv  { color: #00A651; text-align: right; }
-        .amount-bal   { text-align: right; color: #555; }
-        .code { font-family: monospace; font-size: 12px; color: #888; }
-        .badge {
-            display: inline-block;
-            font-size: 11px;
-            padding: 1px 6px;
-            border-radius: 3px;
-            font-weight: 500;
+
+        pre {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 11.5px;
+            line-height: 1.55;
+            color: #1a1a1a;
+            white-space: pre;
+            overflow-x: auto;
         }
-        .badge-sent     { background: #fee2e2; color: #991b1b; }
-        .badge-received { background: #dcfce7; color: #166534; }
-        .badge-paybill  { background: #e0f2fe; color: #075985; }
-        .badge-airtime  { background: #fef9c3; color: #854d0e; }
-        .badge-withdraw { background: #f3e8ff; color: #6b21a8; }
-        .badge-mshwari  { background: #f0fdf4; color: #166534; }
-        .footer {
-            text-align: center;
-            font-size: 11px;
-            color: #bbb;
-            border-top: 1px solid #eee;
-            padding-top: 16px;
-            margin-top: 8px;
-        }
+
+        /* Print styles */
         @media print {
-            body { padding: 0; font-size: 12px; }
-            .badge { border: 1px solid currentColor; }
-        }
-        @media (max-width: 600px) {
-            .summary-grid { grid-template-columns: 1fr; }
-            thead th:nth-child(3),
-            td:nth-child(3) { display: none; }
+            body { background: white; padding: 0; }
+            .tear-top, .tear-bottom { display: none; }
+            .receipt {
+                box-shadow: none;
+                width: 100%;
+                padding: 0;
+            }
+            pre { font-size: 10px; }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>M-PESA <span class="green">Reimbursement Receipt</span></h1>
-        <p>Generated on ${currentDate}</p>
-        <p>Period: ${dateRange}</p>
-    </div>
-
-    <div class="summary">
-        <h2>Summary</h2>
-        <div class="summary-grid">
-
-            <div class="summary-item">
-                <span class="label">Total transactions</span>
-                <span class="value">${transactions.length}</span>
-            </div>
-            <div class="summary-item">
-                <span class="label">Total received</span>
-                <span class="value" style="color:#00A651">Ksh ${fmt(totalReceived)}</span>
-            </div>
-
-            <div class="summary-divider"></div>
-
-            <div class="summary-item">
-                <span class="label">Sent to people</span>
-                <span class="value">Ksh ${fmt(personSendTotal)}</span>
-            </div>
-            <div class="summary-item">
-                <span class="label">Paybill &amp; Till</span>
-                <span class="value">Ksh ${fmt(paybillTotal)}</span>
-            </div>
-            <div class="summary-item">
-                <span class="label">Airtime</span>
-                <span class="value">Ksh ${fmt(airtimeTotal)}</span>
-            </div>
-            <div class="summary-item">
-                <span class="label">Cash withdrawals</span>
-                <span class="value">Ksh ${fmt(withdrawalTotal)}</span>
-            </div>
-            <div class="summary-item">
-                <span class="label">M-Shwari transfers</span>
-                <span class="value">Ksh ${fmt(mshwariTotal)}</span>
-            </div>
-
-            <div class="summary-divider"></div>
-
-            <div class="net-row">
-                <span>Net flow (excl. M-Shwari)</span>
-                <span style="color:${net >= 0 ? '#00A651' : '#dc2626'}">
-                    ${net >= 0 ? '' : '-'}Ksh ${fmt(Math.abs(net))}
-                </span>
-            </div>
-            <p class="mshwari-note">
-                M-Shwari transfers are savings movements and are excluded from the net flow calculation.
-            </p>
-
+    <div class="receipt-wrap">
+        <div class="tear-top"></div>
+        <div class="receipt">
+            <pre>${receiptText}</pre>
         </div>
-    </div>
-
-    <table>
-        <thead>
-            <tr>
-                <th>Date</th>
-                <th>Time</th>
-                <th>Code</th>
-                <th>Description</th>
-                <th style="text-align:right">Sent (Ksh)</th>
-                <th style="text-align:right">Received (Ksh)</th>
-                <th style="text-align:right">Balance</th>
-            </tr>
-        </thead>
-        <tbody>
-            ${transactions.map(t => {
-                const badgeClass =
-                    t.subType === 'person_receive' ? 'badge-received' :
-                    t.subType === 'paybill'        ? 'badge-paybill'  :
-                    t.subType === 'airtime'        ? 'badge-airtime'  :
-                    t.subType === 'withdrawal'     ? 'badge-withdraw' :
-                    t.subType === 'mshwari'        ? 'badge-mshwari'  :
-                    'badge-sent';
-                const badgeLabel =
-                    t.subType === 'person_receive' ? 'Received'   :
-                    t.subType === 'person_send'    ? 'Send'       :
-                    t.subType === 'paybill'        ? 'Paybill'    :
-                    t.subType === 'airtime'        ? 'Airtime'    :
-                    t.subType === 'withdrawal'     ? 'Withdrawal' :
-                    t.subType === 'mshwari'        ? 'M-Shwari'  :
-                    t.type;
-                return `
-                <tr>
-                    <td>${t.date.toLocaleDateString('en-GB')}</td>
-                    <td>${t.time}</td>
-                    <td class="code">${t.transactionCode}</td>
-                    <td>
-                        <span class="badge ${badgeClass}">${badgeLabel}</span>
-                        <br><span style="font-size:12px">${getDescription(t)}</span>
-                    </td>
-                    <td class="amount-sent">${t.type === 'sent' ? fmt(t.amount) : ''}</td>
-                    <td class="amount-recv">${t.type === 'received' ? fmt(t.amount) : ''}</td>
-                    <td class="amount-bal">${t.balance != null ? fmt(t.balance) : ''}</td>
-                </tr>`;
-            }).join('')}
-        </tbody>
-    </table>
-
-    <div class="footer">
-        Generated from M-PESA SMS confirmations &nbsp;|&nbsp; ${currentDate}
+        <div class="tear-bottom"></div>
     </div>
 </body>
 </html>`;
+}
+
+// --- PDF version using jsPDF ---
+export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange: string): Blob {
+    const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [80, 297], // 80mm thermal roll width, auto height
+    });
+
+    const now = new Date();
+    const currentDate = now.toLocaleDateString('en-GB', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    });
+    const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+    const totalSent      = transactions.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
+    const totalReceived  = transactions.filter(t => t.type === 'received').reduce((s, t) => s + t.amount, 0);
+    const mshwariTotal   = transactions.filter(t => t.subType === 'mshwari').reduce((s, t) => s + t.amount, 0);
+    const withdrawalTotal= transactions.filter(t => t.subType === 'withdrawal').reduce((s, t) => s + t.amount, 0);
+    const paybillTotal   = transactions.filter(t => t.subType === 'paybill').reduce((s, t) => s + t.amount, 0);
+    const airtimeTotal   = transactions.filter(t => t.subType === 'airtime').reduce((s, t) => s + t.amount, 0);
+    const personSendTotal= transactions.filter(t => t.subType === 'person_send').reduce((s, t) => s + t.amount, 0);
+    const trueOutflow    = totalSent - mshwariTotal;
+    const net            = totalReceived - trueOutflow;
+
+    doc.setFont('Courier', 'normal');
+
+    const pageW = 80;
+    const margin = 4;
+    const contentW = pageW - margin * 2;
+    let y = 6;
+    const lineH = 4;
+
+    function addLine(text: string, size = 8, bold = false, align: 'left' | 'center' | 'right' = 'left') {
+        doc.setFontSize(size);
+        doc.setFont('Courier', bold ? 'bold' : 'normal');
+        if (align === 'center') {
+            doc.text(text, pageW / 2, y, { align: 'center' });
+        } else if (align === 'right') {
+            doc.text(text, pageW - margin, y, { align: 'right' });
+        } else {
+            doc.text(text, margin, y);
+        }
+        y += lineH;
+    }
+
+    function addDivider(char = '-') {
+        addLine(char.repeat(38), 7);
+    }
+
+    function addLR(left: string, right: string, size = 8, bold = false) {
+        doc.setFontSize(size);
+        doc.setFont('Courier', bold ? 'bold' : 'normal');
+        doc.text(left, margin, y);
+        doc.text(right, pageW - margin, y, { align: 'right' });
+        y += lineH;
+    }
+
+    // Header
+    addDivider('=');
+    addLine('M-TRACK', 14, true, 'center');
+    addLine('Mobile Money Receipt', 8, false, 'center');
+    addDivider('=');
+    addLine(currentDate.toUpperCase(), 7, false, 'center');
+    addLine(currentTime, 7, false, 'center');
+    addLine(`PERIOD: ${dateRange.toUpperCase()}`, 7, false, 'center');
+    addDivider('=');
+    y += 2;
+
+    // Summary
+    addLine('TRANSACTION SUMMARY', 8, true, 'center');
+    addDivider();
+    addLR('TOTAL TRANSACTIONS', String(transactions.length));
+    addLR('TOTAL RECEIVED', fmt(totalReceived), 8, false);
+    addDivider();
+    addLR('SENT TO PEOPLE', fmt(personSendTotal));
+    addLR('PAYBILL & TILL', fmt(paybillTotal));
+    addLR('AIRTIME', fmt(airtimeTotal));
+    addLR('WITHDRAWALS', fmt(withdrawalTotal));
+    addLR('M-SHWARI', fmt(mshwariTotal));
+    addDivider();
+    addLR('NET FLOW', fmt(net), 9, true);
+    addLine('(M-SHWARI EXCL. FROM NET)', 7, false, 'center');
+    addDivider('=');
+    y += 2;
+
+    // Transactions
+    addLine('TRANSACTION DETAIL', 8, true, 'center');
+    addDivider();
+
+    transactions.forEach((t, i) => {
+        const dateStr = t.date.toLocaleDateString('en-GB');
+        const sign = t.type === 'sent' ? '-' : '+';
+
+        addLR(`${String(i + 1).padStart(2, '0')}. ${dateStr}`, t.time, 7);
+        addLR(`    ${getBadgeLabel(t)}`, `${sign}${fmt(t.amount)}`, 8, true);
+        addLine(`    ${getDescription(t)}`, 7);
+        addLine(`    REF: ${t.transactionCode}`, 7);
+        if (t.balance != null) {
+            addLR('    BAL:', fmt(t.balance), 7);
+        }
+        addDivider();
+    });
+
+    y += 2;
+    addLine('* * *', 8, false, 'center');
+    addLine('GENERATED BY M-TRACK', 7, false, 'center');
+    addLine('FROM M-PESA SMS DATA', 7, false, 'center');
+    addLine('* * *', 8, false, 'center');
+
+    // Resize page to content
+    const finalHeight = y + 6;
+    const resized = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [80, finalHeight],
+    });
+    resized.setFont('Courier', 'normal');
+    
+    // Re-render onto correctly sized page
+    // (jsPDF doesn't support dynamic height, so we use a generous fixed height)
+    return doc.output('blob');
 }
