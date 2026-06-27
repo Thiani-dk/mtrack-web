@@ -245,7 +245,6 @@ export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange:
 
     const pageW = 80;
     const margin = 4;
-    const contentW = pageW - margin * 2;
     let y = 6;
     const lineH = 4;
 
