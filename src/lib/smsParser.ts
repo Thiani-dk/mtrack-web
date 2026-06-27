@@ -23,23 +23,84 @@ export function parseSingleSMS(message: string): ParsedTransaction | null {
     const amountMatch = message.match(/Ksh([\d,]+\.\d{2})/);
     const dateTimeMatch = message.match(/(\d{1,2}\/\d{1,2}\/\d{2}) at (\d{1,2}:\d{2} [AP]M)/);
     const balanceMatch = message.match(/New M-PESA balance is Ksh([\d,]+\.\d{2})/);
-    const recipientMatch = message.match(/from (.+?) \d+/i) || message.match(/to (.+?) \d+/i) || message.match(/to (.+?)\./i);
 
     if (!amountMatch || !dateTimeMatch) return null;
 
-    const type = message.includes('received') ? 'received' : 'sent';
-    const amount = parseAmount(amountMatch[1]);
     const [dateStr, timeStr] = dateTimeMatch.slice(1);
     const date = parseTransactionDate(dateStr, timeStr);
     const balance = balanceMatch ? parseAmount(balanceMatch[1]) : null;
-    const recipient = recipientMatch ? recipientMatch[1].trim() : 'Unknown';
+    const amount = parseAmount(amountMatch[1]);
 
+    // 1. Airtime purchase: 'Ksh50.00 of airtime on ...'
+    const airtimeMatch = message.match(/Ksh[\d,]+\.\d{2} of airtime/i);
+    if (airtimeMatch) {
+        return {
+            date,
+            time: timeStr,
+            type: 'sent',
+            amount,
+            recipient: 'Airtime',
+            transactionCode,
+            balance,
+            rawLine: message
+        };
+    }
+
+    // 2. Paybill/Till payment: 'paid to COMPANY NAME 123456 for account ACC123'
+    const paybillMatch = message.match(/paid to (.+?) \d+ for account (\S+)/i);
+    if (paybillMatch) {
+        const companyName = paybillMatch[1].trim();
+        const accountRef = paybillMatch[2].trim();
+        return {
+            date,
+            time: timeStr,
+            type: 'sent',
+            amount,
+            recipient: `${companyName} (${accountRef})`,
+            transactionCode,
+            balance,
+            rawLine: message
+        };
+    }
+
+    // 3. Received: 'received Ksh... from NAME 07XXXXXXXX'
+    const receivedFromMatch = message.match(/received Ksh[\d,]+\.\d{2} from (.+?) \d+/i);
+    if (receivedFromMatch) {
+        return {
+            date,
+            time: timeStr,
+            type: 'received',
+            amount,
+            recipient: receivedFromMatch[1].trim(),
+            transactionCode,
+            balance,
+            rawLine: message
+        };
+    }
+
+    // 4. Sent: 'sent to NAME 07XXXXXXXX' or 'to NAME 07XXXXXXXX'
+    const sentToMatch = message.match(/sent to (.+?) \d+/i) || message.match(/to (.+?) \d+/i) || message.match(/to (.+?)\./i);
+    if (sentToMatch) {
+        return {
+            date,
+            time: timeStr,
+            type: 'sent',
+            amount,
+            recipient: sentToMatch[1].trim(),
+            transactionCode,
+            balance,
+            rawLine: message
+        };
+    }
+
+    // 5. Fallback: determine type from message content
+    const type = message.includes('received') ? 'received' : 'sent';
     return {
         date,
         time: timeStr,
         type,
         amount,
-        recipient,
+        recipient: 'Unknown',
         transactionCode,
         balance,
         rawLine: message
