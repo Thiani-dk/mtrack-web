@@ -1,4 +1,4 @@
-import { TimeRange } from '../types';
+import type { TimeRange } from '../types';
 
 export function roundToNearestHour(date: Date): Date {
     const rounded = new Date(date);

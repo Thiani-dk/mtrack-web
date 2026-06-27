@@ -1,4 +1,4 @@
-import { ParsedTransaction } from '../types';
+import type { ParsedTransaction } from '../types';
 
 function escapeCSVField(field: string | number): string {
     const str = String(field);
@@ -20,7 +20,7 @@ function getTypeLabel(t: ParsedTransaction): string {
     }
 }
 
-export function generateLedgerCSV(transactions: ParsedTransaction[], dateRange: string): string {
+export function generateLedgerCSV(transactions: ParsedTransaction[], _dateRange: string): string {
     const header = [
         'Date',
         'Time',

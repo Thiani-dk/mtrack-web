@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AppState, AppStep, ParsedTransaction } from './types';
+import type { AppState, ParsedTransaction } from './types';
 import { getCutoffDate, getDaysLabel } from './lib/dateUtils';
 import { parseAllSMS } from './lib/smsParser';
 import { HomeScreen } from './components/HomeScreen';

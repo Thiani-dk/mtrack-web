@@ -1,4 +1,4 @@
-import { ParsedTransaction, TransactionSubType } from '../types';
+import type { ParsedTransaction, TransactionSubType } from '../types';
 
 export function parseAmount(str: string): number {
     return parseFloat(str.replace(/Ksh\.?/g, '').replace(/,/g, '').trim());

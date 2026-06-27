@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
-import { TimeRange } from '../types';
+import type { TimeRange } from '../types';
 
 interface TimeRangeScreenProps {
     mode: 'receipt' | 'ledger';

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TimeRange } from '../types';
+import type { TimeRange } from '../types';
 import { formatCutoffDisplay } from '../lib/dateUtils';
 import { ArrowLeft } from 'lucide-react';
 

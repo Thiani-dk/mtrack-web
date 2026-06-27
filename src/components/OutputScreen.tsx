@@ -1,4 +1,4 @@
-import { ParsedTransaction } from '../types';
+import type { ParsedTransaction } from '../types';
 import { generateReceiptHTML } from '../lib/receiptGenerator';
 import { generateLedgerCSV, generateLedgerSummaryCSV } from '../lib/ledgerGenerator';
 import { downloadHTML, downloadCSV, generateFilename } from '../lib/downloadUtils';

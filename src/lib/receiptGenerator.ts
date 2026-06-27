@@ -1,4 +1,4 @@
-import { ParsedTransaction } from '../types';
+import type { ParsedTransaction } from '../types';
 
 function getDescription(t: ParsedTransaction): string {
     switch (t.subType) {
