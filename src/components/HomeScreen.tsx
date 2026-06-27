@@ -10,7 +10,7 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
             <div className="max-w-md w-full space-y-8">
                 <div className="text-center">
                     <h1 className="text-3xl font-bold text-gray-900">
-                        M-PESA <span className="text-[#00A651]">Manager</span>
+                        M-Track <span className="text-[#00A651]"></span>
                     </h1>
                     <p className="mt-2 text-gray-600">
                         What would you like to do?
