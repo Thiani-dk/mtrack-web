@@ -5,10 +5,13 @@ export type AppStep = 'home' | 'timeRange' | 'input' | 'output';
 export type TransactionSubType =
     | 'person_send'
     | 'person_receive'
+    | 'pochi_send'
     | 'paybill'
     | 'airtime'
+    | 'data'
     | 'withdrawal'
     | 'mshwari'
+    | 'investment'
     | 'unknown';
 
 export interface AppState {
