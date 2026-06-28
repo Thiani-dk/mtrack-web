@@ -1,5 +1,5 @@
 import { motion, type Variants } from 'framer-motion';
-import { FileText, Table2, Sparkles } from 'lucide-react';
+import { FileText, Table2 } from 'lucide-react';
 
 interface HomeScreenProps {
     onSelect: (mode: 'receipt' | 'ledger') => void;
@@ -33,11 +33,8 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
                 initial="hidden"
                 animate="show"
             >
-                {/* Logo / Title */}
+                {/* Title */}
                 <motion.div variants={item} className="text-center space-y-2 pt-8">
-                    <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#00A651] shadow-lg shadow-green-500/25 mb-3">
-                        <Sparkles className="w-7 h-7 text-white" />
-                    </div>
                     <h1 className="text-4xl font-bold tracking-tight text-gray-900">
                         M<span className="text-[#00A651]">-</span>Track
                     </h1>
