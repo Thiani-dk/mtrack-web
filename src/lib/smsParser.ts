@@ -19,7 +19,7 @@ function make(
     subType: TransactionSubType,
     recipient: string
 ): ParsedTransaction {
-    return { ...base, type, subType, recipient };
+    return { ...base, type, subType, recipient, label: null, customLabel: null };
 }
 
 export function parseSingleSMS(message: string): ParsedTransaction | null {
@@ -39,6 +39,8 @@ export function parseSingleSMS(message: string): ParsedTransaction | null {
             transactionCode: 'AIRTEL',
             balance: null,
             rawLine: message,
+            label: null,
+            customLabel: null,
         };
     }
 

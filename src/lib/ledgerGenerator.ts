@@ -12,10 +12,13 @@ function getTypeLabel(t: ParsedTransaction): string {
     switch (t.subType) {
         case 'person_send':    return 'Send Money';
         case 'person_receive': return 'Receive Money';
+        case 'pochi_send':     return 'Pochi la Biashara';
         case 'paybill':        return 'Paybill/Till';
         case 'airtime':        return 'Airtime';
+        case 'data':           return 'Data Bundle';
         case 'withdrawal':     return 'Withdrawal';
         case 'mshwari':        return 'M-Shwari Transfer';
+        case 'investment':     return 'Investment (ZIIDI)';
         default:               return t.type;
     }
 }
@@ -27,9 +30,11 @@ export function generateLedgerCSV(transactions: ParsedTransaction[], _dateRange:
         'Transaction Code',
         'Category',
         'Description',
+        'KRA Label',
+        'Custom Note',
         'Sent (Ksh)',
         'Received (Ksh)',
-        'Running Balance (Ksh)'
+        'Running Balance (Ksh)',
     ].join(',');
 
     let runningBalance = 0;
@@ -41,9 +46,11 @@ export function generateLedgerCSV(transactions: ParsedTransaction[], _dateRange:
             escapeCSVField(t.transactionCode),
             escapeCSVField(getTypeLabel(t)),
             escapeCSVField(t.recipient),
+            escapeCSVField(t.label ?? ''),
+            escapeCSVField(t.customLabel ?? ''),
             escapeCSVField(t.type === 'sent'     ? t.amount.toFixed(2) : ''),
             escapeCSVField(t.type === 'received' ? t.amount.toFixed(2) : ''),
-            escapeCSVField(runningBalance.toFixed(2))
+            escapeCSVField(runningBalance.toFixed(2)),
         ].join(',');
     });
 
@@ -51,69 +58,64 @@ export function generateLedgerCSV(transactions: ParsedTransaction[], _dateRange:
 }
 
 export function generateLedgerSummaryCSV(transactions: ParsedTransaction[]): string {
-    const dailySummaries: Record<string, {
-        date: Date;
-        personSend: number;
-        paybill: number;
-        airtime: number;
-        withdrawal: number;
-        mshwari: number;
-        received: number;
-        count: number;
-    }> = {};
+    // Group by KRA label first, then by date within each label
+    const byLabel: Record<string, ParsedTransaction[]> = {};
 
     transactions.forEach(t => {
-        const dateKey = t.date.toLocaleDateString('en-GB');
-        if (!dailySummaries[dateKey]) {
-            dailySummaries[dateKey] = {
-                date: t.date,
-                personSend: 0,
-                paybill: 0,
-                airtime: 0,
-                withdrawal: 0,
-                mshwari: 0,
-                received: 0,
-                count: 0
-            };
-        }
-        const day = dailySummaries[dateKey];
-        day.count++;
-        switch (t.subType) {
-            case 'person_send':    day.personSend += t.amount; break;
-            case 'paybill':        day.paybill    += t.amount; break;
-            case 'airtime':        day.airtime    += t.amount; break;
-            case 'withdrawal':     day.withdrawal += t.amount; break;
-            case 'mshwari':        day.mshwari    += t.amount; break;
-            case 'person_receive': day.received   += t.amount; break;
-        }
+        const key = t.customLabel ?? t.label ?? 'Unlabelled';
+        if (!byLabel[key]) byLabel[key] = [];
+        byLabel[key].push(t);
     });
 
     const header = [
+        'KRA Label',
+        'Custom Note',
         'Date',
-        'Send Money (Ksh)',
-        'Paybill & Till (Ksh)',
-        'Airtime (Ksh)',
-        'Withdrawals (Ksh)',
-        'M-Shwari Transfers (Ksh)',
+        'Transaction Code',
+        'Category',
+        'Description',
+        'Sent (Ksh)',
         'Received (Ksh)',
-        'Net Flow (Ksh)',
-        'Transaction Count'
+        'Label Total Sent (Ksh)',
+        'Label Total Received (Ksh)',
     ].join(',');
 
-    const rows = Object.values(dailySummaries).map(day => {
-        const trueOutflow = day.personSend + day.paybill + day.airtime + day.withdrawal;
-        const net = day.received - trueOutflow;
-        return [
-            escapeCSVField(day.date.toLocaleDateString('en-GB')),
-            escapeCSVField(day.personSend.toFixed(2)),
-            escapeCSVField(day.paybill.toFixed(2)),
-            escapeCSVField(day.airtime.toFixed(2)),
-            escapeCSVField(day.withdrawal.toFixed(2)),
-            escapeCSVField(day.mshwari.toFixed(2)),
-            escapeCSVField(day.received.toFixed(2)),
-            escapeCSVField(net.toFixed(2)),
-            escapeCSVField(day.count)
-        ].join(',');
+    const rows: string[] = [];
+
+    Object.entries(byLabel).forEach(([labelKey, group]) => {
+        const labelTotalSent = group.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
+        const labelTotalReceived = group.filter(t => t.type === 'received').reduce((s, t) => s + t.amount, 0);
+
+        group.forEach(t => {
+            rows.push([
+                escapeCSVField(t.label ?? 'Unlabelled'),
+                escapeCSVField(t.customLabel ?? ''),
+                escapeCSVField(t.date.toLocaleDateString('en-GB')),
+                escapeCSVField(t.transactionCode),
+                escapeCSVField(getTypeLabel(t)),
+                escapeCSVField(t.recipient),
+                escapeCSVField(t.type === 'sent'     ? t.amount.toFixed(2) : ''),
+                escapeCSVField(t.type === 'received' ? t.amount.toFixed(2) : ''),
+                escapeCSVField(labelTotalSent.toFixed(2)),
+                escapeCSVField(labelTotalReceived.toFixed(2)),
+            ].join(','));
+        });
+
+        // Subtotal row per label
+        rows.push([
+            escapeCSVField(`SUBTOTAL: ${labelKey}`),
+            '',
+            '',
+            '',
+            '',
+            '',
+            escapeCSVField(labelTotalSent.toFixed(2)),
+            escapeCSVField(labelTotalReceived.toFixed(2)),
+            '',
+            '',
+        ].join(','));
+
+        rows.push(''); // blank line between label groups
     });
 
     return [header, ...rows].join('\n');

@@ -82,19 +82,29 @@ function AnimatedCheck() {
 }
 
 const statRows = [
-    { key: 'received',    label: 'Received',          dot: 'bg-green-500'   },
-    { key: 'personSend',  label: 'Sent to people',    dot: 'bg-red-400'     },
-    { key: 'paybill',     label: 'Paybill & Till',    dot: 'bg-blue-400'    },
-    { key: 'airtime',     label: 'Airtime',            dot: 'bg-yellow-400'  },
-    { key: 'withdrawal',  label: 'Cash withdrawals',  dot: 'bg-purple-400'  },
-    { key: 'mshwari',     label: 'M-Shwari',          dot: 'bg-emerald-400' },
+    { key: 'received',    label: 'Received',           dot: 'bg-green-500'   },
+    { key: 'personSend',  label: 'Sent to people',     dot: 'bg-red-400'     },
+    { key: 'pochi',       label: 'Pochi la Biashara',  dot: 'bg-rose-400'    },
+    { key: 'paybill',     label: 'Paybill & Till',     dot: 'bg-blue-400'    },
+    { key: 'airtime',     label: 'Airtime',             dot: 'bg-yellow-400'  },
+    { key: 'data',        label: 'Data Bundles',        dot: 'bg-orange-400'  },
+    { key: 'withdrawal',  label: 'Cash withdrawals',   dot: 'bg-purple-400'  },
+    { key: 'mshwari',     label: 'M-Shwari',           dot: 'bg-emerald-400' },
+    { key: 'investment',  label: 'Investments',         dot: 'bg-teal-400'    },
 ] as const;
 
 const subTypeLabel = (t: ParsedTransaction) => {
     const map: Record<string, string> = {
-        person_send: 'Send', person_receive: 'Received',
-        paybill: 'Paybill', airtime: 'Airtime',
-        withdrawal: 'Withdrawal', mshwari: 'M-Shwari',
+        person_send:    'Send',
+        person_receive: 'Received',
+        pochi_send:     'Pochi',
+        paybill:        'Paybill',
+        airtime:        'Airtime',
+        data:           'Data',
+        withdrawal:     'Withdrawal',
+        mshwari:        'M-Shwari',
+        investment:     'Investment',
+        unknown:        'Other',
     };
     return map[t.subType] ?? t.type;
 };
@@ -102,10 +112,13 @@ const subTypeLabel = (t: ParsedTransaction) => {
 const subTypeBadge = (t: ParsedTransaction) => {
     const map: Record<string, string> = {
         person_receive: 'bg-green-100 text-green-800',
+        pochi_send:     'bg-rose-100 text-rose-800',
         paybill:        'bg-blue-100 text-blue-800',
         airtime:        'bg-yellow-100 text-yellow-800',
+        data:           'bg-orange-100 text-orange-800',
         withdrawal:     'bg-purple-100 text-purple-800',
         mshwari:        'bg-emerald-100 text-emerald-800',
+        investment:     'bg-teal-100 text-teal-800',
     };
     return map[t.subType] ?? 'bg-red-100 text-red-800';
 };
@@ -133,14 +146,23 @@ export function OutputScreen({ mode, range, transactions, dateRangeLabel, onRese
     const airtimeTotal   = sum(t => t.subType === 'airtime');
     const withdrawalTotal= sum(t => t.subType === 'withdrawal');
     const mshwariTotal   = sum(t => t.subType === 'mshwari');
-    const trueOutflow    = personSendTotal + paybillTotal + airtimeTotal + withdrawalTotal;
+    const pochiTotal     = sum(t => t.subType === 'pochi_send');
+    const dataTotal      = sum(t => t.subType === 'data');
+    const investmentTotal= sum(t => t.subType === 'investment');
+    const trueOutflow    = personSendTotal + pochiTotal + paybillTotal + airtimeTotal + dataTotal + withdrawalTotal;
     const netFlow        = totalReceived - trueOutflow;
 
     const statValues: Record<string, number> = {
-        received: totalReceived, personSend: personSendTotal,
-        paybill: paybillTotal,   airtime: airtimeTotal,
-        withdrawal: withdrawalTotal, mshwari: mshwariTotal,
-    };
+    received:   totalReceived,
+    personSend: personSendTotal,
+    pochi:      pochiTotal,
+    paybill:    paybillTotal,
+    airtime:    airtimeTotal,
+    data:       dataTotal,
+    withdrawal: withdrawalTotal,
+    mshwari:    mshwariTotal,
+    investment: investmentTotal,
+};
 
     const fmt = (n: number) => `Ksh ${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 
@@ -279,7 +301,7 @@ export function OutputScreen({ mode, range, transactions, dateRangeLabel, onRese
                                 {netFlow < 0 ? '-' : ''}Ksh <CountUp to={Math.abs(netFlow)} />
                             </span>
                         </div>
-                        <p className="text-xs text-gray-400 mt-1">M-Shwari excluded · savings movement</p>
+                        <p className="text-xs text-gray-400 mt-1">investments such as ZIDII excluded</p>
                     </motion.div>
                 </motion.div>
 

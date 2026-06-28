@@ -5,10 +5,13 @@ function getDescription(t: ParsedTransaction): string {
     switch (t.subType) {
         case 'person_receive': return `FROM: ${t.recipient.toUpperCase()}`;
         case 'person_send':    return `TO: ${t.recipient.toUpperCase()}`;
+        case 'pochi_send':     return `POCHI: ${t.recipient.toUpperCase()}`;
         case 'paybill':        return `PAYBILL: ${t.recipient.toUpperCase()}`;
         case 'airtime':        return 'AIRTIME PURCHASE';
+        case 'data':           return 'DATA BUNDLE';
         case 'withdrawal':     return t.recipient.toUpperCase();
         case 'mshwari':        return 'M-SHWARI SAVINGS';
+        case 'investment':     return `INVESTMENT: ${t.recipient.toUpperCase()}`;
         default:               return t.recipient.toUpperCase();
     }
 }
@@ -17,10 +20,13 @@ function getBadgeLabel(t: ParsedTransaction): string {
     switch (t.subType) {
         case 'person_receive': return 'RECEIVED';
         case 'person_send':    return 'SENT';
+        case 'pochi_send':     return 'POCHI';
         case 'paybill':        return 'PAYBILL';
         case 'airtime':        return 'AIRTIME';
+        case 'data':           return 'DATA';
         case 'withdrawal':     return 'WITHDRAWAL';
         case 'mshwari':        return 'M-SHWARI';
+        case 'investment':     return 'INVESTMENT';
         default:               return t.type.toUpperCase();
     }
 }
@@ -43,7 +49,6 @@ function leftRight(left: string, right: string, width: number): string {
     return left + ' '.repeat(gap) + right;
 }
 
-// --- HTML version (browser preview / print-to-PDF fallback) ---
 export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange: string): string {
     const now = new Date();
     const currentDate = now.toLocaleDateString('en-GB', {
@@ -51,17 +56,30 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
     });
     const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-    const totalSent      = transactions.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
-    const totalReceived  = transactions.filter(t => t.type === 'received').reduce((s, t) => s + t.amount, 0);
-    const mshwariTotal   = transactions.filter(t => t.subType === 'mshwari').reduce((s, t) => s + t.amount, 0);
-    const withdrawalTotal= transactions.filter(t => t.subType === 'withdrawal').reduce((s, t) => s + t.amount, 0);
-    const paybillTotal   = transactions.filter(t => t.subType === 'paybill').reduce((s, t) => s + t.amount, 0);
-    const airtimeTotal   = transactions.filter(t => t.subType === 'airtime').reduce((s, t) => s + t.amount, 0);
-    const personSendTotal= transactions.filter(t => t.subType === 'person_send').reduce((s, t) => s + t.amount, 0);
-    const trueOutflow    = totalSent - mshwariTotal;
-    const net            = totalReceived - trueOutflow;
+    const totalSent       = transactions.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
+    const totalReceived   = transactions.filter(t => t.type === 'received').reduce((s, t) => s + t.amount, 0);
+    const mshwariTotal    = transactions.filter(t => t.subType === 'mshwari').reduce((s, t) => s + t.amount, 0);
+    const investmentTotal = transactions.filter(t => t.subType === 'investment').reduce((s, t) => s + t.amount, 0);
+    const withdrawalTotal = transactions.filter(t => t.subType === 'withdrawal').reduce((s, t) => s + t.amount, 0);
+    const paybillTotal    = transactions.filter(t => t.subType === 'paybill').reduce((s, t) => s + t.amount, 0);
+    const airtimeTotal    = transactions.filter(t => t.subType === 'airtime').reduce((s, t) => s + t.amount, 0);
+    const dataTotal       = transactions.filter(t => t.subType === 'data').reduce((s, t) => s + t.amount, 0);
+    const personSendTotal = transactions.filter(t => t.subType === 'person_send').reduce((s, t) => s + t.amount, 0);
+    const pochiTotal      = transactions.filter(t => t.subType === 'pochi_send').reduce((s, t) => s + t.amount, 0);
+    const savingsTotal    = mshwariTotal + investmentTotal;
+    const trueOutflow     = totalSent - savingsTotal;
+    const net             = totalReceived - trueOutflow;
 
-    const W = 42; // character width of the receipt
+    // Label summary
+    const labelTotals: Record<string, number> = {};
+    transactions.forEach(t => {
+        const key = t.customLabel ?? t.label ?? 'Unlabelled';
+        if (t.type === 'sent') {
+            labelTotals[key] = (labelTotals[key] ?? 0) + t.amount;
+        }
+    });
+
+    const W = 42;
 
     const lines: string[] = [
         repeat('=', W),
@@ -79,24 +97,45 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
         leftRight('TOTAL RECEIVED', fmt(totalReceived), W),
         repeat('-', W),
         leftRight('SENT TO PEOPLE', fmt(personSendTotal), W),
+        leftRight('POCHI LA BIASHARA', fmt(pochiTotal), W),
         leftRight('PAYBILL & TILL', fmt(paybillTotal), W),
         leftRight('AIRTIME', fmt(airtimeTotal), W),
+        leftRight('DATA BUNDLES', fmt(dataTotal), W),
         leftRight('WITHDRAWALS', fmt(withdrawalTotal), W),
         leftRight('M-SHWARI', fmt(mshwariTotal), W),
+        leftRight('INVESTMENTS', fmt(investmentTotal), W),
         repeat('-', W),
         leftRight('NET FLOW', fmt(net), W),
-        center('(M-SHWARI EXCL. FROM NET)', W),
+        center('(SAVINGS & INVESTMENTS EXCL.)', W),
         repeat('=', W),
-        '',
-        center('TRANSACTION DETAIL', W),
-        repeat('-', W),
     ];
+
+    // KRA label breakdown (only if any labels exist)
+    const hasLabels = transactions.some(t => t.label !== null);
+    if (hasLabels) {
+        lines.push('');
+        lines.push(center('KRA EXPENSE BREAKDOWN', W));
+        lines.push(repeat('-', W));
+        Object.entries(labelTotals).forEach(([label, total]) => {
+            lines.push(leftRight(label.substring(0, 24).toUpperCase(), fmt(total), W));
+        });
+        lines.push(repeat('=', W));
+    }
+
+    lines.push('');
+    lines.push(center('TRANSACTION DETAIL', W));
+    lines.push(repeat('-', W));
 
     transactions.forEach((t, i) => {
         const dateStr = t.date.toLocaleDateString('en-GB');
         lines.push(leftRight(`${String(i + 1).padStart(2, '0')}. ${dateStr}`, t.time, W));
         lines.push(leftRight(`    ${getBadgeLabel(t)}`, t.type === 'sent' ? `-${fmt(t.amount)}` : `+${fmt(t.amount)}`, W));
         lines.push(`    ${getDescription(t)}`);
+        if (t.customLabel) {
+            lines.push(`    NOTE: ${t.customLabel.toUpperCase()}`);
+        } else if (t.label) {
+            lines.push(`    LABEL: ${t.label.toUpperCase()}`);
+        }
         lines.push(`    REF: ${t.transactionCode}`);
         if (t.balance != null) {
             lines.push(leftRight('    BAL:', fmt(t.balance), W));
@@ -121,7 +160,6 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
     <title>M-TRACK Receipt</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-
         body {
             background: #e8e8e8;
             display: flex;
@@ -131,76 +169,21 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
             padding: 32px 16px;
             font-family: 'Courier New', Courier, monospace;
         }
-
-        .receipt-wrap {
-            position: relative;
-        }
-
-        /* Torn top edge */
+        .receipt-wrap { position: relative; }
         .tear-top {
-            width: 100%;
-            height: 18px;
-            background: white;
-            clip-path: polygon(
-                0% 100%, 2% 20%, 4% 80%, 6% 10%, 8% 70%,
-                10% 5%,  12% 65%, 14% 15%, 16% 75%, 18% 0%,
-                20% 60%, 22% 10%, 24% 70%, 26% 5%,  28% 65%,
-                30% 20%, 32% 80%, 34% 5%,  36% 70%, 38% 15%,
-                40% 75%, 42% 0%,  44% 60%, 46% 20%, 48% 80%,
-                50% 10%, 52% 65%, 54% 5%,  56% 70%, 58% 20%,
-                60% 80%, 62% 10%, 64% 75%, 66% 0%,  68% 60%,
-                70% 20%, 72% 80%, 74% 5%,  76% 70%, 78% 15%,
-                80% 75%, 82% 10%, 84% 65%, 86% 0%,  88% 60%,
-                90% 20%, 92% 80%, 94% 10%, 96% 70%, 98% 15%,
-                100% 80%, 100% 100%
-            );
+            width: 100%; height: 18px; background: white;
+            clip-path: polygon(0% 100%, 2% 20%, 4% 80%, 6% 10%, 8% 70%, 10% 5%, 12% 65%, 14% 15%, 16% 75%, 18% 0%, 20% 60%, 22% 10%, 24% 70%, 26% 5%, 28% 65%, 30% 20%, 32% 80%, 34% 5%, 36% 70%, 38% 15%, 40% 75%, 42% 0%, 44% 60%, 46% 20%, 48% 80%, 50% 10%, 52% 65%, 54% 5%, 56% 70%, 58% 20%, 60% 80%, 62% 10%, 64% 75%, 66% 0%, 68% 60%, 70% 20%, 72% 80%, 74% 5%, 76% 70%, 78% 15%, 80% 75%, 82% 10%, 84% 65%, 86% 0%, 88% 60%, 90% 20%, 92% 80%, 94% 10%, 96% 70%, 98% 15%, 100% 80%, 100% 100%);
         }
-
-        .receipt {
-            background: white;
-            padding: 8px 28px 24px;
-            width: 340px;
-            box-shadow: 2px 4px 24px rgba(0,0,0,0.15);
-        }
-
-        /* Torn bottom edge */
+        .receipt { background: white; padding: 8px 28px 24px; width: 340px; box-shadow: 2px 4px 24px rgba(0,0,0,0.15); }
         .tear-bottom {
-            width: 100%;
-            height: 18px;
-            background: white;
-            clip-path: polygon(
-                0% 0%, 2% 80%, 4% 20%, 6% 90%, 8% 30%,
-                10% 95%, 12% 35%, 14% 85%, 16% 25%, 18% 100%,
-                20% 40%, 22% 90%, 24% 30%, 26% 95%, 28% 35%,
-                30% 80%, 32% 20%, 34% 95%, 36% 30%, 38% 85%,
-                40% 25%, 42% 100%, 44% 40%, 46% 80%, 48% 20%,
-                50% 90%, 52% 35%, 54% 95%, 56% 30%, 58% 80%,
-                60% 20%, 62% 90%, 64% 25%, 66% 100%, 68% 40%,
-                70% 80%, 72% 20%, 74% 95%, 76% 30%, 78% 85%,
-                80% 25%, 82% 90%, 84% 35%, 86% 100%, 88% 40%,
-                90% 80%, 92% 20%, 94% 90%, 96% 30%, 98% 85%,
-                100% 20%, 100% 0%
-            );
+            width: 100%; height: 18px; background: white;
+            clip-path: polygon(0% 0%, 2% 80%, 4% 20%, 6% 90%, 8% 30%, 10% 95%, 12% 35%, 14% 85%, 16% 25%, 18% 100%, 20% 40%, 22% 90%, 24% 30%, 26% 95%, 28% 35%, 30% 80%, 32% 20%, 34% 95%, 36% 30%, 38% 85%, 40% 25%, 42% 100%, 44% 40%, 46% 80%, 48% 20%, 50% 90%, 52% 35%, 54% 95%, 56% 30%, 58% 80%, 60% 20%, 62% 90%, 64% 25%, 66% 100%, 68% 40%, 70% 80%, 72% 20%, 74% 95%, 76% 30%, 78% 85%, 80% 25%, 82% 90%, 84% 35%, 86% 100%, 88% 40%, 90% 80%, 92% 20%, 94% 90%, 96% 30%, 98% 85%, 100% 20%, 100% 0%);
         }
-
-        pre {
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 11.5px;
-            line-height: 1.55;
-            color: #1a1a1a;
-            white-space: pre;
-            overflow-x: auto;
-        }
-
-        /* Print styles */
+        pre { font-family: 'Courier New', Courier, monospace; font-size: 11.5px; line-height: 1.55; color: #1a1a1a; white-space: pre; overflow-x: auto; }
         @media print {
             body { background: white; padding: 0; }
             .tear-top, .tear-bottom { display: none; }
-            .receipt {
-                box-shadow: none;
-                width: 100%;
-                padding: 0;
-            }
+            .receipt { box-shadow: none; width: 100%; padding: 0; }
             pre { font-size: 10px; }
         }
     </style>
@@ -208,41 +191,40 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
 <body>
     <div class="receipt-wrap">
         <div class="tear-top"></div>
-        <div class="receipt">
-            <pre>${receiptText}</pre>
-        </div>
+        <div class="receipt"><pre>${receiptText}</pre></div>
         <div class="tear-bottom"></div>
     </div>
 </body>
 </html>`;
 }
 
-// --- PDF version using jsPDF ---
 export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange: string): Blob {
-    const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: [80, 297], // 80mm thermal roll width, auto height
-    });
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, 297] });
 
     const now = new Date();
-    const currentDate = now.toLocaleDateString('en-GB', {
-        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-    });
+    const currentDate = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-    const totalSent      = transactions.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
-    const totalReceived  = transactions.filter(t => t.type === 'received').reduce((s, t) => s + t.amount, 0);
-    const mshwariTotal   = transactions.filter(t => t.subType === 'mshwari').reduce((s, t) => s + t.amount, 0);
-    const withdrawalTotal= transactions.filter(t => t.subType === 'withdrawal').reduce((s, t) => s + t.amount, 0);
-    const paybillTotal   = transactions.filter(t => t.subType === 'paybill').reduce((s, t) => s + t.amount, 0);
-    const airtimeTotal   = transactions.filter(t => t.subType === 'airtime').reduce((s, t) => s + t.amount, 0);
-    const personSendTotal= transactions.filter(t => t.subType === 'person_send').reduce((s, t) => s + t.amount, 0);
-    const trueOutflow    = totalSent - mshwariTotal;
-    const net            = totalReceived - trueOutflow;
+    const totalSent       = transactions.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
+    const totalReceived   = transactions.filter(t => t.type === 'received').reduce((s, t) => s + t.amount, 0);
+    const mshwariTotal    = transactions.filter(t => t.subType === 'mshwari').reduce((s, t) => s + t.amount, 0);
+    const investmentTotal = transactions.filter(t => t.subType === 'investment').reduce((s, t) => s + t.amount, 0);
+    const withdrawalTotal = transactions.filter(t => t.subType === 'withdrawal').reduce((s, t) => s + t.amount, 0);
+    const paybillTotal    = transactions.filter(t => t.subType === 'paybill').reduce((s, t) => s + t.amount, 0);
+    const airtimeTotal    = transactions.filter(t => t.subType === 'airtime').reduce((s, t) => s + t.amount, 0);
+    const dataTotal       = transactions.filter(t => t.subType === 'data').reduce((s, t) => s + t.amount, 0);
+    const personSendTotal = transactions.filter(t => t.subType === 'person_send').reduce((s, t) => s + t.amount, 0);
+    const pochiTotal      = transactions.filter(t => t.subType === 'pochi_send').reduce((s, t) => s + t.amount, 0);
+    const savingsTotal    = mshwariTotal + investmentTotal;
+    const net             = totalReceived - (totalSent - savingsTotal);
+
+    const labelTotals: Record<string, number> = {};
+    transactions.forEach(t => {
+        const key = t.customLabel ?? t.label ?? 'Unlabelled';
+        if (t.type === 'sent') labelTotals[key] = (labelTotals[key] ?? 0) + t.amount;
+    });
 
     doc.setFont('Courier', 'normal');
-
     const pageW = 80;
     const margin = 4;
     let y = 6;
@@ -251,19 +233,13 @@ export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange:
     function addLine(text: string, size = 8, bold = false, align: 'left' | 'center' | 'right' = 'left') {
         doc.setFontSize(size);
         doc.setFont('Courier', bold ? 'bold' : 'normal');
-        if (align === 'center') {
-            doc.text(text, pageW / 2, y, { align: 'center' });
-        } else if (align === 'right') {
-            doc.text(text, pageW - margin, y, { align: 'right' });
-        } else {
-            doc.text(text, margin, y);
-        }
+        if (align === 'center') doc.text(text, pageW / 2, y, { align: 'center' });
+        else if (align === 'right') doc.text(text, pageW - margin, y, { align: 'right' });
+        else doc.text(text, margin, y);
         y += lineH;
     }
 
-    function addDivider(char = '-') {
-        addLine(char.repeat(38), 7);
-    }
+    function addDivider(char = '-') { addLine(char.repeat(38), 7); }
 
     function addLR(left: string, right: string, size = 8, bold = false) {
         doc.setFontSize(size);
@@ -273,7 +249,6 @@ export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange:
         y += lineH;
     }
 
-    // Header
     addDivider('=');
     addLine('M-TRACK', 14, true, 'center');
     addLine('Mobile Money Receipt', 8, false, 'center');
@@ -284,38 +259,49 @@ export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange:
     addDivider('=');
     y += 2;
 
-    // Summary
     addLine('TRANSACTION SUMMARY', 8, true, 'center');
     addDivider();
     addLR('TOTAL TRANSACTIONS', String(transactions.length));
-    addLR('TOTAL RECEIVED', fmt(totalReceived), 8, false);
+    addLR('TOTAL RECEIVED', fmt(totalReceived));
     addDivider();
     addLR('SENT TO PEOPLE', fmt(personSendTotal));
+    addLR('POCHI LA BIASHARA', fmt(pochiTotal));
     addLR('PAYBILL & TILL', fmt(paybillTotal));
     addLR('AIRTIME', fmt(airtimeTotal));
+    addLR('DATA BUNDLES', fmt(dataTotal));
     addLR('WITHDRAWALS', fmt(withdrawalTotal));
     addLR('M-SHWARI', fmt(mshwariTotal));
+    addLR('INVESTMENTS', fmt(investmentTotal));
     addDivider();
     addLR('NET FLOW', fmt(net), 9, true);
-    addLine('(M-SHWARI EXCL. FROM NET)', 7, false, 'center');
+    addLine('(SAVINGS & INVESTMENTS EXCL.)', 7, false, 'center');
     addDivider('=');
-    y += 2;
 
-    // Transactions
+    const hasLabels = transactions.some(t => t.label !== null);
+    if (hasLabels) {
+        y += 2;
+        addLine('KRA EXPENSE BREAKDOWN', 8, true, 'center');
+        addDivider();
+        Object.entries(labelTotals).forEach(([label, total]) => {
+            addLR(label.substring(0, 22).toUpperCase(), fmt(total), 7);
+        });
+        addDivider('=');
+    }
+
+    y += 2;
     addLine('TRANSACTION DETAIL', 8, true, 'center');
     addDivider();
 
     transactions.forEach((t, i) => {
         const dateStr = t.date.toLocaleDateString('en-GB');
         const sign = t.type === 'sent' ? '-' : '+';
-
         addLR(`${String(i + 1).padStart(2, '0')}. ${dateStr}`, t.time, 7);
         addLR(`    ${getBadgeLabel(t)}`, `${sign}${fmt(t.amount)}`, 8, true);
         addLine(`    ${getDescription(t)}`, 7);
+        if (t.customLabel) addLine(`    NOTE: ${t.customLabel.toUpperCase()}`, 7);
+        else if (t.label) addLine(`    LABEL: ${t.label.toUpperCase()}`, 7);
         addLine(`    REF: ${t.transactionCode}`, 7);
-        if (t.balance != null) {
-            addLR('    BAL:', fmt(t.balance), 7);
-        }
+        if (t.balance != null) addLR('    BAL:', fmt(t.balance), 7);
         addDivider();
     });
 
@@ -325,16 +311,5 @@ export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange:
     addLine('FROM M-PESA SMS DATA', 7, false, 'center');
     addLine('* * *', 8, false, 'center');
 
-    // Resize page to content
-    const finalHeight = y + 6;
-    const resized = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: [80, finalHeight],
-    });
-    resized.setFont('Courier', 'normal');
-    
-    // Re-render onto correctly sized page
-    // (jsPDF doesn't support dynamic height, so we use a generous fixed height)
     return doc.output('blob');
 }
