@@ -1,5 +1,10 @@
 import type { ParsedTransaction } from '../types';
 
+// \uFEFF is the UTF-8 BOM (byte order mark). Without it, Google Sheets,
+// Excel and Numbers cannot reliably detect the encoding and either refuse
+// to open the file or display garbled characters (especially Ksh symbols).
+const BOM = '\uFEFF';
+
 function escapeCSVField(field: string | number): string {
     const str = String(field);
     if (str.includes(',') || str.includes('"') || str.includes('\n')) {
@@ -54,7 +59,7 @@ export function generateLedgerCSV(transactions: ParsedTransaction[], _dateRange:
         ].join(',');
     });
 
-    return [header, ...rows].join('\n');
+    return BOM + [header, ...rows].join('\n');
 }
 
 export function generateLedgerSummaryCSV(transactions: ParsedTransaction[]): string {
@@ -83,7 +88,7 @@ export function generateLedgerSummaryCSV(transactions: ParsedTransaction[]): str
     const rows: string[] = [];
 
     Object.entries(byLabel).forEach(([labelKey, group]) => {
-        const labelTotalSent = group.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
+        const labelTotalSent     = group.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
         const labelTotalReceived = group.filter(t => t.type === 'received').reduce((s, t) => s + t.amount, 0);
 
         group.forEach(t => {
@@ -104,19 +109,14 @@ export function generateLedgerSummaryCSV(transactions: ParsedTransaction[]): str
         // Subtotal row per label
         rows.push([
             escapeCSVField(`SUBTOTAL: ${labelKey}`),
-            '',
-            '',
-            '',
-            '',
-            '',
+            '', '', '', '', '',
             escapeCSVField(labelTotalSent.toFixed(2)),
             escapeCSVField(labelTotalReceived.toFixed(2)),
-            '',
-            '',
+            '', '',
         ].join(','));
 
         rows.push(''); // blank line between label groups
     });
 
-    return [header, ...rows].join('\n');
+    return BOM + [header, ...rows].join('\n');
 }
