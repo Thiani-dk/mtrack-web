@@ -16,7 +16,7 @@ import {
     generateDeclutterReceiptHTML,
     generateDeclutterReceiptPDF,
 } from '../lib/declutterReceiptGenerator';
-import { downloadHTML, downloadPDF } from '../lib/downloadUtils';
+import { downloadHTML, downloadPDF, getGmailFilenames } from '../lib/downloadUtils';
 
 interface Props {
     commands: DeclutterCommand[];
@@ -24,7 +24,6 @@ interface Props {
     onReset: () => void;
 }
 
-// Group commands by category for display
 function groupByCategory(commands: DeclutterCommand[]): Record<string, DeclutterCommand[]> {
     return commands.reduce<Record<string, DeclutterCommand[]>>((acc, cmd) => {
         (acc[cmd.category] ??= []).push(cmd);
@@ -41,7 +40,6 @@ function CopyButton({ text }: { text: string }) {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch {
-            // fallback for older mobile browsers
             const ta = document.createElement('textarea');
             ta.value = text;
             ta.style.position = 'fixed';
@@ -92,6 +90,7 @@ function CopyButton({ text }: { text: string }) {
 export function DeclutterOutputScreen({ commands: initialCommands, onBack, onReset }: Props) {
     const [commands, setCommands] = useState<DeclutterCommand[]>(initialCommands);
     const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
+    const [isDownloadingHTML, setIsDownloadingHTML] = useState(false);
 
     const included = commands.filter(c => c.included);
     const grouped = groupByCategory(commands);
@@ -102,24 +101,37 @@ export function DeclutterOutputScreen({ commands: initialCommands, onBack, onRes
         );
     }
 
-    function handleDownloadHTML() {
-        const html = generateDeclutterReceiptHTML(included);
-        const date = new Date().toISOString().slice(0, 10);
-        downloadHTML(html, `mtrack-gmail-receipt-${date}.html`);
+    async function handleDownloadHTML() {
+        if (included.length === 0) return;
+        setIsDownloadingHTML(true);
+        try {
+            const html = generateDeclutterReceiptHTML(included);
+            const { html: filename } = await getGmailFilenames(included);
+            downloadHTML(html, filename);
+        } catch (err) {
+            console.error('HTML generation failed:', err);
+        } finally {
+            setIsDownloadingHTML(false);
+        }
     }
 
     async function handleDownloadPDF() {
+        if (included.length === 0) return;
         setIsDownloadingPDF(true);
         try {
-            const blob = await generateDeclutterReceiptPDF(included);
-            const date = new Date().toISOString().slice(0, 10);
-            downloadPDF(blob, `mtrack-gmail-receipt-${date}.pdf`);
+            const [blob, { pdf: filename }] = await Promise.all([
+                generateDeclutterReceiptPDF(included),
+                getGmailFilenames(included),
+            ]);
+            downloadPDF(blob, filename);
         } catch (err) {
             console.error('PDF generation failed:', err);
         } finally {
             setIsDownloadingPDF(false);
         }
     }
+
+    const noneIncluded = included.length === 0;
 
     return (
         <div className="flex flex-col min-h-screen bg-gray-50">
@@ -225,7 +237,7 @@ export function DeclutterOutputScreen({ commands: initialCommands, onBack, onRes
 
             {/* Download footer — sticky */}
             <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-4 space-y-2">
-                {included.length === 0 && (
+                {noneIncluded && (
                     <p className="text-xs text-center text-gray-400 mb-2">
                         Toggle at least one command on to generate a receipt.
                     </p>
@@ -233,24 +245,24 @@ export function DeclutterOutputScreen({ commands: initialCommands, onBack, onRes
                 <div className="grid grid-cols-2 gap-3">
                     <motion.button
                         onClick={handleDownloadHTML}
-                        disabled={included.length === 0}
+                        disabled={noneIncluded || isDownloadingHTML}
                         whileTap={{ scale: 0.96 }}
                         className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all ${
-                            included.length > 0
+                            !noneIncluded && !isDownloadingHTML
                                 ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 : 'bg-gray-50 text-gray-300 cursor-not-allowed'
                         }`}
                     >
                         <FileText className="w-4 h-4" />
-                        HTML Receipt
+                        {isDownloadingHTML ? 'Generating…' : 'HTML Receipt'}
                     </motion.button>
 
                     <motion.button
                         onClick={handleDownloadPDF}
-                        disabled={included.length === 0 || isDownloadingPDF}
+                        disabled={noneIncluded || isDownloadingPDF}
                         whileTap={{ scale: 0.96 }}
                         className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all ${
-                            included.length > 0 && !isDownloadingPDF
+                            !noneIncluded && !isDownloadingPDF
                                 ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md shadow-indigo-200'
                                 : 'bg-gray-100 text-gray-300 cursor-not-allowed'
                         }`}

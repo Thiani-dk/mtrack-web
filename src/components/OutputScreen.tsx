@@ -3,7 +3,7 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import type { ParsedTransaction } from '../types';
 import { generateReceiptHTML, generateReceiptPDF } from '../lib/receiptGenerator';
 import { generateLedgerCSV, generateLedgerSummaryCSV } from '../lib/ledgerGenerator';
-import { downloadHTML, downloadCSV, downloadPDF, generateFilename } from '../lib/downloadUtils';
+import { downloadHTML, downloadCSV, downloadPDF, getMpesaFilenames } from '../lib/downloadUtils';
 import { ArrowLeft, Inbox, Download, FileText, Table2 } from 'lucide-react';
 
 interface OutputScreenProps {
@@ -140,40 +140,88 @@ export function OutputScreen({ mode, range, transactions, dateRangeLabel, onRese
         transactions.filter(filter).reduce((s, t) => s + t.amount, 0);
 
     const totalTransactions = transactions.length;
-    const totalReceived  = sum(t => t.subType === 'person_receive');
-    const personSendTotal= sum(t => t.subType === 'person_send');
-    const paybillTotal   = sum(t => t.subType === 'paybill');
-    const airtimeTotal   = sum(t => t.subType === 'airtime');
-    const withdrawalTotal= sum(t => t.subType === 'withdrawal');
-    const mshwariTotal   = sum(t => t.subType === 'mshwari');
-    const pochiTotal     = sum(t => t.subType === 'pochi_send');
-    const dataTotal      = sum(t => t.subType === 'data');
-    const investmentTotal= sum(t => t.subType === 'investment');
-    const trueOutflow    = personSendTotal + pochiTotal + paybillTotal + airtimeTotal + dataTotal + withdrawalTotal;
-    const netFlow        = totalReceived - trueOutflow;
+    const totalReceived   = sum(t => t.subType === 'person_receive');
+    const personSendTotal = sum(t => t.subType === 'person_send');
+    const paybillTotal    = sum(t => t.subType === 'paybill');
+    const airtimeTotal    = sum(t => t.subType === 'airtime');
+    const withdrawalTotal = sum(t => t.subType === 'withdrawal');
+    const mshwariTotal    = sum(t => t.subType === 'mshwari');
+    const pochiTotal      = sum(t => t.subType === 'pochi_send');
+    const dataTotal       = sum(t => t.subType === 'data');
+    const investmentTotal = sum(t => t.subType === 'investment');
+    const trueOutflow     = personSendTotal + pochiTotal + paybillTotal + airtimeTotal + dataTotal + withdrawalTotal;
+    const netFlow         = totalReceived - trueOutflow;
 
     const statValues: Record<string, number> = {
-    received:   totalReceived,
-    personSend: personSendTotal,
-    pochi:      pochiTotal,
-    paybill:    paybillTotal,
-    airtime:    airtimeTotal,
-    data:       dataTotal,
-    withdrawal: withdrawalTotal,
-    mshwari:    mshwariTotal,
-    investment: investmentTotal,
-};
+        received:   totalReceived,
+        personSend: personSendTotal,
+        pochi:      pochiTotal,
+        paybill:    paybillTotal,
+        airtime:    airtimeTotal,
+        data:       dataTotal,
+        withdrawal: withdrawalTotal,
+        mshwari:    mshwariTotal,
+        investment: investmentTotal,
+    };
 
     const fmt = (n: number) => `Ksh ${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 
-    const handleDownload = async (key: string, fn: () => void) => {
-        setDownloading(key);
-        await new Promise(r => setTimeout(r, 400));
-        fn();
-        setDownloading(null);
+    // ── Download handlers ────────────────────────────────────────────────────
+
+    const handleDownloadPDF = async () => {
+        setDownloading('pdf');
+        try {
+            const [pdfBlob, filenames] = await Promise.all([
+                Promise.resolve(generateReceiptPDF(transactions, dateRangeLabel)),
+                getMpesaFilenames(transactions, mode),
+            ]);
+            downloadPDF(pdfBlob, filenames.pdf);
+        } finally {
+            setDownloading(null);
+        }
     };
 
-    // --- Empty state ---
+    const handleDownloadHTML = async () => {
+        setDownloading('html');
+        try {
+            const [html, filenames] = await Promise.all([
+                Promise.resolve(generateReceiptHTML(transactions, dateRangeLabel)),
+                getMpesaFilenames(transactions, mode),
+            ]);
+            downloadHTML(html, filenames.html);
+        } finally {
+            setDownloading(null);
+        }
+    };
+
+    const handleDownloadCSV = async () => {
+        setDownloading('csv');
+        try {
+            const [csv, filenames] = await Promise.all([
+                Promise.resolve(generateLedgerCSV(transactions, dateRangeLabel)),
+                getMpesaFilenames(transactions, mode),
+            ]);
+            downloadCSV(csv, filenames.csv);
+        } finally {
+            setDownloading(null);
+        }
+    };
+
+    const handleDownloadCSVSummary = async () => {
+        setDownloading('csvSummary');
+        try {
+            const [csv, filenames] = await Promise.all([
+                Promise.resolve(generateLedgerSummaryCSV(transactions)),
+                getMpesaFilenames(transactions, mode),
+            ]);
+            downloadCSV(csv, filenames.csvSummary);
+        } finally {
+            setDownloading(null);
+        }
+    };
+
+    // ── Empty state ──────────────────────────────────────────────────────────
+
     if (totalTransactions === 0) {
         return (
             <motion.div
@@ -215,6 +263,68 @@ export function OutputScreen({ mode, range, transactions, dateRangeLabel, onRese
 
     const previewTransactions = transactions.slice(0, 5);
     const remainingCount = totalTransactions - 5;
+
+    // ── Shared download button renderer ─────────────────────────────────────
+
+    function DownloadButton({
+        dlKey,
+        label,
+        primary,
+        onClick,
+    }: {
+        dlKey: string;
+        label: string;
+        primary: boolean;
+        onClick: () => void;
+    }) {
+        const isLoading = downloading === dlKey;
+        return (
+            <motion.button
+                onClick={onClick}
+                disabled={downloading !== null}
+                className={`relative w-full min-h-[52px] rounded-2xl font-semibold text-[15px] flex items-center justify-center gap-2 overflow-hidden transition-opacity ${
+                    primary
+                        ? 'bg-[#00A651] text-white'
+                        : 'bg-white text-[#00A651] border border-[#00A651]/30'
+                } ${downloading !== null && !isLoading ? 'opacity-50' : ''}`}
+                style={primary ? { boxShadow: '0 4px 16px rgba(0,166,81,0.25)' } : {}}
+                whileTap={{ scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 400 }}
+            >
+                <AnimatePresence mode="wait">
+                    {isLoading ? (
+                        <motion.div
+                            key="loading"
+                            className="flex items-center gap-2"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                        >
+                            <motion.div
+                                className="w-4 h-4 rounded-full border-2 border-current border-t-transparent"
+                                animate={{ rotate: 360 }}
+                                transition={{ repeat: Infinity, duration: 0.7, ease: 'linear' }}
+                            />
+                            Generating…
+                        </motion.div>
+                    ) : (
+                        <motion.div
+                            key="label"
+                            className="flex items-center gap-2"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                        >
+                            <Download className="w-4 h-4" />
+                            {label}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </motion.button>
+        );
+    }
+
+    // ── Main render ──────────────────────────────────────────────────────────
 
     return (
         <motion.div
@@ -360,114 +470,39 @@ export function OutputScreen({ mode, range, transactions, dateRangeLabel, onRese
                 >
                     {mode === 'receipt' ? (
                         <>
-                            {[
-                                {
-                                    key: 'pdf',
-                                    label: 'Download Receipt (PDF)',
-                                    icon: FileText,
-                                    primary: true,
-                                    fn: () => downloadPDF(generateReceiptPDF(transactions, dateRangeLabel), generateFilename('receipt', range, 'pdf')),
-                                },
-                                {
-                                    key: 'html',
-                                    label: 'Download Receipt (HTML)',
-                                    icon: FileText,
-                                    primary: false,
-                                    fn: () => downloadHTML(generateReceiptHTML(transactions, dateRangeLabel), generateFilename('receipt', range, 'html')),
-                                },
-                            ].map(btn => (
-                                <motion.button
-                                    key={btn.key}
-                                    onClick={() => handleDownload(btn.key, btn.fn)}
-                                    disabled={downloading !== null}
-                                    className={`relative w-full min-h-[52px] rounded-2xl font-semibold text-[15px] flex items-center justify-center gap-2 overflow-hidden ${
-                                        btn.primary
-                                            ? 'bg-[#00A651] text-white'
-                                            : 'bg-white text-[#00A651] border border-[#00A651]/30'
-                                    }`}
-                                    style={btn.primary ? { boxShadow: '0 4px 16px rgba(0,166,81,0.25)' } : {}}
-                                    whileTap={{ scale: 0.97 }}
-                                    transition={{ type: 'spring', stiffness: 400 }}
-                                >
-                                    <AnimatePresence mode="wait">
-                                        {downloading === btn.key ? (
-                                            <motion.div
-                                                key="loading"
-                                                className="flex items-center gap-2"
-                                                initial={{ opacity: 0 }}
-                                                animate={{ opacity: 1 }}
-                                                exit={{ opacity: 0 }}
-                                            >
-                                                <motion.div
-                                                    className={`w-4 h-4 rounded-full border-2 border-current border-t-transparent`}
-                                                    animate={{ rotate: 360 }}
-                                                    transition={{ repeat: Infinity, duration: 0.7, ease: 'linear' }}
-                                                />
-                                                Preparing...
-                                            </motion.div>
-                                        ) : (
-                                            <motion.div
-                                                key="label"
-                                                className="flex items-center gap-2"
-                                                initial={{ opacity: 0 }}
-                                                animate={{ opacity: 1 }}
-                                                exit={{ opacity: 0 }}
-                                            >
-                                                <Download className="w-4 h-4" />
-                                                {btn.label}
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
-                                </motion.button>
-                            ))}
-                            <p className="text-xs text-gray-400 text-center">PDF · 80mm thermal · HTML · print to PDF from browser</p>
+                            <DownloadButton
+                                dlKey="pdf"
+                                label="Download Receipt (PDF)"
+                                primary={true}
+                                onClick={handleDownloadPDF}
+                            />
+                            <DownloadButton
+                                dlKey="html"
+                                label="Download Receipt (HTML)"
+                                primary={false}
+                                onClick={handleDownloadHTML}
+                            />
+                            <p className="text-xs text-gray-400 text-center">
+                                PDF · 80mm thermal · HTML · print to PDF from browser
+                            </p>
                         </>
                     ) : (
                         <>
-                            {[
-                                {
-                                    key: 'full',
-                                    label: 'Download Full Ledger (CSV)',
-                                    icon: Table2,
-                                    primary: true,
-                                    fn: () => downloadCSV(generateLedgerCSV(transactions, dateRangeLabel), generateFilename('ledger', range, 'csv')),
-                                },
-                                {
-                                    key: 'summary',
-                                    label: 'Download Daily Summary (CSV)',
-                                    icon: Table2,
-                                    primary: false,
-                                    fn: () => downloadCSV(generateLedgerSummaryCSV(transactions), generateFilename('summary', range, 'csv')),
-                                },
-                            ].map(btn => (
-                                <motion.button
-                                    key={btn.key}
-                                    onClick={() => handleDownload(btn.key, btn.fn)}
-                                    disabled={downloading !== null}
-                                    className={`relative w-full min-h-[52px] rounded-2xl font-semibold text-[15px] flex items-center justify-center gap-2 ${
-                                        btn.primary
-                                            ? 'bg-[#00A651] text-white'
-                                            : 'bg-white text-[#00A651] border border-[#00A651]/30'
-                                    }`}
-                                    style={btn.primary ? { boxShadow: '0 4px 16px rgba(0,166,81,0.25)' } : {}}
-                                    whileTap={{ scale: 0.97 }}
-                                >
-                                    <AnimatePresence mode="wait">
-                                        {downloading === btn.key ? (
-                                            <motion.div key="loading" className="flex items-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                                                <motion.div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent" animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.7, ease: 'linear' }} />
-                                                Preparing...
-                                            </motion.div>
-                                        ) : (
-                                            <motion.div key="label" className="flex items-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                                                <Download className="w-4 h-4" />
-                                                {btn.label}
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
-                                </motion.button>
-                            ))}
-                            <p className="text-xs text-gray-400 text-center">Compatible with Excel, Google Sheets &amp; KRA filing</p>
+                            <DownloadButton
+                                dlKey="csv"
+                                label="Download Full Ledger (CSV)"
+                                primary={true}
+                                onClick={handleDownloadCSV}
+                            />
+                            <DownloadButton
+                                dlKey="csvSummary"
+                                label="Download Daily Summary (CSV)"
+                                primary={false}
+                                onClick={handleDownloadCSVSummary}
+                            />
+                            <p className="text-xs text-gray-400 text-center">
+                                Compatible with Excel, Google Sheets &amp; KRA filing
+                            </p>
                         </>
                     )}
                 </motion.div>
