@@ -1,6 +1,13 @@
 export type TimeRange = 'week' | 'month' | '3months' | '6months' | 'year';
-export type AppMode = 'receipt' | 'ledger';
-export type AppStep = 'home' | 'timeRange' | 'input' | 'review' | 'output';
+export type AppMode = 'receipt' | 'ledger' | 'declutter';
+export type AppStep =
+    | 'home'
+    | 'timeRange'
+    | 'input'
+    | 'review'
+    | 'output'
+    | 'declutterDiagnostic'
+    | 'declutterOutput';
 
 export type TransactionSubType =
     | 'person_send'
@@ -50,4 +57,45 @@ export interface ParsedTransaction {
     rawLine: string;
     label: ExpenseLabel;
     customLabel: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Gmail Declutter
+// ---------------------------------------------------------------------------
+
+export type GmailAge = 'under2' | '2to5' | '5plus';
+
+export type GmailContent =
+    | 'shopping'
+    | 'newsletters'
+    | 'social'
+    | 'financial'
+    | 'delivery'
+    | 'calendar'
+    | 'work'
+    | 'apps';
+
+export type GmailStorage = 'full' | 'somewhat' | 'fine';
+
+export type GmailRuthlessness = 'light' | 'deep' | 'nuclear';
+
+export type GmailKeepSafe = 'starred' | 'important' | 'primary';
+
+export interface DeclutterAnswers {
+    age: GmailAge | null;
+    content: GmailContent[];
+    storage: GmailStorage | null;
+    ruthlessness: GmailRuthlessness | null;
+    keepSafe: GmailKeepSafe[];
+}
+
+export interface DeclutterCommand {
+    id: string;
+    category: string;
+    label: string;
+    description: string;
+    command: string;
+    estimate: string;
+    irreversible: boolean;
+    included: boolean;
 }

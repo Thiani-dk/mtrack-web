@@ -63,11 +63,15 @@ export function TimeRangeScreen({ mode, onSelect, onBack }: TimeRangeScreenProps
                     <div className="flex items-center gap-2 mb-1">
                         <Clock className="w-4 h-4 text-[#00A651]" />
                         <span className="text-xs font-semibold text-[#00A651] uppercase tracking-widest">
-                            {mode === 'receipt' ? 'Receipt' : 'Ledger'} period
+                            Time Period
                         </span>
                     </div>
                     <h1 className="text-2xl font-bold text-gray-900">How far back?</h1>
-                    <p className="text-sm text-gray-500 mt-1">Select the time window for your {mode === 'receipt' ? 'receipt' : 'ledger'}</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                        {mode === 'receipt'
+                            ? 'Pick the date range your receipt should cover.'
+                            : 'Pick the date range you want to review.'}
+                    </p>
                 </motion.div>
 
                 {/* Options */}

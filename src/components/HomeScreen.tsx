@@ -1,8 +1,9 @@
 import { motion, type Variants } from 'framer-motion';
-import { FileText, Table2 } from 'lucide-react';
+import { FileText, Table2, Mail } from 'lucide-react';
+import type { AppMode } from '../types';
 
 interface HomeScreenProps {
-    onSelect: (mode: 'receipt' | 'ledger') => void;
+    onSelect: (mode: AppMode) => void;
 }
 
 const container: Variants = {
@@ -17,6 +18,39 @@ const item: Variants = {
     hidden: { opacity: 0, y: 24 },
     show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 400, damping: 28 } }
 };
+
+const CARDS: {
+    mode: AppMode;
+    icon: React.ElementType;
+    title: string;
+    desc: string;
+    accent: string;
+    shadow: string;
+}[] = [
+    {
+        mode: 'receipt',
+        icon: FileText,
+        title: 'Generate Reimbursement Receipt',
+        desc: 'Export a professional receipt from your M-PESA messages',
+        accent: 'from-green-500 to-emerald-600',
+        shadow: 'shadow-green-500/20',
+    },
+    {
+        mode: 'ledger',
+        icon: Table2,
+        title: 'Organise KRA Ledger',
+        desc: 'Instantly organise your M-PESA transactions into a business-ready spreadsheet — open straight in Excel, Google Sheets or Numbers',
+        accent: 'from-red-600 to-rose-700',
+        shadow: 'shadow-red-500/20',
+    },
+    {
+        mode: 'declutter',
+        icon: Mail,
+        title: 'Clean My Gmail',
+        desc: 'Generate Gmail commands to search and delete outdated newsletters, old alerts and inbox junk',        accent: 'from-blue-500 to-indigo-600',
+        shadow: 'shadow-indigo-500/20',
+    },
+];
 
 export function HomeScreen({ onSelect }: HomeScreenProps) {
     return (
@@ -43,24 +77,7 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
 
                 {/* Cards */}
                 <div className="space-y-4">
-                    {[
-                        {
-                            mode: 'receipt' as const,
-                            icon: FileText,
-                            title: 'Generate Reimbursement Receipt',
-                            desc: 'Export a professional thermal receipt from your M-PESA messages',
-                            accent: 'from-green-500 to-emerald-600',
-                            shadow: 'shadow-green-500/20',
-                        },
-                        {
-                            mode: 'ledger' as const,
-                            icon: Table2,
-                            title: 'Organise KRA Ledger',
-                            desc: 'Create a daily/monthly CSV ledger for KRA records',
-                            accent: 'from-emerald-600 to-teal-600',
-                            shadow: 'shadow-teal-500/20',
-                        },
-                    ].map((card) => (
+                    {CARDS.map((card) => (
                         <motion.div key={card.mode} variants={item}>
                             <motion.button
                                 onClick={() => onSelect(card.mode)}
@@ -108,7 +125,7 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
 
                 {/* Footer */}
                 <motion.p variants={item} className="text-center text-xs text-gray-400 pb-8">
-                    Powered by M-PESA SMS data
+                    track today
                 </motion.p>
             </motion.div>
         </div>

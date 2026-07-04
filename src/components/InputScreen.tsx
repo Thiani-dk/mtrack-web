@@ -58,9 +58,11 @@ export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenP
                         <ClipboardPaste className="w-4 h-4 text-[#00A651]" />
                         <span className="text-xs font-semibold text-[#00A651] uppercase tracking-widest">Step 3</span>
                     </div>
-                    <h1 className="text-2xl font-bold text-gray-900">Paste your messages</h1>
+                    <h1 className="text-2xl font-bold text-gray-900">Add your messages</h1>
                     <p className="text-sm text-gray-500 mt-1">
-                        {mode === 'receipt' ? 'We\'ll build your receipt from these.' : 'We\'ll organise these into a ledger.'}
+                        {mode === 'receipt'
+                            ? "We'll build your receipt from these."
+                            : "We'll organise these into a ledger."}
                     </p>
                 </motion.div>
 
@@ -80,10 +82,11 @@ export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenP
                         <p className="text-sm text-amber-700 leading-relaxed">
                             Only include messages after{' '}
                             <span className="font-bold text-[#00A651]">{formatCutoffDisplay(cutoffDate)}</span>.
-                            {' '}Any messages you include will still be processed.
+                            {' '}Any messages outside this range will be ignored.
                         </p>
                         <p className="text-xs text-amber-600">
-                            Tip: In your SMS app, scroll to that date and start selecting from there.
+                            How to get your messages: open your SMS app, scroll back to that date,
+                            then long-press to select and copy from there.
                         </p>
                     </div>
                 </motion.div>
@@ -108,14 +111,16 @@ export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenP
                             onChange={e => setSmsText(e.target.value)}
                             onFocus={() => setFocused(true)}
                             onBlur={() => setFocused(false)}
-                            placeholder={"Paste M-PESA confirmation messages here...\n\nWorks with plain text or Android XML backup files."}
+                            placeholder={"Drop your M-PESA messages here...\n\nWorks with copied messages or SMS backup files."}
                             className="w-full p-4 border-0 rounded-2xl min-h-[200px] resize-none text-sm text-gray-800 placeholder-gray-400 bg-gray-50 focus:outline-none focus:bg-white transition-colors duration-200"
                         />
                     </motion.div>
 
                     <div className="flex items-center justify-between px-1">
                         <p className="text-xs text-gray-400">
-                            {smsText.length > 0 ? `${smsText.length.toLocaleString()} characters` : 'Plain text or XML backup'}
+                            {smsText.length > 0
+                                ? `${smsText.length.toLocaleString()} characters`
+                                : 'Copied messages or SMS backup'}
                         </p>
                         <AnimatePresence>
                             {ready && (
