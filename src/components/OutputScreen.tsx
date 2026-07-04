@@ -4,11 +4,10 @@ import type { ParsedTransaction } from '../types';
 import { generateReceiptHTML, generateReceiptPDF } from '../lib/receiptGenerator';
 import { generateLedgerCSV, generateLedgerSummaryCSV } from '../lib/ledgerGenerator';
 import { downloadHTML, downloadCSV, downloadPDF, getMpesaFilenames } from '../lib/downloadUtils';
-import { ArrowLeft, Inbox, Download, FileText, Table2 } from 'lucide-react';
+import { ArrowLeft, Inbox, Download } from 'lucide-react';
 
 interface OutputScreenProps {
     mode: 'receipt' | 'ledger';
-    range: string;
     transactions: ParsedTransaction[];
     dateRangeLabel: string;
     onReset: () => void;
@@ -133,7 +132,7 @@ const row: Variants = {
     show: { opacity: 1, x: 0, transition: { type: 'spring', stiffness: 380, damping: 28 } }
 };
 
-export function OutputScreen({ mode, range, transactions, dateRangeLabel, onReset, onBack }: OutputScreenProps) {
+export function OutputScreen({ mode, transactions, dateRangeLabel, onReset, onBack }: OutputScreenProps) {
     const [downloading, setDownloading] = useState<string | null>(null);
 
     const sum = (filter: (t: ParsedTransaction) => boolean) =>

@@ -22,7 +22,7 @@ export default function App() {
     const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
     const [declutterCommands, setDeclutterCommands] = useState<DeclutterCommand[]>([]);
 
-    // ── M-PESA flow handlers ─────────────────────────────────────────────────
+    // ── M-PESA flow ──────────────────────────────────────────────────────────
 
     const handleHomeSelect = (mode: 'receipt' | 'ledger' | 'declutter') => {
         if (mode === 'declutter') {
@@ -52,23 +52,25 @@ export default function App() {
         setState(prev => ({ ...prev, step: 'output' }));
     };
 
-    // ── Declutter flow handlers ───────────────────────────────────────────────
+    // ── Declutter flow ───────────────────────────────────────────────────────
 
     const handleDeclutterComplete = (answers: DeclutterAnswers) => {
-        const cmds = generateDeclutterCommands(answers);
-        setDeclutterCommands(cmds);
+        const commands = generateDeclutterCommands(answers);
+        setDeclutterCommands(commands);
         setState(prev => ({ ...prev, step: 'declutterOutput' }));
     };
 
-    // ── Shared reset ─────────────────────────────────────────────────────────
+    const handleDeclutterCommandsChange = (updated: DeclutterCommand[]) => {
+        setDeclutterCommands(updated);
+    };
+
+    // ── Shared ───────────────────────────────────────────────────────────────
 
     const handleReset = () => {
         setState({ mode: null, step: 'home', timeRange: null, smsText: '', cutoffDate: null });
         setTransactions([]);
         setDeclutterCommands([]);
     };
-
-    // ── Router ────────────────────────────────────────────────────────────────
 
     const renderStep = () => {
         switch (state.step) {
@@ -109,7 +111,6 @@ export default function App() {
                 return (
                     <OutputScreen
                         mode={state.mode as 'receipt' | 'ledger'}
-                        range={state.timeRange!}
                         transactions={transactions}
                         dateRangeLabel={getDaysLabel(state.timeRange!)}
                         onReset={handleReset}
@@ -129,8 +130,9 @@ export default function App() {
                 return (
                     <DeclutterOutputScreen
                         commands={declutterCommands}
-                        onBack={() => setState(prev => ({ ...prev, step: 'declutterDiagnostic' }))}
+                        onCommandsChange={handleDeclutterCommandsChange}
                         onReset={handleReset}
+                        onBack={() => setState(prev => ({ ...prev, step: 'declutterDiagnostic' }))}
                     />
                 );
 
