@@ -60,9 +60,7 @@ export default function App() {
         setState(prev => ({ ...prev, step: 'declutterOutput' }));
     };
 
-    const handleDeclutterCommandsChange = (updated: DeclutterCommand[]) => {
-        setDeclutterCommands(updated);
-    };
+    
 
     // ── Shared ───────────────────────────────────────────────────────────────
 
@@ -126,15 +124,14 @@ export default function App() {
                     />
                 );
 
-            case 'declutterOutput':
-                return (
-                    <DeclutterOutputScreen
-                        commands={declutterCommands}
-                        onCommandsChange={handleDeclutterCommandsChange}
-                        onReset={handleReset}
-                        onBack={() => setState(prev => ({ ...prev, step: 'declutterDiagnostic' }))}
-                    />
-                );
+                case 'declutterOutput':
+                    return (
+                        <DeclutterOutputScreen
+                            commands={declutterCommands}
+                            onReset={handleReset}
+                            onBack={() => setState(prev => ({ ...prev, step: 'declutterDiagnostic' }))}
+                        />
+                    );
 
             default:
                 return null;
