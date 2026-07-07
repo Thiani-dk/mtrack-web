@@ -1,26 +1,55 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { TimeRange } from '../types';
+import type { InputSource, TimeRange } from '../types';
 import { formatCutoffDisplay } from '../lib/dateUtils';
-import { ArrowLeft, AlertTriangle, ClipboardPaste } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ClipboardPaste, FileUp, CheckCircle2 } from 'lucide-react';
 
 interface InputScreenProps {
     mode: 'receipt' | 'ledger';
     range: TimeRange;
     cutoffDate: Date;
-    onSubmit: (text: string) => void;
+    onSubmit: (text: string, source: InputSource) => void;
     onBack: () => void;
 }
 
 export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenProps) {
-    const [smsText, setSmsText] = useState('');
-    const [focused, setFocused] = useState(false);
+    const [smsText, setSmsText]         = useState('');
+    const [focused, setFocused]         = useState(false);
+    const [xmlFile, setXmlFile]         = useState<File | null>(null);
+    const [xmlError, setXmlError]       = useState<string | null>(null);
+    const [activeTab, setActiveTab]     = useState<'paste' | 'upload'>('paste');
+    const fileInputRef                  = useRef<HTMLInputElement>(null);
 
-    const handleSubmit = () => {
-        if (smsText.trim()) onSubmit(smsText);
+    const pasteReady  = activeTab === 'paste' && smsText.trim().length > 0;
+    const uploadReady = activeTab === 'upload' && xmlFile !== null;
+    const ready       = pasteReady || uploadReady;
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setXmlError(null);
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.xml')) {
+            setXmlError('Please select an .xml file.');
+            return;
+        }
+        setXmlFile(file);
     };
 
-    const ready = smsText.trim().length > 0;
+    const handleSubmit = () => {
+        if (activeTab === 'paste' && smsText.trim()) {
+            onSubmit(smsText, 'manual');
+        } else if (activeTab === 'upload' && xmlFile) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const text = e.target?.result;
+                if (typeof text === 'string') {
+                    onSubmit(text, 'xml');
+                }
+            };
+            reader.onerror = () => setXmlError('Failed to read file. Please try again.');
+            reader.readAsText(xmlFile);
+        }
+    };
 
     return (
         <motion.div
@@ -91,52 +120,185 @@ export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenP
                     </div>
                 </motion.div>
 
-                {/* Textarea */}
+                {/* Tab switcher */}
                 <motion.div
-                    className="space-y-2"
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.15, type: 'spring', stiffness: 380, damping: 28 }}
+                    transition={{ delay: 0.13, type: 'spring', stiffness: 380, damping: 28 }}
+                    className="flex bg-gray-100 rounded-2xl p-1 gap-1"
                 >
-                    <motion.div
-                        className="rounded-2xl overflow-hidden transition-shadow duration-200"
-                        animate={{
-                            boxShadow: focused
-                                ? '0 0 0 2px #00A651, 0 4px 20px rgba(0,166,81,0.12)'
-                                : '0 1px 8px rgba(0,0,0,0.06)'
-                        }}
+                    <button
+                        onClick={() => setActiveTab('paste')}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                            activeTab === 'paste'
+                                ? 'bg-white text-gray-900 shadow-sm'
+                                : 'text-gray-500'
+                        }`}
                     >
-                        <textarea
-                            value={smsText}
-                            onChange={e => setSmsText(e.target.value)}
-                            onFocus={() => setFocused(true)}
-                            onBlur={() => setFocused(false)}
-                            placeholder={"Drop your M-PESA messages here...\n\nWorks with copied messages or SMS backup files."}
-                            className="w-full p-4 border-0 rounded-2xl min-h-[200px] resize-none text-sm text-gray-800 placeholder-gray-400 bg-gray-50 focus:outline-none focus:bg-white transition-colors duration-200"
-                        />
-                    </motion.div>
-
-                    <div className="flex items-center justify-between px-1">
-                        <p className="text-xs text-gray-400">
-                            {smsText.length > 0
-                                ? `${smsText.length.toLocaleString()} characters`
-                                : 'Copied messages or SMS backup'}
-                        </p>
-                        <AnimatePresence>
-                            {ready && (
-                                <motion.span
-                                    className="text-xs text-[#00A651] font-medium"
-                                    initial={{ opacity: 0, scale: 0.8 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.8 }}
-                                    transition={{ type: 'spring', stiffness: 400 }}
-                                >
-                                    Ready ✓
-                                </motion.span>
-                            )}
-                        </AnimatePresence>
-                    </div>
+                        <ClipboardPaste className="w-4 h-4" />
+                        Paste messages
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('upload')}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                            activeTab === 'upload'
+                                ? 'bg-white text-gray-900 shadow-sm'
+                                : 'text-gray-500'
+                        }`}
+                    >
+                        <FileUp className="w-4 h-4" />
+                        Upload XML
+                    </button>
                 </motion.div>
+
+                <AnimatePresence mode="wait">
+
+                    {/* ── Paste tab ── */}
+                    {activeTab === 'paste' && (
+                        <motion.div
+                            key="paste"
+                            className="space-y-2"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+                        >
+                            <motion.div
+                                className="rounded-2xl overflow-hidden transition-shadow duration-200"
+                                animate={{
+                                    boxShadow: focused
+                                        ? '0 0 0 2px #00A651, 0 4px 20px rgba(0,166,81,0.12)'
+                                        : '0 1px 8px rgba(0,0,0,0.06)'
+                                }}
+                            >
+                                <textarea
+                                    value={smsText}
+                                    onChange={e => setSmsText(e.target.value)}
+                                    onFocus={() => setFocused(true)}
+                                    onBlur={() => setFocused(false)}
+                                    placeholder={"Drop your M-PESA messages here...\n\nWorks with copied messages or SMS backup files."}
+                                    className="w-full p-4 border-0 rounded-2xl min-h-[200px] resize-none text-sm text-gray-800 placeholder-gray-400 bg-gray-50 focus:outline-none focus:bg-white transition-colors duration-200"
+                                />
+                            </motion.div>
+
+                            <div className="flex items-center justify-between px-1">
+                                <p className="text-xs text-gray-400">
+                                    {smsText.length > 0
+                                        ? `${smsText.length.toLocaleString()} characters`
+                                        : 'Copied messages or SMS backup'}
+                                </p>
+                                <AnimatePresence>
+                                    {pasteReady && (
+                                        <motion.span
+                                            className="text-xs text-[#00A651] font-medium"
+                                            initial={{ opacity: 0, scale: 0.8 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.8 }}
+                                            transition={{ type: 'spring', stiffness: 400 }}
+                                        >
+                                            Ready ✓
+                                        </motion.span>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {/* ── Upload tab ── */}
+                    {activeTab === 'upload' && (
+                        <motion.div
+                            key="upload"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+                            className="space-y-3"
+                        >
+                            {/* How-to card */}
+                            <div
+                                className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-3"
+                                style={{ boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}
+                            >
+                                <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">How to get your XML backup</p>
+                                <ol className="space-y-2.5">
+                                    {[
+                                        { n: '1', text: 'Download "SMS Backup & Restore" (free) from the Play Store.' },
+                                        { n: '2', text: 'Open it, filter to the M-PESA sender, and run a backup — it saves an .xml file to your phone.' },
+                                        { n: '3', text: 'Come back here, tap Upload below, and select that file.' },
+                                    ].map(({ n, text }) => (
+                                        <li key={n} className="flex items-start gap-3">
+                                            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#00A651]/10 text-[#00A651] text-xs font-bold flex items-center justify-center mt-0.5">
+                                                {n}
+                                            </span>
+                                            <span className="text-sm text-gray-600 leading-snug">{text}</span>
+                                        </li>
+                                    ))}
+                                </ol>
+                            </div>
+
+                            {/* Hidden file input */}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".xml"
+                                className="hidden"
+                                onChange={handleFileChange}
+                            />
+
+                            {/* Upload button / file state */}
+                            <AnimatePresence mode="wait">
+                                {xmlFile ? (
+                                    <motion.div
+                                        key="file-ready"
+                                        initial={{ opacity: 0, scale: 0.97 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.97 }}
+                                        className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl px-4 py-3.5"
+                                    >
+                                        <CheckCircle2 className="w-5 h-5 text-[#00A651] flex-shrink-0" />
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-semibold text-green-800 truncate">{xmlFile.name}</p>
+                                            <p className="text-xs text-green-600">Ready ✓</p>
+                                        </div>
+                                        <button
+                                            onClick={() => { setXmlFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                                            className="text-xs text-green-600 hover:text-green-800 font-medium flex-shrink-0"
+                                        >
+                                            Change
+                                        </button>
+                                    </motion.div>
+                                ) : (
+                                    <motion.button
+                                        key="file-picker"
+                                        initial={{ opacity: 0, scale: 0.97 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.97 }}
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-full min-h-[56px] rounded-2xl border-2 border-dashed border-gray-300 bg-white flex items-center justify-center gap-2.5 text-sm font-semibold text-gray-500 hover:border-[#00A651] hover:text-[#00A651] transition-colors"
+                                        whileTap={{ scale: 0.98 }}
+                                    >
+                                        <FileUp className="w-4 h-4" />
+                                        Select .xml file
+                                    </motion.button>
+                                )}
+                            </AnimatePresence>
+
+                            {/* Error */}
+                            <AnimatePresence>
+                                {xmlError && (
+                                    <motion.p
+                                        initial={{ opacity: 0, y: -4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0 }}
+                                        className="text-xs text-red-600 px-1"
+                                    >
+                                        {xmlError}
+                                    </motion.p>
+                                )}
+                            </AnimatePresence>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 {/* Submit */}
                 <motion.div

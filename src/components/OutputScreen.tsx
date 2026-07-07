@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
-import type { ParsedTransaction } from '../types';
+import type { InputSource, ParsedTransaction } from '../types';
 import { generateReceiptHTML, generateReceiptPDF } from '../lib/receiptGenerator';
 import { generateLedgerCSV, generateLedgerSummaryCSV } from '../lib/ledgerGenerator';
 import { downloadHTML, downloadCSV, downloadPDF, getMpesaFilenames } from '../lib/downloadUtils';
-import { ArrowLeft, Inbox, Download, Tag, ChevronDown, Share2, ClipboardCopy, Check } from 'lucide-react';
+import { detectFlags, type DangerFlag } from '../lib/flagDetector';
+import { ArrowLeft, Inbox, Download, Tag, ChevronDown, Share2, ClipboardCopy, Check, AlertTriangle, Info, Search } from 'lucide-react';
 
 interface OutputScreenProps {
     mode: 'receipt' | 'ledger';
     transactions: ParsedTransaction[];
     dateRangeLabel: string;
+    inputSource: InputSource;
     onReset: () => void;
     onBack: () => void;
 }
@@ -119,6 +121,67 @@ function LabelPicker({
     );
 }
 
+// ── PWO Danger Zone Card ──────────────────────────────────────────────────────
+
+function PWOCard({ flags }: { flags: DangerFlag[] }) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.18, type: 'spring', stiffness: 380, damping: 28 }}
+            className="rounded-2xl overflow-hidden"
+            style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.06)' }}
+        >
+            {/* Card header */}
+            <div className="bg-white px-4 pt-4 pb-3 border-b border-gray-100 flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                    <Search className="w-3.5 h-3.5 text-slate-600" />
+                </div>
+                <div>
+                    <p className="text-sm font-bold text-gray-900">PWO Pattern Check</p>
+                    <p className="text-xs text-gray-500">Based on your transaction history</p>
+                </div>
+            </div>
+
+            {/* Flags */}
+            <div className="bg-white divide-y divide-gray-50">
+                {flags.map((flag, i) => (
+                    <motion.div
+                        key={flag.id}
+                        initial={{ opacity: 0, x: -12 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.22 + i * 0.07, type: 'spring', stiffness: 380, damping: 28 }}
+                        className="px-4 py-3.5 flex items-start gap-3"
+                    >
+                        {flag.severity === 'warning' ? (
+                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center mt-0.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                            </div>
+                        ) : (
+                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center mt-0.5">
+                                <Info className="w-3.5 h-3.5 text-blue-500" />
+                            </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-semibold ${flag.severity === 'warning' ? 'text-amber-800' : 'text-blue-800'}`}>
+                                {flag.title}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{flag.detail}</p>
+                        </div>
+                    </motion.div>
+                ))}
+            </div>
+
+            {/* Footer disclaimer */}
+            <div className="bg-gray-50 border-t border-gray-100 px-4 py-3">
+                <p className="text-xs text-gray-400 leading-relaxed">
+                    This is informational only — not legal advice. Based on KRA's published PWO guidelines (April 2026).
+                </p>
+            </div>
+        </motion.div>
+    );
+}
+
 // ── Static config ─────────────────────────────────────────────────────────────
 
 const statRows = [
@@ -180,7 +243,7 @@ function buildSummaryText(
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function OutputScreen({ mode, transactions: initialTransactions, dateRangeLabel, onReset, onBack }: OutputScreenProps) {
+export function OutputScreen({ mode, transactions: initialTransactions, dateRangeLabel, inputSource, onReset, onBack }: OutputScreenProps) {
     const [txns, setTxns] = useState<ParsedTransaction[]>(initialTransactions);
     const [downloading, setDownloading]   = useState<string | null>(null);
     const [openLabelId, setOpenLabelId]   = useState<string | null>(null);
@@ -213,6 +276,9 @@ export function OutputScreen({ mode, transactions: initialTransactions, dateRang
 
     const fmt = (n: number) => `Ksh ${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 
+    // PWO flags — only computed when source is XML, runs on filtered txns
+    const pwoFlags: DangerFlag[] = inputSource === 'xml' ? detectFlags(txns) : [];
+
     function setLabel(code: string, label: string | null) {
         setTxns(prev => prev.map(t => t.transactionCode === code ? { ...t, receiptLabel: label } : t));
     }
@@ -226,17 +292,14 @@ export function OutputScreen({ mode, transactions: initialTransactions, dateRang
 
     const handleShare = async () => {
         const text = buildSummaryText(dateRangeLabel, totalReceived, trueOutflow, netFlow, totalFees);
-        // Try sharing a generated HTML file first (desktop/mobile), fall back to text
         if (navigator.share) {
             try {
                 await navigator.share({ title: 'M-Track Summary', text });
                 return;
             } catch (err) {
-                // User cancelled — not an error worth showing
                 if ((err as Error).name === 'AbortError') return;
             }
         }
-        // Fallback: copy to clipboard
         try {
             await navigator.clipboard.writeText(text);
             setShareError('Web Share not supported — summary copied to clipboard instead');
@@ -474,6 +537,11 @@ export function OutputScreen({ mode, transactions: initialTransactions, dateRang
                         </div>
                     )}
                 </motion.div>
+
+                {/* ── PWO Danger Zone Card — XML uploads only ── */}
+                {inputSource === 'xml' && pwoFlags.length > 0 && (
+                    <PWOCard flags={pwoFlags} />
+                )}
 
                 {/* Receipt builder — receipt mode only */}
                 {mode === 'receipt' && (

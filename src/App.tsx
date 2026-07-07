@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { AppState, ParsedTransaction, DeclutterAnswers, DeclutterCommand } from './types';
+import type { AppState, ParsedTransaction, DeclutterAnswers, DeclutterCommand, InputSource } from './types';
 import { getCutoffDate, getDaysLabel } from './lib/dateUtils';
 import { parseAllSMS } from './lib/smsParser';
 import { generateDeclutterCommands } from './lib/declutterCommands';
@@ -18,6 +18,7 @@ export default function App() {
         timeRange: null,
         smsText: '',
         cutoffDate: null,
+        inputSource: 'manual',
     });
     const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
     const [declutterCommands, setDeclutterCommands] = useState<DeclutterCommand[]>([]);
@@ -41,10 +42,10 @@ export default function App() {
         }));
     };
 
-    const handleInputSubmit = (text: string) => {
+    const handleInputSubmit = (text: string, source: InputSource) => {
         const parsed = parseAllSMS(text);
         setTransactions(parsed);
-        setState(prev => ({ ...prev, smsText: text, step: 'review' }));
+        setState(prev => ({ ...prev, smsText: text, inputSource: source, step: 'review' }));
     };
 
     const handleReviewConfirm = (labelled: ParsedTransaction[]) => {
@@ -60,12 +61,10 @@ export default function App() {
         setState(prev => ({ ...prev, step: 'declutterOutput' }));
     };
 
-    
-
     // ── Shared ───────────────────────────────────────────────────────────────
 
     const handleReset = () => {
-        setState({ mode: null, step: 'home', timeRange: null, smsText: '', cutoffDate: null });
+        setState({ mode: null, step: 'home', timeRange: null, smsText: '', cutoffDate: null, inputSource: 'manual' });
         setTransactions([]);
         setDeclutterCommands([]);
     };
@@ -111,6 +110,7 @@ export default function App() {
                         mode={state.mode as 'receipt' | 'ledger'}
                         transactions={transactions}
                         dateRangeLabel={getDaysLabel(state.timeRange!)}
+                        inputSource={state.inputSource}
                         onReset={handleReset}
                         onBack={() => setState(prev => ({ ...prev, step: 'review' }))}
                     />
@@ -124,14 +124,14 @@ export default function App() {
                     />
                 );
 
-                case 'declutterOutput':
-                    return (
-                        <DeclutterOutputScreen
-                            commands={declutterCommands}
-                            onReset={handleReset}
-                            onBack={() => setState(prev => ({ ...prev, step: 'declutterDiagnostic' }))}
-                        />
-                    );
+            case 'declutterOutput':
+                return (
+                    <DeclutterOutputScreen
+                        commands={declutterCommands}
+                        onReset={handleReset}
+                        onBack={() => setState(prev => ({ ...prev, step: 'declutterDiagnostic' }))}
+                    />
+                );
 
             default:
                 return null;

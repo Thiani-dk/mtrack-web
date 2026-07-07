@@ -9,6 +9,8 @@ export type AppStep =
     | 'declutterDiagnostic'
     | 'declutterOutput';
 
+export type InputSource = 'manual' | 'xml';
+
 export type TransactionSubType =
     | 'person_send'
     | 'person_receive'
@@ -51,6 +53,7 @@ export interface AppState {
     timeRange: TimeRange | null;
     smsText: string;
     cutoffDate: Date | null;
+    inputSource: InputSource;
 }
 
 export interface ParsedTransaction {
