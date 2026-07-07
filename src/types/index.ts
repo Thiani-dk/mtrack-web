@@ -37,6 +37,14 @@ export type ExpenseLabel =
     | 'Other Business Expense'
     | null;
 
+// Preset receipt labels shown on OutputScreen for reimbursement receipts
+export type ReceiptLabelPreset =
+    | 'Transport'
+    | 'Accommodation'
+    | 'Fuel'
+    | 'Medical Aid'
+    | 'Other';
+
 export interface AppState {
     mode: AppMode | null;
     step: AppStep;
@@ -54,9 +62,15 @@ export interface ParsedTransaction {
     recipient: string;
     transactionCode: string;
     balance: number | null;
+    // Parsed directly from "Transaction cost, Ksh7.00" in the SMS
+    transactionCost: number | null;
     rawLine: string;
     label: ExpenseLabel;
     customLabel: string | null;
+    // Per-transaction label added on OutputScreen before downloading receipt
+    receiptLabel: string | null;
+    // Whether the user has toggled this transaction out of the receipt
+    excludedFromReceipt: boolean;
 }
 
 // ---------------------------------------------------------------------------

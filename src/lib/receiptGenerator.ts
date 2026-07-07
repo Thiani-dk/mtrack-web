@@ -1,80 +1,83 @@
 import type { ParsedTransaction } from '../types';
 import { jsPDF } from 'jspdf';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getDescription(t: ParsedTransaction): string {
-    switch (t.subType) {
-        case 'person_receive': return `FROM: ${t.recipient.toUpperCase()}`;
-        case 'person_send':    return `TO: ${t.recipient.toUpperCase()}`;
-        case 'pochi_send':     return `POCHI: ${t.recipient.toUpperCase()}`;
-        case 'paybill':        return `PAYBILL: ${t.recipient.toUpperCase()}`;
-        case 'airtime':        return 'AIRTIME PURCHASE';
-        case 'data':           return 'DATA BUNDLE';
-        case 'withdrawal':     return t.recipient.toUpperCase();
-        case 'mshwari':        return 'M-SHWARI SAVINGS';
-        case 'investment':     return `INVESTMENT: ${t.recipient.toUpperCase()}`;
-        default:               return t.recipient.toUpperCase();
-    }
-}
-
-function getBadgeLabel(t: ParsedTransaction): string {
-    switch (t.subType) {
-        case 'person_receive': return 'RECEIVED';
-        case 'person_send':    return 'SENT';
-        case 'pochi_send':     return 'POCHI';
-        case 'paybill':        return 'PAYBILL';
-        case 'airtime':        return 'AIRTIME';
-        case 'data':           return 'DATA';
-        case 'withdrawal':     return 'WITHDRAWAL';
-        case 'mshwari':        return 'M-SHWARI';
-        case 'investment':     return 'INVESTMENT';
-        default:               return t.type.toUpperCase();
-    }
-}
-
-// Correct Kenyan Shilling abbreviation is Ksh, not KSH
 function fmt(n: number): string {
     return 'Ksh ' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function fmtSigned(n: number): string {
-    const abs = fmt(Math.abs(n));
-    return (n >= 0 ? '+' : '-') + abs;
+    return (n >= 0 ? '+' : '-') + fmt(Math.abs(n));
 }
 
-function repeat(char: string, n: number): string {
-    return char.repeat(n);
-}
+function repeat(ch: string, n: number): string { return ch.repeat(n); }
 
-function center(text: string, width: number): string {
-    const pad = Math.max(0, Math.floor((width - text.length) / 2));
+function center(text: string, W: number): string {
+    const pad = Math.max(0, Math.floor((W - text.length) / 2));
     return ' '.repeat(pad) + text;
 }
 
-function leftRight(left: string, right: string, width: number): string {
-    const gap = Math.max(1, width - left.length - right.length);
+function leftRight(left: string, right: string, W: number): string {
+    const gap = Math.max(1, W - left.length - right.length);
     return left + ' '.repeat(gap) + right;
 }
 
-// Generates a short human-readable receipt reference from the current timestamp
-function generateReceiptRef(): string {
-    const now = new Date();
-    const y = String(now.getFullYear()).slice(2);
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const h = String(now.getHours()).padStart(2, '0');
-    const min = String(now.getMinutes()).padStart(2, '0');
-    return `MT${y}${m}${d}-${h}${min}`;
+// Truncate a string to maxLen, adding … if trimmed
+function trunc(s: string, maxLen: number): string {
+    return s.length <= maxLen ? s : s.substring(0, maxLen - 1) + '…';
 }
 
-// ── Shared data computation ───────────────────────────────────────────────────
+// Security code: first 6 chars of a djb2 hash of the receipt ref
+// Appears at top-left AND bottom-right — Costco pattern
+function securityCode(ref: string): string {
+    let h = 5381;
+    for (let i = 0; i < ref.length; i++) {
+        h = ((h << 5) + h) ^ ref.charCodeAt(i);
+        h = h >>> 0;
+    }
+    return h.toString(36).toUpperCase().padStart(6, '0').slice(0, 6);
+}
+
+function generateReceiptRef(): string {
+    const n = new Date();
+    return `MT${String(n.getFullYear()).slice(2)}${String(n.getMonth()+1).padStart(2,'0')}${String(n.getDate()).padStart(2,'0')}-${String(n.getHours()).padStart(2,'0')}${String(n.getMinutes()).padStart(2,'0')}`;
+}
+
+function getRecipientShort(t: ParsedTransaction): string {
+    switch (t.subType) {
+        case 'airtime':        return 'AIRTIME';
+        case 'data':           return 'DATA BUNDLE';
+        case 'mshwari':        return 'M-SHWARI';
+        case 'investment':     return 'ZIIDI MMF';
+        case 'withdrawal':     return 'CASH WITHDRAWAL';
+        default:               return t.recipient.toUpperCase();
+    }
+}
+
+function getTypeFlag(t: ParsedTransaction): string {
+    // Right-margin single-char flag — Costco pattern
+    switch (t.subType) {
+        case 'person_receive': return 'R'; // Received
+        case 'person_send':    return 'S'; // Send
+        case 'pochi_send':     return 'P'; // Pochi
+        case 'paybill':        return 'B'; // Bill
+        case 'airtime':        return 'A'; // Airtime
+        case 'data':           return 'D'; // Data
+        case 'withdrawal':     return 'W'; // Withdrawal
+        case 'mshwari':        return 'M'; // M-Shwari
+        case 'investment':     return 'I'; // Investment
+        default:               return '?';
+    }
+}
+
+// ── Shared computation ────────────────────────────────────────────────────────
 
 interface ReceiptData {
-    now: Date;
     currentDate: string;
     currentTime: string;
     receiptRef: string;
+    secCode: string;
     totalSent: number;
     totalReceived: number;
     personSendTotal: number;
@@ -85,11 +88,13 @@ interface ReceiptData {
     withdrawalTotal: number;
     mshwariTotal: number;
     investmentTotal: number;
-    savingsTotal: number;
     trueOutflow: number;
     net: number;
+    totalFees: number;
+    feesBreakdown: { label: string; count: number; total: number }[];
     labelTotals: Record<string, number>;
     hasLabels: boolean;
+    activeTransactions: ParsedTransaction[];
 }
 
 function computeReceiptData(transactions: ParsedTransaction[]): ReceiptData {
@@ -98,127 +103,154 @@ function computeReceiptData(transactions: ParsedTransaction[]): ReceiptData {
         weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
     });
     const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    const receiptRef = generateReceiptRef();
+    const receiptRef  = generateReceiptRef();
+    const secCode     = securityCode(receiptRef);
 
-    const totalSent       = transactions.filter(t => t.type === 'sent').reduce((s, t) => s + t.amount, 0);
-    const totalReceived   = transactions.filter(t => t.type === 'received').reduce((s, t) => s + t.amount, 0);
-    const mshwariTotal    = transactions.filter(t => t.subType === 'mshwari').reduce((s, t) => s + t.amount, 0);
-    const investmentTotal = transactions.filter(t => t.subType === 'investment').reduce((s, t) => s + t.amount, 0);
-    const withdrawalTotal = transactions.filter(t => t.subType === 'withdrawal').reduce((s, t) => s + t.amount, 0);
-    const paybillTotal    = transactions.filter(t => t.subType === 'paybill').reduce((s, t) => s + t.amount, 0);
-    const airtimeTotal    = transactions.filter(t => t.subType === 'airtime').reduce((s, t) => s + t.amount, 0);
-    const dataTotal       = transactions.filter(t => t.subType === 'data').reduce((s, t) => s + t.amount, 0);
-    const personSendTotal = transactions.filter(t => t.subType === 'person_send').reduce((s, t) => s + t.amount, 0);
-    const pochiTotal      = transactions.filter(t => t.subType === 'pochi_send').reduce((s, t) => s + t.amount, 0);
-    const savingsTotal    = mshwariTotal + investmentTotal;
-    const trueOutflow     = totalSent - savingsTotal;
+    // Only include transactions the user hasn't removed
+    const activeTransactions = transactions.filter(t => !t.excludedFromReceipt);
+
+    const sum = (fn: (t: ParsedTransaction) => boolean) =>
+        activeTransactions.filter(fn).reduce((s, t) => s + t.amount, 0);
+
+    const totalSent       = sum(t => t.type === 'sent');
+    const totalReceived   = sum(t => t.type === 'received');
+    const mshwariTotal    = sum(t => t.subType === 'mshwari');
+    const investmentTotal = sum(t => t.subType === 'investment');
+    const withdrawalTotal = sum(t => t.subType === 'withdrawal');
+    const paybillTotal    = sum(t => t.subType === 'paybill');
+    const airtimeTotal    = sum(t => t.subType === 'airtime');
+    const dataTotal       = sum(t => t.subType === 'data');
+    const personSendTotal = sum(t => t.subType === 'person_send');
+    const pochiTotal      = sum(t => t.subType === 'pochi_send');
+    const trueOutflow     = totalSent - mshwariTotal - investmentTotal;
     const net             = totalReceived - trueOutflow;
 
-    const labelTotals: Record<string, number> = {};
-    transactions.forEach(t => {
-        const key = t.customLabel ?? t.label ?? 'Unlabelled';
-        if (t.type === 'sent') {
-            labelTotals[key] = (labelTotals[key] ?? 0) + t.amount;
+    // Transaction fees — parsed directly from SMS
+    const totalFees = activeTransactions.reduce((s, t) => s + (t.transactionCost ?? 0), 0);
+
+    // Fee breakdown by subtype
+    const feeGroups: Record<string, { count: number; total: number }> = {};
+    activeTransactions.forEach(t => {
+        if ((t.transactionCost ?? 0) > 0) {
+            const key = t.subType === 'person_send' ? 'Send Money'
+                      : t.subType === 'pochi_send'  ? 'Pochi la Biashara'
+                      : t.subType === 'paybill'     ? 'Paybill / Till'
+                      : t.subType === 'withdrawal'  ? 'Withdrawal'
+                      : t.subType === 'airtime'     ? 'Airtime'
+                      : 'Other';
+            if (!feeGroups[key]) feeGroups[key] = { count: 0, total: 0 };
+            feeGroups[key].count++;
+            feeGroups[key].total += t.transactionCost!;
         }
     });
+    const feesBreakdown = Object.entries(feeGroups).map(([label, v]) => ({ label, ...v }));
 
-    const hasLabels = transactions.some(t => t.label !== null);
+    // Receipt label totals
+    const labelTotals: Record<string, number> = {};
+    activeTransactions.forEach(t => {
+        if (t.receiptLabel && t.type === 'sent') {
+            labelTotals[t.receiptLabel] = (labelTotals[t.receiptLabel] ?? 0) + t.amount;
+        }
+    });
+    const hasLabels = activeTransactions.some(t => t.receiptLabel != null);
 
     return {
-        now, currentDate, currentTime, receiptRef,
-        totalSent, totalReceived,
-        personSendTotal, pochiTotal, paybillTotal,
-        airtimeTotal, dataTotal, withdrawalTotal,
-        mshwariTotal, investmentTotal,
-        savingsTotal, trueOutflow, net,
-        labelTotals, hasLabels,
+        currentDate, currentTime, receiptRef, secCode,
+        totalSent, totalReceived, personSendTotal, pochiTotal,
+        paybillTotal, airtimeTotal, dataTotal, withdrawalTotal,
+        mshwariTotal, investmentTotal, trueOutflow, net,
+        totalFees, feesBreakdown, labelTotals, hasLabels,
+        activeTransactions,
     };
 }
 
-// ── HTML Receipt ─────────────────────────────────────────────────────────────
+// ── HTML Receipt ──────────────────────────────────────────────────────────────
 
 export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange: string): string {
     const d = computeReceiptData(transactions);
-    const W = 42;
+    const W = 44;
 
     const lines: string[] = [
-        repeat('=', W),
-        center('M-TRACK', W),
-        center('Mobile Money Receipt', W),
-        repeat('-', W),
-        leftRight('REF:', d.receiptRef, W),
-        leftRight('DATE:', d.currentDate.toUpperCase(), W),
-        leftRight('TIME:', d.currentTime, W),
-        leftRight('PERIOD:', dateRange.toUpperCase(), W),
-        repeat('=', W),
+        // Security code top-left, date top-right — Costco pattern
+        leftRight(d.secCode, d.currentDate.toUpperCase(), W),
         '',
-        center('TRANSACTION SUMMARY', W),
-        repeat('-', W),
-        leftRight('TRANSACTIONS', String(transactions.length), W),
-        repeat('-', W),
-        // Inflows
-        leftRight('TOTAL RECEIVED', fmt(d.totalReceived), W),
-        repeat('-', W),
-        // Outflow breakdown
-        leftRight('SENT TO PEOPLE', fmt(d.personSendTotal), W),
-        leftRight('POCHI LA BIASHARA', fmt(d.pochiTotal), W),
-        leftRight('PAYBILL & TILL', fmt(d.paybillTotal), W),
-        leftRight('AIRTIME', fmt(d.airtimeTotal), W),
-        leftRight('DATA BUNDLES', fmt(d.dataTotal), W),
-        leftRight('WITHDRAWALS', fmt(d.withdrawalTotal), W),
-        repeat('-', W),
-        leftRight('TOTAL OUTFLOW', fmt(d.trueOutflow), W),
-        repeat('-', W),
-        // Savings (excluded from outflow)
-        leftRight('M-SHWARI (SAVINGS)', fmt(d.mshwariTotal), W),
-        leftRight('INVESTMENTS', fmt(d.investmentTotal), W),
-        repeat('-', W),
-        leftRight('NET FLOW', fmtSigned(d.net), W),
-        center('(SAVINGS & INVESTMENTS EXCLUDED)', W),
+        center('M-TRACK', W),
+        center('Expense Receipt', W),
+        '',
+        leftRight(`REF: ${d.receiptRef}`, `PERIOD: ${dateRange.toUpperCase()}`, W),
         repeat('=', W),
+        // Item count bold — Costco pattern
+        leftRight(`${d.activeTransactions.length} ITEMS`, d.currentTime, W),
+        repeat('-', W),
+        // Column headers
+        leftRight('  # DATE       RECIPIENT', 'AMOUNT  [T]', W),
+        repeat('-', W),
     ];
 
-    // KRA label breakdown
+    // Single-line transaction rows — Costco dense layout
+    d.activeTransactions.forEach((t, i) => {
+        const num      = String(i + 1).padStart(2, '0');
+        const dateStr  = t.date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
+        const flag     = getTypeFlag(t);
+        const sign     = t.type === 'sent' ? '-' : '+';
+        const amtStr   = `${sign}${fmt(t.amount)}`;
+        const nameCol  = trunc(getRecipientShort(t), 16);
+        const left     = `  ${num} ${dateStr}  ${nameCol}`;
+        lines.push(leftRight(left, `${amtStr}  [${flag}]`, W));
+        // Receipt label indented below if set — Target "You Saved" style
+        if (t.receiptLabel) {
+            lines.push(`       → ${t.receiptLabel.toUpperCase()}`);
+        }
+        // Transaction code on its own line, small
+        lines.push(`       ${t.transactionCode}`);
+        if (t.transactionCost != null && t.transactionCost > 0) {
+            lines.push(`       FEE: ${fmt(t.transactionCost)}`);
+        }
+    });
+
+    lines.push(repeat('-', W));
+    lines.push('');
+    lines.push(center('TYPE FLAGS: R=Received S=Send P=Pochi', W));
+    lines.push(center('B=Bill  A=Airtime  W=Withdrawal  M=M-Shwari', W));
+    lines.push('');
+    lines.push(repeat('=', W));
+
+    // Totals section — Target rigid negative space
+    lines.push('');
+    lines.push(leftRight('SUBTOTAL', fmt(d.trueOutflow), W));
+    if (d.totalFees > 0) {
+        lines.push(leftRight('TRANSACTION FEES', fmt(d.totalFees), W));
+        if (d.feesBreakdown.length > 0) {
+            d.feesBreakdown.forEach(f => {
+                lines.push(leftRight(`  ${f.label} (x${f.count})`, fmt(f.total), W));
+            });
+        }
+    }
+    lines.push(repeat('-', W));
+    lines.push(leftRight('TOTAL SPENT', fmt(d.trueOutflow + d.totalFees), W));
+    if (d.totalReceived > 0) {
+        lines.push(leftRight('TOTAL RECEIVED', fmt(d.totalReceived), W));
+        lines.push(repeat('-', W));
+        lines.push(leftRight('NET FLOW', fmtSigned(d.net), W));
+    }
+    lines.push(repeat('=', W));
+
+    // Label / category breakdown — Target "You Saved" block
     if (d.hasLabels) {
         lines.push('');
-        lines.push(center('EXPENSE BREAKDOWN BY CATEGORY', W));
+        lines.push(center('CATEGORY BREAKDOWN', W));
         lines.push(repeat('-', W));
         Object.entries(d.labelTotals).forEach(([label, total]) => {
-            lines.push(leftRight(label.substring(0, 26).toUpperCase(), fmt(total), W));
+            lines.push(leftRight(`  ${label.toUpperCase()}`, fmt(total), W));
         });
         lines.push(repeat('=', W));
     }
 
-    // Transaction detail
     lines.push('');
-    lines.push(center('TRANSACTION DETAIL', W));
-    lines.push(repeat('-', W));
-
-    transactions.forEach((t, i) => {
-        const dateStr = t.date.toLocaleDateString('en-GB');
-        const sign = t.type === 'sent' ? '-' : '+';
-        lines.push('');
-        lines.push(leftRight(`${String(i + 1).padStart(2, '0')}. ${dateStr}`, t.time, W));
-        lines.push(leftRight(`    ${getBadgeLabel(t)}`, `${sign}${fmt(t.amount)}`, W));
-        lines.push(`    ${getDescription(t)}`);
-        if (t.customLabel) {
-            lines.push(`    NOTE: ${t.customLabel.toUpperCase()}`);
-        } else if (t.label) {
-            lines.push(`    LABEL: ${t.label.toUpperCase()}`);
-        }
-        lines.push(`    REF: ${t.transactionCode}`);
-        if (t.balance != null) {
-            lines.push(leftRight('    BAL:', fmt(t.balance), W));
-        }
-        lines.push(repeat('-', W));
-    });
-
-    lines.push('');
-    lines.push(repeat('=', W));
     lines.push(center('GENERATED BY M-TRACK', W));
     lines.push(center(`REF: ${d.receiptRef}`, W));
-    lines.push(repeat('=', W));
-    lines.push('');
+    // Security code repeated at bottom — Costco daily-code pattern
+    lines.push(leftRight('mtrack.vercel.app', d.secCode, W));
 
     const receiptText = lines.join('\n');
 
@@ -227,7 +259,7 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>M-TRACK Receipt ${d.receiptRef}</title>
+    <title>M-TRACK ${d.receiptRef}</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -246,9 +278,9 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
         }
         .receipt {
             background: white;
-            padding: 8px 28px 24px;
-            width: 340px;
-            box-shadow: 2px 4px 24px rgba(0,0,0,0.15);
+            padding: 10px 24px 28px;
+            width: 360px;
+            box-shadow: 2px 4px 28px rgba(0,0,0,0.15);
         }
         .tear-bottom {
             width: 100%; height: 18px; background: white;
@@ -256,8 +288,8 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
         }
         pre {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 11.5px;
-            line-height: 1.6;
+            font-size: 11px;
+            line-height: 1.65;
             color: #1a1a1a;
             white-space: pre;
             overflow-x: auto;
@@ -266,7 +298,7 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
             body { background: white; padding: 0; }
             .tear-top, .tear-bottom { display: none; }
             .receipt { box-shadow: none; width: 100%; padding: 0; }
-            pre { font-size: 10px; }
+            pre { font-size: 9.5px; }
         }
     </style>
 </head>
@@ -283,113 +315,138 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
 // ── PDF Receipt ───────────────────────────────────────────────────────────────
 
 export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange: string): Blob {
-    // Estimate page height dynamically so there's no blank tail or clipping.
-    // Each transaction entry is ~7 lines. Header/summary/footer ~55 lines.
-    const estimatedLines = 55 + (transactions.length * 7);
-    const pageHeight = Math.max(150, Math.min(estimatedLines * 4.2, 800));
-
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, pageHeight] });
     const d = computeReceiptData(transactions);
 
-    doc.setFont('Courier', 'normal');
-    const pageW = 80;
-    const margin = 4;
-    let y = 6;
-    const lineH = 4;
+    // Dynamic height: base ~80mm + ~14mm per transaction + label/fee extras
+    const extraPerTx   = d.hasLabels ? 18 : 14;
+    const featureLines = d.totalFees > 0 ? d.feesBreakdown.length * 4 + 8 : 0;
+    const labelLines   = d.hasLabels ? Object.keys(d.labelTotals).length * 4 + 12 : 0;
+    const pageHeight   = Math.max(120, Math.min(80 + d.activeTransactions.length * extraPerTx + featureLines + labelLines, 900));
 
-    function addLine(text: string, size = 8, bold = false, align: 'left' | 'center' | 'right' = 'left') {
+    const doc    = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, pageHeight] });
+    const pageW  = 80;
+    const margin = 4;
+    let y        = 6;
+    const lh     = 3.8;
+
+    doc.setFont('Courier', 'normal');
+
+    function line(text: string, size = 7.5, bold = false, align: 'left'|'center'|'right' = 'left') {
         doc.setFontSize(size);
         doc.setFont('Courier', bold ? 'bold' : 'normal');
         if (align === 'center') doc.text(text, pageW / 2, y, { align: 'center' });
         else if (align === 'right') doc.text(text, pageW - margin, y, { align: 'right' });
         else doc.text(text, margin, y);
-        y += lineH;
+        y += lh;
     }
 
-    function addDivider(char = '-') { addLine(char.repeat(38), 7); }
-
-    function addLR(left: string, right: string, size = 8, bold = false) {
+    function lr(left: string, right: string, size = 7.5, bold = false) {
         doc.setFontSize(size);
         doc.setFont('Courier', bold ? 'bold' : 'normal');
         doc.text(left, margin, y);
         doc.text(right, pageW - margin, y, { align: 'right' });
-        y += lineH;
+        y += lh;
     }
 
-    function addSpacer() { y += lineH * 0.5; }
+    function divider(ch = '-') { line(ch.repeat(40), 6.5); }
+    function sp(factor = 0.5) { y += lh * factor; }
 
     // ── Header ──
-    addDivider('=');
-    addLine('M-TRACK', 14, true, 'center');
-    addLine('Mobile Money Receipt', 8, false, 'center');
-    addDivider('-');
-    addLR('REF:', d.receiptRef, 7);
-    addLR('DATE:', d.currentDate.toUpperCase(), 7);
-    addLR('TIME:', d.currentTime, 7);
-    addLR('PERIOD:', dateRange.toUpperCase(), 7);
-    addDivider('=');
-    addSpacer();
+    // Security code left, date right
+    lr(d.secCode, d.currentDate.toUpperCase(), 6.5);
+    sp();
+    line('M-TRACK', 13, true, 'center');
+    line('Expense Receipt', 7.5, false, 'center');
+    sp();
+    lr(`REF: ${d.receiptRef}`, `PERIOD: ${dateRange.toUpperCase()}`, 6.5);
+    divider('=');
 
-    // ── Summary ──
-    addLine('TRANSACTION SUMMARY', 8, true, 'center');
-    addDivider();
-    addLR('TRANSACTIONS', String(transactions.length));
-    addDivider();
-    addLR('TOTAL RECEIVED', fmt(d.totalReceived), 8, true);
-    addDivider();
-    addLR('SENT TO PEOPLE', fmt(d.personSendTotal));
-    addLR('POCHI LA BIASHARA', fmt(d.pochiTotal));
-    addLR('PAYBILL & TILL', fmt(d.paybillTotal));
-    addLR('AIRTIME', fmt(d.airtimeTotal));
-    addLR('DATA BUNDLES', fmt(d.dataTotal));
-    addLR('WITHDRAWALS', fmt(d.withdrawalTotal));
-    addDivider();
-    addLR('TOTAL OUTFLOW', fmt(d.trueOutflow), 8, true);
-    addDivider();
-    addLR('M-SHWARI (SAVINGS)', fmt(d.mshwariTotal));
-    addLR('INVESTMENTS', fmt(d.investmentTotal));
-    addDivider();
-    addLR('NET FLOW', fmtSigned(d.net), 9, true);
-    addLine('(SAVINGS & INVESTMENTS EXCL.)', 7, false, 'center');
-    addDivider('=');
+    // Item count large — Costco pattern
+    lr(`${d.activeTransactions.length} ITEMS`, d.currentTime, 8, true);
+    divider();
 
-    // ── Label breakdown ──
-    if (d.hasLabels) {
-        addSpacer();
-        addLine('EXPENSE BREAKDOWN', 8, true, 'center');
-        addDivider();
-        Object.entries(d.labelTotals).forEach(([label, total]) => {
-            addLR(label.substring(0, 22).toUpperCase(), fmt(total), 7);
-        });
-        addDivider('=');
-    }
+    // Column header
+    line('  # DATE      RECIPIENT        AMT    [T]', 6.5);
+    divider();
 
-    addSpacer();
+    // ── Transaction rows ──
+    d.activeTransactions.forEach((t, i) => {
+        const num     = String(i + 1).padStart(2, '0');
+        const dateStr = t.date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
+        const flag    = getTypeFlag(t);
+        const sign    = t.type === 'sent' ? '-' : '+';
+        const name    = trunc(getRecipientShort(t), 13);
+        const amt     = `${sign}${fmt(t.amount)}`;
 
-    // ── Transaction detail ──
-    addLine('TRANSACTION DETAIL', 8, true, 'center');
-    addDivider();
+        // Main row — left name, right amount + flag
+        lr(`  ${num} ${dateStr}  ${name}`, `${amt} [${flag}]`, 7);
 
-    transactions.forEach((t, i) => {
-        const dateStr = t.date.toLocaleDateString('en-GB');
-        const sign = t.type === 'sent' ? '-' : '+';
-        addSpacer();
-        addLR(`${String(i + 1).padStart(2, '0')}. ${dateStr}`, t.time, 7);
-        addLR(`    ${getBadgeLabel(t)}`, `${sign}${fmt(t.amount)}`, 8, true);
-        addLine(`    ${getDescription(t)}`, 7);
-        if (t.customLabel) addLine(`    NOTE: ${t.customLabel.toUpperCase()}`, 7);
-        else if (t.label) addLine(`    LABEL: ${t.label.toUpperCase()}`, 7);
-        addLine(`    REF: ${t.transactionCode}`, 7);
-        if (t.balance != null) addLR('    BAL:', fmt(t.balance), 7);
-        addDivider();
+        // Transaction code
+        line(`       ${t.transactionCode}`, 6);
+
+        // Receipt label
+        if (t.receiptLabel) {
+            line(`       > ${t.receiptLabel.toUpperCase()}`, 6.5, true);
+        }
+
+        // Fee line
+        if (t.transactionCost != null && t.transactionCost > 0) {
+            lr(`       FEE:`, fmt(t.transactionCost), 6);
+        }
+
+        sp(0.3);
     });
 
+    divider();
+    sp();
+
+    // Flag legend
+    line('FLAGS: R=Received S=Send P=Pochi B=Bill', 6, false, 'center');
+    line('A=Airtime W=Withdrawal M=M-Shwari I=Invest', 6, false, 'center');
+    sp();
+    divider('=');
+
+    // ── Totals — Target rigid spacing ──
+    sp(0.5);
+    lr('SUBTOTAL', fmt(d.trueOutflow), 7.5);
+
+    if (d.totalFees > 0) {
+        lr('TRANSACTION FEES', fmt(d.totalFees), 7.5);
+        d.feesBreakdown.forEach(f => {
+            lr(`  ${f.label} (x${f.count})`, fmt(f.total), 6.5);
+        });
+    }
+
+    divider();
+    lr('TOTAL SPENT', fmt(d.trueOutflow + d.totalFees), 8.5, true);
+
+    if (d.totalReceived > 0) {
+        sp(0.3);
+        lr('TOTAL RECEIVED', fmt(d.totalReceived), 7.5);
+        divider();
+        lr('NET FLOW', fmtSigned(d.net), 8.5, true);
+    }
+
+    divider('=');
+
+    // ── Category breakdown — Target "You Saved" style ──
+    if (d.hasLabels) {
+        sp(0.5);
+        line('CATEGORY BREAKDOWN', 7.5, true, 'center');
+        divider();
+        Object.entries(d.labelTotals).forEach(([label, total]) => {
+            lr(`  ${label.toUpperCase()}`, fmt(total), 7);
+        });
+        divider('=');
+    }
+
     // ── Footer ──
-    addSpacer();
-    addDivider('=');
-    addLine('GENERATED BY M-TRACK', 7, false, 'center');
-    addLine(`REF: ${d.receiptRef}`, 7, false, 'center');
-    addDivider('=');
+    sp(0.5);
+    line('GENERATED BY M-TRACK', 7, false, 'center');
+    line(`REF: ${d.receiptRef}`, 6.5, false, 'center');
+    sp(0.3);
+    // Security code bottom-right, URL bottom-left — Costco mirror pattern
+    lr('mtrack.vercel.app', d.secCode, 6.5);
 
     return doc.output('blob');
 }
