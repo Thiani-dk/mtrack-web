@@ -129,24 +129,25 @@ export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenP
                 >
                     <button
                         onClick={() => setActiveTab('paste')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                             activeTab === 'paste'
                                 ? 'bg-white text-gray-900 shadow-sm'
                                 : 'text-gray-500'
                         }`}
                     >
-                        <ClipboardPaste className="w-4 h-4" />
+                        {/* Icon hidden on very narrow screens (< 360px) to prevent squeeze */}
+                        <ClipboardPaste className="w-4 h-4 hidden min-[360px]:block" />
                         Paste messages
                     </button>
                     <button
                         onClick={() => setActiveTab('upload')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                             activeTab === 'upload'
                                 ? 'bg-white text-gray-900 shadow-sm'
                                 : 'text-gray-500'
                         }`}
                     >
-                        <FileUp className="w-4 h-4" />
+                        <FileUp className="w-4 h-4 hidden min-[360px]:block" />
                         Upload XML
                     </button>
                 </motion.div>
@@ -236,11 +237,17 @@ export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenP
                                 </ol>
                             </div>
 
-                            {/* Hidden file input */}
+                            {/*
+                             * FILE INPUT — accept patch:
+                             * iOS Safari ignores the .xml extension filter and shows all files anyway.
+                             * Adding the mime types alongside the extension means iOS at least gets
+                             * a hint, and our file.name.endsWith('.xml') check below handles
+                             * validation correctly regardless of what the OS sends back.
+                             */}
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".xml"
+                                accept=".xml,text/xml,application/xml"
                                 className="hidden"
                                 onChange={handleFileChange}
                             />
