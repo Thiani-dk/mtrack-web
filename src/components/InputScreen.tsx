@@ -5,6 +5,7 @@ import { formatCutoffDisplay } from '../lib/dateUtils';
 import { AlertTriangle, ArrowLeft, ClipboardPaste, FileUp, CheckCircle2 } from 'lucide-react';
 
 interface InputScreenProps {
+    initialText?: string;
     mode: 'receipt' | 'ledger';
     range: TimeRange;
     cutoffDate: Date;
@@ -12,8 +13,8 @@ interface InputScreenProps {
     onBack: () => void;
 }
 
-export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenProps) {
-    const [smsText, setSmsText]         = useState('');
+export function InputScreen({ mode, cutoffDate, initialText = '', onSubmit, onBack }: InputScreenProps) {
+    const [smsText, setSmsText]         = useState(initialText);
     const [focused, setFocused]         = useState(false);
     const [xmlFile, setXmlFile]         = useState<File | null>(null);
     const [xmlError, setXmlError]       = useState<string | null>(null);
@@ -129,25 +130,24 @@ export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenP
                 >
                     <button
                         onClick={() => setActiveTab('paste')}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                             activeTab === 'paste'
                                 ? 'bg-white text-gray-900 shadow-sm'
                                 : 'text-gray-500'
                         }`}
                     >
-                        {/* Icon hidden on very narrow screens (< 360px) to prevent squeeze */}
-                        <ClipboardPaste className="w-4 h-4 hidden min-[360px]:block" />
+                        <ClipboardPaste className="w-4 h-4" />
                         Paste messages
                     </button>
                     <button
                         onClick={() => setActiveTab('upload')}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                             activeTab === 'upload'
                                 ? 'bg-white text-gray-900 shadow-sm'
                                 : 'text-gray-500'
                         }`}
                     >
-                        <FileUp className="w-4 h-4 hidden min-[360px]:block" />
+                        <FileUp className="w-4 h-4" />
                         Upload XML
                     </button>
                 </motion.div>
@@ -237,17 +237,11 @@ export function InputScreen({ mode, cutoffDate, onSubmit, onBack }: InputScreenP
                                 </ol>
                             </div>
 
-                            {/*
-                             * FILE INPUT — accept patch:
-                             * iOS Safari ignores the .xml extension filter and shows all files anyway.
-                             * Adding the mime types alongside the extension means iOS at least gets
-                             * a hint, and our file.name.endsWith('.xml') check below handles
-                             * validation correctly regardless of what the OS sends back.
-                             */}
+                            {/* Hidden file input */}
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".xml,text/xml,application/xml"
+                                accept=".xml"
                                 className="hidden"
                                 onChange={handleFileChange}
                             />

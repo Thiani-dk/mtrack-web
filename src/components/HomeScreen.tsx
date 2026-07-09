@@ -1,5 +1,5 @@
 import { motion, type Variants } from 'framer-motion';
-import { FileText, Table2, Mail } from 'lucide-react';
+import { FileText, Table2, Mail, Share2 } from 'lucide-react';
 import type { AppMode } from '../types';
 
 interface HomeScreenProps {
@@ -47,7 +47,8 @@ const CARDS: {
         mode: 'declutter',
         icon: Mail,
         title: 'Clean My Gmail',
-        desc: 'Generate Gmail commands to search and delete outdated newsletters, old alerts and inbox junk',        accent: 'from-blue-500 to-indigo-600',
+        desc: 'Generate Gmail commands to search and delete outdated newsletters, old alerts and inbox junk',
+        accent: 'from-blue-500 to-indigo-600',
         shadow: 'shadow-indigo-500/20',
     },
 ];
@@ -70,9 +71,24 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
                 {/* Title */}
                 <motion.div variants={item} className="text-center space-y-2 pt-8">
                     <h1 className="text-4xl font-bold tracking-tight text-gray-900">
-                        M<span className="text-[#00A651]">-</span>Track
+                        M<span className="text-orange-500">-</span>Track
                     </h1>
                     <p className="text-gray-500 text-base">What would you like to do?</p>
+                </motion.div>
+
+                {/* Share tip banner */}
+                <motion.div variants={item}>
+                    <div className="flex items-start gap-3 bg-orange-50 border border-orange-100 rounded-2xl px-4 py-3">
+                        <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-orange-500/10 flex items-center justify-center mt-0.5">
+                            <Share2 className="w-3.5 h-3.5 text-orange-500" />
+                        </div>
+                        <p className="text-xs text-orange-700 leading-relaxed">
+                            <span className="font-semibold">Tip — </span>
+                            In your SMS app, select your M-PESA messages, tap{' '}
+                            <span className="font-semibold">Share</span>, then choose{' '}
+                            <span className="font-semibold">M-Track</span> to import them instantly.
+                        </p>
+                    </div>
                 </motion.div>
 
                 {/* Cards */}

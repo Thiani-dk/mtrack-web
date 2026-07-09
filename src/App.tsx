@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AppState, ParsedTransaction, DeclutterAnswers, DeclutterCommand, InputSource } from './types';
 import { getCutoffDate, getDaysLabel } from './lib/dateUtils';
 import { parseAllSMS } from './lib/smsParser';
@@ -22,6 +22,22 @@ export default function App() {
     });
     const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
     const [declutterCommands, setDeclutterCommands] = useState<DeclutterCommand[]>([]);
+    const [sharedText, setSharedText] = useState<string | null>(null);
+
+    // ── Share target handler ─────────────────────────────────────────────────
+    // When the PWA is opened via Android Share, the OS appends
+    // ?text=<shared content> to /share-target. We read it once on mount,
+    // store it, and pass it to InputScreen as a pre-filled value.
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const text = params.get('text') ?? params.get('title') ?? null;
+        if (text && text.trim().length > 0) {
+            setSharedText(text.trim());
+            // Clean the URL so refresh doesn't re-trigger
+            window.history.replaceState({}, '', '/');
+        }
+    }, []);
 
     // ── M-PESA flow ──────────────────────────────────────────────────────────
 
@@ -43,6 +59,8 @@ export default function App() {
     };
 
     const handleInputSubmit = (text: string, source: InputSource) => {
+        // Clear shared text once consumed
+        setSharedText(null);
         const parsed = parseAllSMS(text);
         setTransactions(parsed);
         setState(prev => ({ ...prev, smsText: text, inputSource: source, step: 'review' }));
@@ -67,6 +85,7 @@ export default function App() {
         setState({ mode: null, step: 'home', timeRange: null, smsText: '', cutoffDate: null, inputSource: 'manual' });
         setTransactions([]);
         setDeclutterCommands([]);
+        setSharedText(null);
     };
 
     const renderStep = () => {
@@ -89,6 +108,7 @@ export default function App() {
                         mode={state.mode as 'receipt' | 'ledger'}
                         range={state.timeRange!}
                         cutoffDate={state.cutoffDate!}
+                        initialText={sharedText ?? ''}
                         onSubmit={handleInputSubmit}
                         onBack={() => setState(prev => ({ ...prev, step: 'timeRange' }))}
                     />
