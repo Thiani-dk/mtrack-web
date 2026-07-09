@@ -1,4 +1,4 @@
-const CACHE = 'm-track-v1';
+const CACHE = 'm-track-v2';
 const PRECACHE = ['/', '/index.html'];
 
 self.addEventListener('install', e => {
@@ -16,7 +16,6 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Only handle GET requests for same-origin or CDN assets
   if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.match(e.request).then(cached => {
@@ -29,4 +28,18 @@ self.addEventListener('fetch', e => {
       }).catch(() => caches.match('/index.html'));
     })
   );
+});
+
+// Handle share target — POST from Android share sheet
+self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+  if (url.pathname === '/share-target' && e.request.method === 'POST') {
+    e.respondWith(
+      e.request.formData().then(data => {
+        const text = data.get('text') ?? data.get('title') ?? '';
+        const redirectUrl = `/?text=${encodeURIComponent(text.toString())}`;
+        return Response.redirect(redirectUrl, 303);
+      })
+    );
+  }
 });
