@@ -58,9 +58,9 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
         <div className="relative flex flex-col items-center justify-center min-h-screen overflow-hidden">
 
             {/* Ambient background */}
-            <div className="absolute inset-0 bg-gradient-to-br from-white via-green-50/40 to-emerald-100/60 pointer-events-none" />
-            <div className="absolute top-[-80px] right-[-60px] w-72 h-72 rounded-full bg-[#00A651]/8 blur-3xl pointer-events-none" />
-            <div className="absolute bottom-[-40px] left-[-40px] w-56 h-56 rounded-full bg-emerald-300/10 blur-2xl pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-br from-white via-orange-50/40 to-orange-100/60 pointer-events-none" />
+            <div className="absolute top-[-80px] right-[-60px] w-72 h-72 rounded-full bg-orange-400/10 blur-3xl pointer-events-none" />
+            <div className="absolute bottom-[-40px] left-[-40px] w-56 h-56 rounded-full bg-orange-300/10 blur-2xl pointer-events-none" />
 
             <motion.div
                 className="relative z-10 w-full max-w-md px-5 space-y-8"
