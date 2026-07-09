@@ -58,9 +58,9 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
         <div className="relative flex flex-col items-center justify-center min-h-screen overflow-hidden">
 
             {/* Ambient background */}
-            <div className="absolute inset-0 bg-gradient-to-br from-white via-orange-50/40 to-orange-100/60 pointer-events-none" />
-            <div className="absolute top-[-80px] right-[-60px] w-72 h-72 rounded-full bg-orange-400/10 blur-3xl pointer-events-none" />
-            <div className="absolute bottom-[-40px] left-[-40px] w-56 h-56 rounded-full bg-orange-300/10 blur-2xl pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-br from-white via-orange-50/20 to-orange-50/30 pointer-events-none" />
+            <div className="absolute top-[-80px] right-[-60px] w-72 h-72 rounded-full bg-orange-300/6 blur-3xl pointer-events-none" />
+            <div className="absolute bottom-[-40px] left-[-40px] w-56 h-56 rounded-full bg-orange-200/8 blur-2xl pointer-events-none" />
 
             <motion.div
                 className="relative z-10 w-full max-w-md px-5 space-y-8"
@@ -124,7 +124,7 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
 
                                     {/* Arrow */}
                                     <motion.div
-                                        className="flex-shrink-0 self-center text-gray-300 group-hover:text-[#00A651]"
+                                        className="flex-shrink-0 self-center text-gray-300 group-hover:text-orange-500"
                                         initial={{ x: 0 }}
                                         whileHover={{ x: 3 }}
                                         transition={{ type: 'spring', stiffness: 400 }}
