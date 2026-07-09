@@ -5,6 +5,7 @@ export interface DangerFlag {
     severity: 'warning' | 'info';
     title: string;
     detail: string;
+    matchedTransactions: ParsedTransaction[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -30,7 +31,6 @@ function groupByMonth<T>(items: T[], getDate: (item: T) => Date): Map<string, T[
 function detectSalarySignature(transactions: ParsedTransaction[]): DangerFlag | null {
     const credits = transactions.filter(t => t.subType === 'person_receive');
 
-    // Group by sender
     const bySender = new Map<string, ParsedTransaction[]>();
     for (const t of credits) {
         const key = t.recipient.toLowerCase().trim();
@@ -42,27 +42,26 @@ function detectSalarySignature(transactions: ParsedTransaction[]): DangerFlag | 
     for (const [, txns] of bySender) {
         if (txns.length < 3) continue;
 
-        // Find clusters where amount is within ±10% of each other and day is 24–31
         const lateMonth = txns.filter(t => t.date.getDate() >= 24);
         if (lateMonth.length < 3) continue;
 
-        // Check if 3+ are within ±10% of one another (use first as anchor per month)
         const byMonth = groupByMonth(lateMonth, t => t.date);
         const monthEntries = [...byMonth.entries()];
         if (monthEntries.length < 3) continue;
 
-        // Pick one representative per month, then check ±10% against median
-        const repAmounts = monthEntries.map(([, bucket]) => bucket[0].amount);
+        const reps = monthEntries.map(([, bucket]) => bucket[0]);
+        const repAmounts = reps.map(t => t.amount);
         const sorted = [...repAmounts].sort((a, b) => a - b);
         const median = sorted[Math.floor(sorted.length / 2)];
 
-        const qualifying = repAmounts.filter(a => Math.abs(a - median) / median <= 0.1);
+        const qualifying = reps.filter(t => Math.abs(t.amount - median) / median <= 0.1);
         if (qualifying.length >= 3) {
             return {
                 id: 'salary_signature',
                 severity: 'warning',
                 title: 'Recurring salary-like credits detected',
                 detail: 'Consistent same-amount inflows near month-end may indicate employment income to KRA.',
+                matchedTransactions: qualifying,
             };
         }
     }
@@ -82,6 +81,7 @@ function detectHighInflowVolume(transactions: ParsedTransaction[]): DangerFlag |
                 severity: 'warning',
                 title: 'Monthly inflow exceeds Ksh 50,000',
                 detail: 'KRA may treat high inflow volume as evidence of business or employment income.',
+                matchedTransactions: txns,
             };
         }
     }
@@ -101,6 +101,7 @@ function detectManyUniqueSenders(transactions: ParsedTransaction[]): DangerFlag 
                 severity: 'info',
                 title: 'High number of unique senders',
                 detail: '10+ unique people sending you money monthly may indicate informal business activity.',
+                matchedTransactions: txns,
             };
         }
     }
@@ -113,6 +114,7 @@ function detectCircularTransactions(transactions: ParsedTransaction[]): DangerFl
     const received = transactions.filter(t => t.subType === 'person_receive');
 
     const MS_72H = 72 * 60 * 60 * 1000;
+    const matched: ParsedTransaction[] = [];
 
     for (const out of sent) {
         const senderKey = out.recipient.toLowerCase().trim();
@@ -125,14 +127,20 @@ function detectCircularTransactions(transactions: ParsedTransaction[]): DangerFl
 
             const amountDiff = Math.abs(inn.amount - out.amount) / out.amount;
             if (amountDiff <= 0.15) {
-                return {
-                    id: 'circular_transactions',
-                    severity: 'warning',
-                    title: 'Possible circular transactions',
-                    detail: 'Money sent and returned between the same parties can raise questions during audits.',
-                };
+                if (!matched.find(m => m.transactionCode === out.transactionCode)) matched.push(out);
+                if (!matched.find(m => m.transactionCode === inn.transactionCode)) matched.push(inn);
             }
         }
+    }
+
+    if (matched.length > 0) {
+        return {
+            id: 'circular_transactions',
+            severity: 'warning',
+            title: 'Possible circular transactions',
+            detail: 'Money sent and returned between the same parties can raise questions during audits.',
+            matchedTransactions: matched,
+        };
     }
     return null;
 }
@@ -141,18 +149,19 @@ function detectCircularTransactions(transactions: ParsedTransaction[]): DangerFl
 const BETTING_KEYWORDS = ['sportpesa', 'betika', 'odibets', 'shabiki', 'mcheza', 'betin', 'premiumbets'];
 
 function detectBettingActivity(transactions: ParsedTransaction[]): DangerFlag | null {
-    const hasBetting = transactions.some(t => {
+    const matched = transactions.filter(t => {
         if (t.type !== 'sent') return false;
         const name = t.recipient.toLowerCase();
         return BETTING_KEYWORDS.some(kw => name.includes(kw));
     });
 
-    if (hasBetting) {
+    if (matched.length > 0) {
         return {
             id: 'betting_activity',
             severity: 'info',
             title: 'Betting transactions detected',
             detail: 'Gambling activity is visible in M-PESA data and may be noted in credit assessments.',
+            matchedTransactions: matched,
         };
     }
     return null;

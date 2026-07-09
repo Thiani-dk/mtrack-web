@@ -124,6 +124,9 @@ function LabelPicker({
 // ── PWO Danger Zone Card ──────────────────────────────────────────────────────
 
 function PWOCard({ flags }: { flags: DangerFlag[] }) {
+    const fmtAmount = (n: number) =>
+        `Ksh ${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+
     return (
         <motion.div
             initial={{ opacity: 0, y: 16 }}
@@ -151,23 +154,49 @@ function PWOCard({ flags }: { flags: DangerFlag[] }) {
                         initial={{ opacity: 0, x: -12 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.22 + i * 0.07, type: 'spring', stiffness: 380, damping: 28 }}
-                        className="px-4 py-3.5 flex items-start gap-3"
+                        className="px-4 py-3.5"
                     >
-                        {flag.severity === 'warning' ? (
-                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center mt-0.5">
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                        {/* Flag header */}
+                        <div className="flex items-start gap-3">
+                            {flag.severity === 'warning' ? (
+                                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center mt-0.5">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                </div>
+                            ) : (
+                                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center mt-0.5">
+                                    <Info className="w-3.5 h-3.5 text-blue-500" />
+                                </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                                <p className={`text-sm font-semibold ${flag.severity === 'warning' ? 'text-amber-800' : 'text-blue-800'}`}>
+                                    {flag.title}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{flag.detail}</p>
                             </div>
-                        ) : (
-                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center mt-0.5">
-                                <Info className="w-3.5 h-3.5 text-blue-500" />
+                        </div>
+
+                        {/* Matched transactions */}
+                        {flag.matchedTransactions.length > 0 && (
+                            <div className="mt-2.5 ml-9 space-y-1">
+                                {flag.matchedTransactions.map(t => (
+                                    <div
+                                        key={t.transactionCode}
+                                        className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg px-3 py-1.5"
+                                    >
+                                        <span className="text-xs text-gray-500 truncate">
+                                            {t.date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                                            {' · '}
+                                            {t.recipient.length > 18 ? t.recipient.slice(0, 18) + '…' : t.recipient}
+                                        </span>
+                                        <span className={`text-xs font-semibold tabular-nums flex-shrink-0 ${
+                                            t.type === 'received' ? 'text-[#00A651]' : 'text-gray-700'
+                                        }`}>
+                                            {t.type === 'sent' ? '-' : '+'}{fmtAmount(t.amount)}
+                                        </span>
+                                    </div>
+                                ))}
                             </div>
                         )}
-                        <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-semibold ${flag.severity === 'warning' ? 'text-amber-800' : 'text-blue-800'}`}>
-                                {flag.title}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{flag.detail}</p>
-                        </div>
                     </motion.div>
                 ))}
             </div>
@@ -669,7 +698,6 @@ export function OutputScreen({ mode, transactions: initialTransactions, dateRang
                         <>
                             <DownloadButton dlKey="pdf"  label="Download Receipt (PDF)"  primary={true}  onClick={handleDownloadPDF}  />
                             <DownloadButton dlKey="html" label="Download Receipt (HTML)" primary={false} onClick={handleDownloadHTML} />
-                            <p className="text-xs text-gray-400 text-center">PDF · thermal format · HTML · print to PDF from browser</p>
                         </>
                     ) : (
                         <>
