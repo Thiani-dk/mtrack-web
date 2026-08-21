@@ -1,11 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
-import type { InputSource, ParsedTransaction } from '../types';
+import type { InputSource, ParsedTransaction, StoredReceipt } from '../types';
 import { generateReceiptHTML, generateReceiptPDF } from '../lib/receiptGenerator';
-import { downloadHTML, downloadPDF, getReceiptFilenames } from '../lib/downloadUtils';
+import { downloadHTML, downloadPDF, getReceiptFilenames, getReceiptFingerprint } from '../lib/downloadUtils';
 import { detectFlags, type DangerFlag } from '../lib/flagDetector';
+import { useReceiptStore } from '../lib/useReceiptStore';
 import { ArrowLeft, Inbox, Download, Tag, ChevronDown, Share2, ClipboardCopy, Check, AlertTriangle, Info, Search } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
+
+function topRecipientsByAmount(txns: ParsedTransaction[]): string[] {
+    const totals = new Map<string, number>();
+    for (const t of txns) {
+        totals.set(t.recipient, (totals.get(t.recipient) ?? 0) + t.amount);
+    }
+    return [...totals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([name]) => name);
+}
+
+function uniqueLabels(txns: ParsedTransaction[]): string[] {
+    return [...new Set(txns.map(t => t.receiptLabel).filter((l): l is string => !!l))];
+}
 
 interface OutputScreenProps {
     transactions: ParsedTransaction[];
@@ -295,6 +311,8 @@ export function OutputScreen({ transactions: initialTransactions, dateRangeLabel
     const [openLabelId, setOpenLabelId]   = useState<string | null>(null);
     const [copied, setCopied]             = useState(false);
     const [shareError, setShareError]     = useState<string | null>(null);
+    const { receipts: existingReceipts, saveReceipt } = useReceiptStore();
+    const hasSavedToHistory = useRef(false);
 
     const activeTxns = txns.filter(t => !t.excludedFromReceipt);
     const totalFees  = activeTxns.reduce((s, t) => s + (t.transactionCost ?? 0), 0);
@@ -319,6 +337,8 @@ export function OutputScreen({ transactions: initialTransactions, dateRangeLabel
         paybill: paybillTotal, airtime: airtimeTotal, data: dataTotal,
         withdrawal: withdrawalTotal, mshwari: mshwariTotal, investment: investmentTotal,
     };
+
+    const visibleStatRows = statRows.filter(({ key }) => statValues[key] > 0);
 
     const fmt = (n: number) => `Ksh ${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 
@@ -369,6 +389,36 @@ export function OutputScreen({ transactions: initialTransactions, dateRangeLabel
         }
     };
 
+    // ── Save to history ──────────────────────────────────────────────────────
+    // Saved once per visit, on first download — skipped if a receipt with the
+    // same transaction fingerprint is already in the store.
+
+    const saveToHistoryIfNeeded = async () => {
+        if (hasSavedToHistory.current) return;
+        hasSavedToHistory.current = true;
+        try {
+            const fingerprint = await getReceiptFingerprint(txns);
+            for (const existing of existingReceipts) {
+                if ((await getReceiptFingerprint(existing.transactions)) === fingerprint) return;
+            }
+            const receipt: StoredReceipt = {
+                id: crypto.randomUUID(),
+                createdAt: Date.now(),
+                dateRange: dateRangeLabel,
+                transactionCount: activeTxns.length,
+                totalSpent: trueOutflow,
+                totalReceived,
+                totalFees,
+                transactions: txns,
+                topRecipients: topRecipientsByAmount(activeTxns),
+                labels: uniqueLabels(activeTxns),
+            };
+            await saveReceipt(receipt);
+        } catch {
+            // IndexedDB unavailable (e.g. private browsing) — app still works, just no history
+        }
+    };
+
     // ── Download handlers ────────────────────────────────────────────────────
 
     const handleDownloadPDF = async () => {
@@ -379,6 +429,7 @@ export function OutputScreen({ transactions: initialTransactions, dateRangeLabel
                 getReceiptFilenames(txns),
             ]);
             downloadPDF(blob, filenames.pdf);
+            void saveToHistoryIfNeeded();
         } finally { setDownloading(null); }
     };
 
@@ -390,6 +441,7 @@ export function OutputScreen({ transactions: initialTransactions, dateRangeLabel
                 getReceiptFilenames(txns),
             ]);
             downloadHTML(html, filenames.html);
+            void saveToHistoryIfNeeded();
         } finally { setDownloading(null); }
     };
 
@@ -490,7 +542,7 @@ export function OutputScreen({ transactions: initialTransactions, dateRangeLabel
                         <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest">Breakdown</span>
                     </div>
                     <motion.div variants={container} initial="hidden" animate="show">
-                        {statRows.map(({ key, label, dot }) => (
+                        {visibleStatRows.map(({ key, label, dot }) => (
                             <motion.div key={key} variants={rowAnim}
                                 className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-glass)] last:border-0">
                                 <div className="flex items-center gap-2.5">

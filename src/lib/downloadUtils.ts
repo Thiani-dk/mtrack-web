@@ -50,6 +50,12 @@ function transactionFingerprint(transactions: ParsedTransaction[]): string {
         .join('::');
 }
 
+// Stable content fingerprint for a set of transactions — used to dedupe
+// receipt history entries (same underlying data shouldn't be saved twice).
+export async function getReceiptFingerprint(transactions: ParsedTransaction[]): Promise<string> {
+    return sha256Hash(transactionFingerprint(transactions));
+}
+
 // ── Filename generators ───────────────────────────────────────────────────────
 
 export async function getReceiptFilenames(

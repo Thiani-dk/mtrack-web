@@ -7,6 +7,7 @@ import { TimeRangeScreen } from './components/TimeRangeScreen';
 import { InputScreen } from './components/InputScreen';
 import { ReviewScreen } from './components/ReviewScreen';
 import { OutputScreen } from './components/OutputScreen';
+import { HistoryScreen } from './components/HistoryScreen';
 
 export default function App() {
     const [state, setState] = useState<AppState>({
@@ -75,7 +76,12 @@ export default function App() {
     const renderStep = () => {
         switch (state.step) {
             case 'home':
-                return <HomeScreen onSelect={handleHomeSelect} />;
+                return (
+                    <HomeScreen
+                        onSelect={handleHomeSelect}
+                        onHistoryClick={() => setState(prev => ({ ...prev, step: 'history' }))}
+                    />
+                );
 
             case 'timeRange':
                 return (
@@ -116,6 +122,14 @@ export default function App() {
                     />
                 );
 
+            case 'history':
+                return (
+                    <HistoryScreen
+                        onBack={() => setState(prev => ({ ...prev, step: 'home' }))}
+                        onStartNew={() => setState(prev => ({ ...prev, step: 'timeRange' }))}
+                    />
+                );
+
             default:
                 return null;
         }
@@ -123,7 +137,7 @@ export default function App() {
 
     return (
         <div className="min-h-screen bg-[var(--bg-base)]">
-            <div className="max-w-md mx-auto min-h-screen">
+            <div className="max-w-lg mx-auto min-h-screen">
                 {renderStep()}
             </div>
         </div>

@@ -4,7 +4,8 @@ export type AppStep =
     | 'timeRange'
     | 'input'
     | 'review'
-    | 'output';
+    | 'output'
+    | 'history';
 
 export type InputSource = 'manual' | 'xml';
 
@@ -70,4 +71,23 @@ export interface ParsedTransaction {
     receiptLabel: string | null;
     // Whether the user has toggled this transaction out of the receipt
     excludedFromReceipt: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Receipt history (IndexedDB)
+// ---------------------------------------------------------------------------
+
+export interface StoredReceipt {
+    id: string;              // crypto.randomUUID()
+    createdAt: number;       // Date.now() timestamp
+    dateRange: string;       // "past 7 days", "past 30 days" etc
+    transactionCount: number;
+    totalSpent: number;      // sum of all sent transactions
+    totalReceived: number;
+    totalFees: number;
+    // The actual receipt content for re-download
+    transactions: ParsedTransaction[];
+    // Quick summary for the dashboard card
+    topRecipients: string[]; // top 3 recipients by total amount
+    labels: string[];        // unique receipt labels used
 }

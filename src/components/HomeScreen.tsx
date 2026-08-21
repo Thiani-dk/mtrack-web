@@ -1,9 +1,11 @@
 import { motion, type Variants } from 'framer-motion';
 import { FileText, Share2 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
+import { HistoryButton } from './HistoryButton';
 
 interface HomeScreenProps {
     onSelect: () => void;
+    onHistoryClick: () => void;
 }
 
 const container: Variants = {
@@ -31,14 +33,14 @@ const CARDS: {
     },
 ];
 
-export function HomeScreen({ onSelect }: HomeScreenProps) {
+export function HomeScreen({ onSelect, onHistoryClick }: HomeScreenProps) {
     return (
         <div className="relative flex flex-col items-center justify-center min-h-screen overflow-hidden bg-[var(--bg-base)]">
 
             {/* Ambient background — accent "sun" hint, top-right */}
             <div
                 className="absolute inset-0 pointer-events-none"
-                style={{ background: 'radial-gradient(ellipse at top right, rgba(232,133,10,0.03), transparent 60%)' }}
+                style={{ background: 'radial-gradient(ellipse at top right, rgba(232,133,10,0.06), transparent 60%)' }}
             />
 
             {/* Theme toggle */}
@@ -47,17 +49,20 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
             </div>
 
             <motion.div
-                className="relative z-10 w-full max-w-md px-5 space-y-8"
+                className="relative z-10 w-full max-w-lg px-5 space-y-8"
                 variants={container}
                 initial="hidden"
                 animate="show"
             >
                 {/* Title */}
-                <motion.div variants={item} className="text-center space-y-2 pt-8">
+                <motion.div variants={item} className="text-center space-y-2">
                     <h1 className="text-4xl font-bold tracking-tight text-[var(--text-primary)]">
                         M<span className="text-[var(--accent)]">-</span>Track
                     </h1>
                     <p className="text-[var(--text-secondary)] text-base">What would you like to do?</p>
+                    <p className="text-[var(--text-muted)] text-sm max-w-xs mx-auto leading-relaxed">
+                        Paste your M-PESA messages, label your transactions, download a KRA-ready receipt.
+                    </p>
                 </motion.div>
 
                 {/* Share tip banner */}
@@ -127,6 +132,11 @@ export function HomeScreen({ onSelect }: HomeScreenProps) {
                         </motion.div>
                     ))}
                 </div>
+
+                {/* History */}
+                <motion.div variants={item}>
+                    <HistoryButton onClick={onHistoryClick} />
+                </motion.div>
 
                 {/* Footer */}
                 <motion.p variants={item} className="text-center text-xs text-[var(--text-muted)] pb-8">
