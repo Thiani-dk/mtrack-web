@@ -2,9 +2,9 @@ import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ParsedTransaction, ExpenseLabel } from '../types';
 import { ArrowLeft, Tag, X, Check, ChevronRight, Search } from 'lucide-react';
+import { ThemeToggle } from './ThemeToggle';
 
 interface ReviewScreenProps {
-    mode: 'receipt' | 'ledger';
     transactions: ParsedTransaction[];
     onConfirm: (transactions: ParsedTransaction[]) => void;
     onBack: () => void;
@@ -26,33 +26,17 @@ const PRESET_LABELS: ExpenseLabel[] = [
     'Other Business Expense',
 ];
 
-const LABEL_COLORS: Record<NonNullable<ExpenseLabel>, string> = {
-    'Cost of Sales':          'bg-red-100 text-red-800',
-    'Transport & Travel':     'bg-blue-100 text-blue-800',
-    'Utilities':              'bg-yellow-100 text-yellow-800',
-    'Airtime & Data':         'bg-orange-100 text-orange-800',
-    'Supplier Payment':       'bg-purple-100 text-purple-800',
-    'Staff Payment':          'bg-pink-100 text-pink-800',
-    'Meals & Entertainment':  'bg-amber-100 text-amber-800',
-    'Medical':                'bg-green-100 text-green-800',
-    'Rent & Accommodation':   'bg-teal-100 text-teal-800',
-    'Equipment & Supplies':   'bg-cyan-100 text-cyan-800',
-    'Investment / Savings':   'bg-emerald-100 text-emerald-800',
-    'Personal':               'bg-gray-100 text-gray-600',
-    'Other Business Expense': 'bg-slate-100 text-slate-700',
-};
-
-const subTypeDisplay: Record<string, { label: string; badge: string }> = {
-    person_send:    { label: 'Send',       badge: 'bg-red-100 text-red-800'      },
-    person_receive: { label: 'Received',   badge: 'bg-green-100 text-green-800'  },
-    pochi_send:     { label: 'Pochi',      badge: 'bg-rose-100 text-rose-800'    },
-    paybill:        { label: 'Paybill',    badge: 'bg-blue-100 text-blue-800'    },
-    airtime:        { label: 'Airtime',    badge: 'bg-yellow-100 text-yellow-800'},
-    data:           { label: 'Data',       badge: 'bg-orange-100 text-orange-800'},
-    withdrawal:     { label: 'Withdrawal', badge: 'bg-purple-100 text-purple-800'},
-    mshwari:        { label: 'M-Shwari',   badge: 'bg-emerald-100 text-emerald-800'},
-    investment:     { label: 'Investment', badge: 'bg-teal-100 text-teal-800'    },
-    unknown:        { label: 'Other',      badge: 'bg-gray-100 text-gray-600'    },
+const subTypeDisplay: Record<string, string> = {
+    person_send:    'Send',
+    person_receive: 'Received',
+    pochi_send:     'Pochi',
+    paybill:        'Paybill',
+    airtime:        'Airtime',
+    data:           'Data',
+    withdrawal:     'Withdrawal',
+    mshwari:        'M-Shwari',
+    investment:     'Investment',
+    unknown:        'Other',
 };
 
 function fmt(n: number) {
@@ -77,7 +61,7 @@ function suggestLabel(t: ParsedTransaction): ExpenseLabel {
     return null;
 }
 
-export function ReviewScreen({ mode, transactions: initialTransactions, onConfirm, onBack }: ReviewScreenProps) {
+export function ReviewScreen({ transactions: initialTransactions, onConfirm, onBack }: ReviewScreenProps) {
     const [txns, setTxns] = useState<ParsedTransaction[]>(() =>
         initialTransactions.map(t => ({
             ...t,
@@ -133,38 +117,39 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
 
     return (
         <motion.div
-            className="flex flex-col min-h-screen bg-gray-50"
+            className="flex flex-col min-h-screen bg-[var(--bg-base)]"
             initial={{ opacity: 0, x: 60 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ type: 'spring', stiffness: 380, damping: 32 }}
         >
             {/* Header */}
-            <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-gray-100">
-                <div className="h-14 flex items-center px-4">
+            <div className="glass-header sticky top-0 z-20 border-b border-[var(--border-glass)]">
+                <div className="h-14 flex items-center px-4 gap-2">
                     <motion.button
                         onClick={onBack}
-                        className="flex items-center justify-center w-9 h-9 rounded-xl bg-gray-100 text-gray-600"
+                        className="flex items-center justify-center w-9 h-9 rounded-xl bg-[var(--bg-elevated)] text-[var(--text-secondary)]"
                         whileTap={{ scale: 0.88 }}
                     >
                         <ArrowLeft className="w-4 h-4" />
                     </motion.button>
                     <div className="flex-1 text-center">
-                        <span className="text-sm font-semibold text-gray-900">Review & Label</span>
+                        <span className="text-sm font-semibold text-[var(--text-primary)]">Review & Label</span>
                     </div>
+                    <ThemeToggle />
                     <motion.button
                         onClick={() => onConfirm(txns)}
-                        className="h-9 px-4 rounded-xl bg-[#00A651] text-white text-sm font-semibold"
+                        className="h-9 px-4 rounded-xl text-white text-sm font-semibold"
                         whileTap={{ scale: 0.95 }}
-                        style={{ boxShadow: '0 2px 8px rgba(0,166,81,0.3)' }}
+                        style={{ background: 'var(--accent)', boxShadow: '0 2px 8px var(--accent-glow)' }}
                     >
                         Generate
                     </motion.button>
                 </div>
 
                 {/* Progress bar */}
-                <div className="h-1 bg-gray-100">
+                <div className="h-1 bg-[var(--bg-elevated)]">
                     <motion.div
-                        className="h-full bg-[#00A651]"
+                        className="h-full bg-[var(--accent)]"
                         initial={{ width: 0 }}
                         animate={{ width: `${(labelled / txns.length) * 100}%` }}
                         transition={{ type: 'spring', stiffness: 200, damping: 30 }}
@@ -173,27 +158,27 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
 
                 {/* Stats row */}
                 <div className="flex items-center justify-between px-4 py-2">
-                    <span className="text-xs text-gray-500">
-                        <span className="font-semibold text-[#00A651]">{labelled}</span> labelled
-                        {unlabelled > 0 && <span className="text-gray-400"> · {unlabelled} remaining</span>}
+                    <span className="text-xs text-[var(--text-secondary)]">
+                        <span className="font-semibold text-[var(--accent)]">{labelled}</span> labelled
+                        {unlabelled > 0 && <span className="text-[var(--text-muted)]"> · {unlabelled} remaining</span>}
                     </span>
-                    <span className="text-xs text-gray-400">{txns.length} transactions</span>
+                    <span className="text-xs text-[var(--text-muted)]">{txns.length} transactions</span>
                 </div>
 
                 {/* Search */}
                 <div className="px-4 pb-3">
                     <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                         <input
                             type="text"
                             value={search}
                             onChange={e => setSearch(e.target.value)}
                             placeholder="Search transactions..."
-                            className="w-full pl-9 pr-4 py-2.5 bg-gray-100 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#00A651]/30"
+                            className="w-full pl-9 pr-4 py-2.5 bg-[var(--bg-elevated)] rounded-xl text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[rgba(232,133,10,0.3)]"
                         />
                         {search && (
                             <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
-                                <X className="w-4 h-4 text-gray-400" />
+                                <X className="w-4 h-4 text-[var(--text-muted)]" />
                             </button>
                         )}
                     </div>
@@ -201,19 +186,21 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
 
                 {/* Filter chips */}
                 <div className="flex gap-2 px-4 pb-3 overflow-x-auto scrollbar-hide">
-                    {(['unlabelled', ...PRESET_LABELS] as const).map(l => (
-                        <button
-                            key={l ?? 'all'}
-                            onClick={() => setFilterLabel(prev => prev === l ? null : l)}
-                            className={`flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-full border transition-all ${
-                                filterLabel === l
-                                    ? 'bg-[#00A651] text-white border-[#00A651]'
-                                    : 'bg-white text-gray-600 border-gray-200'
-                            }`}
-                        >
-                            {l === 'unlabelled' ? `Unlabelled (${unlabelled})` : l}
-                        </button>
-                    ))}
+                    {(['unlabelled', ...PRESET_LABELS] as const).map(l => {
+                        const active = filterLabel === l;
+                        return (
+                            <button
+                                key={l ?? 'all'}
+                                onClick={() => setFilterLabel(prev => prev === l ? null : l)}
+                                className="flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-full border transition-all"
+                                style={active
+                                    ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' }
+                                    : { background: 'var(--bg-elevated)', color: 'var(--text-secondary)', borderColor: 'var(--border-glass)' }}
+                            >
+                                {l === 'unlabelled' ? `Unlabelled (${unlabelled})` : l}
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* Bulk label bar — appears when search or filter is active */}
@@ -225,7 +212,7 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                             animate={{ opacity: 1, height: 'auto' }}
                             exit={{ opacity: 0, height: 0 }}
                         >
-                            <span className="text-xs text-gray-500 flex-shrink-0">
+                            <span className="text-xs text-[var(--text-secondary)] flex-shrink-0">
                                 Label all {filtered.length} visible:
                             </span>
                             <div className="flex gap-2 overflow-x-auto scrollbar-hide">
@@ -233,7 +220,7 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                                     <button
                                         key={l}
                                         onClick={() => bulkLabel(l)}
-                                        className="flex-shrink-0 text-xs font-medium px-3 py-1 rounded-full bg-gray-100 text-gray-700 hover:bg-[#00A651] hover:text-white transition-colors"
+                                        className="flex-shrink-0 text-xs font-medium px-3 py-1 rounded-full bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white transition-colors"
                                     >
                                         {l}
                                     </button>
@@ -249,7 +236,7 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                 <AnimatePresence mode="popLayout">
                     {filtered.map((t) => {
                         const globalIdx = txns.indexOf(t);
-                        const display = subTypeDisplay[t.subType] ?? subTypeDisplay.unknown;
+                        const subTypeLabel = subTypeDisplay[t.subType] ?? subTypeDisplay.unknown;
                         const effectiveLabel = t.customLabel ?? t.label;
 
                         return (
@@ -260,33 +247,33 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.95 }}
                                 transition={{ type: 'spring', stiffness: 380, damping: 28 }}
-                                className="bg-white rounded-2xl overflow-hidden"
-                                style={{ boxShadow: '0 1px 8px rgba(0,0,0,0.05)' }}
+                                className="glass-card overflow-hidden"
                             >
                                 <div className="flex items-start gap-3 p-4">
                                     {/* Left: date + subtype */}
                                     <div className="flex-shrink-0 text-center min-w-[44px]">
-                                        <div className="text-xs font-bold text-gray-900">
+                                        <div className="text-xs font-bold text-[var(--text-primary)]">
                                             {t.date.toLocaleDateString('en-GB', { day: '2-digit' })}
                                         </div>
-                                        <div className="text-xs text-gray-400">
+                                        <div className="text-xs text-[var(--text-muted)]">
                                             {t.date.toLocaleDateString('en-GB', { month: 'short' })}
                                         </div>
-                                        <span className={`mt-1 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded-full ${display.badge}`}>
-                                            {display.label}
+                                        <span className="mt-1 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-[var(--bg-elevated)] text-[var(--text-secondary)]">
+                                            {subTypeLabel}
                                         </span>
                                     </div>
 
                                     {/* Middle: recipient + code */}
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-semibold text-gray-900 truncate">{t.recipient}</p>
-                                        <p className="text-xs text-gray-400 font-mono">{t.transactionCode}</p>
-                                        <p className="text-xs text-gray-400">{t.time}</p>
+                                        <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{t.recipient}</p>
+                                        <p className="text-xs text-[var(--text-muted)] font-mono">{t.transactionCode}</p>
+                                        <p className="text-xs text-[var(--text-muted)]">{t.time}</p>
 
                                         {/* Label chip */}
                                         <div className="mt-2 flex items-center gap-1.5">
                                             {effectiveLabel ? (
-                                                <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${LABEL_COLORS[effectiveLabel as NonNullable<ExpenseLabel>] ?? 'bg-gray-100 text-gray-600'}`}>
+                                                <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border"
+                                                    style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-glass-accent)', color: 'var(--text-primary)' }}>
                                                     <Tag className="w-2.5 h-2.5" />
                                                     {effectiveLabel}
                                                     <button
@@ -297,14 +284,14 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                                                     </button>
                                                 </span>
                                             ) : (
-                                                <span className="text-xs text-gray-300 italic">unlabelled</span>
+                                                <span className="text-xs text-[var(--text-muted)] italic">unlabelled</span>
                                             )}
                                         </div>
                                     </div>
 
                                     {/* Right: amount + label button */}
                                     <div className="flex-shrink-0 flex flex-col items-end gap-2">
-                                        <span className={`text-sm font-bold tabular-nums ${t.type === 'received' ? 'text-[#00A651]' : 'text-gray-900'}`}>
+                                        <span className={`text-sm font-bold tabular-nums ${t.type === 'received' ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
                                             {t.type === 'received' ? '+' : '-'}{fmt(t.amount)}
                                         </span>
                                         <motion.button
@@ -312,7 +299,8 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                                                 setActiveIdx(globalIdx);
                                                 setCustomInput('');
                                             }}
-                                            className="flex items-center gap-1 text-xs font-medium text-[#00A651] bg-green-50 px-2.5 py-1 rounded-lg"
+                                            className="flex items-center gap-1 text-xs font-medium text-[var(--accent)] px-2.5 py-1 rounded-lg"
+                                            style={{ background: 'var(--accent-subtle)' }}
                                             whileTap={{ scale: 0.92 }}
                                         >
                                             <Tag className="w-3 h-3" />
@@ -327,7 +315,7 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                 </AnimatePresence>
 
                 {filtered.length === 0 && (
-                    <div className="text-center py-16 text-gray-400 text-sm">
+                    <div className="text-center py-16 text-[var(--text-muted)] text-sm">
                         No transactions match your search.
                     </div>
                 )}
@@ -337,16 +325,15 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
             <div className="fixed bottom-6 left-0 right-0 flex justify-center z-10 px-4">
                 <motion.button
                     onClick={() => onConfirm(txns)}
-                    className="w-full max-w-md min-h-[52px] rounded-2xl bg-[#00A651] text-white font-semibold text-[15px] flex items-center justify-center gap-2"
-                    style={{ boxShadow: '0 4px 20px rgba(0,166,81,0.35)' }}
+                    className="btn-primary w-full max-w-md min-h-[52px] rounded-2xl font-semibold text-[15px] flex items-center justify-center gap-2"
                     whileTap={{ scale: 0.97 }}
                     animate={{
-                        boxShadow: ['0 4px 16px rgba(0,166,81,0.25)', '0 6px 28px rgba(0,166,81,0.40)', '0 4px 16px rgba(0,166,81,0.25)'],
+                        boxShadow: ['0 4px 16px rgba(232,133,10,0.25)', '0 6px 28px rgba(232,133,10,0.40)', '0 4px 16px rgba(232,133,10,0.25)'],
                     }}
                     transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
                 >
                     <Check className="w-5 h-5" />
-                    Generate {mode === 'receipt' ? 'Receipt' : 'Ledger'}
+                    Generate Receipt
                     {labelled > 0 && (
                         <span className="ml-1 bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">
                             {labelled} labelled
@@ -370,8 +357,7 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
 
                         {/* Sheet */}
                         <motion.div
-                            className="fixed bottom-0 left-0 right-0 z-40 bg-white rounded-t-3xl max-h-[85vh] overflow-hidden flex flex-col"
-                            style={{ boxShadow: '0 -8px 40px rgba(0,0,0,0.15)' }}
+                            className="glass-panel fixed bottom-0 left-0 right-0 z-40 rounded-t-3xl max-h-[85vh] overflow-hidden flex flex-col"
                             initial={{ y: '100%' }}
                             animate={{ y: 0 }}
                             exit={{ y: '100%' }}
@@ -379,27 +365,27 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                         >
                             {/* Sheet handle */}
                             <div className="flex justify-center pt-3 pb-1">
-                                <div className="w-10 h-1 rounded-full bg-gray-200" />
+                                <div className="w-10 h-1 rounded-full bg-[var(--bg-elevated)]" />
                             </div>
 
                             {/* Sheet header */}
-                            <div className="px-5 py-3 border-b border-gray-100">
+                            <div className="px-5 py-3 border-b border-[var(--border-glass)]">
                                 <div className="flex items-start justify-between">
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-bold text-gray-900 truncate">{activeTransaction.recipient}</p>
-                                        <p className="text-xs text-gray-400 font-mono">{activeTransaction.transactionCode}</p>
-                                        <p className={`text-base font-bold mt-1 ${activeTransaction.type === 'received' ? 'text-[#00A651]' : 'text-gray-900'}`}>
+                                        <p className="text-sm font-bold text-[var(--text-primary)] truncate">{activeTransaction.recipient}</p>
+                                        <p className="text-xs text-[var(--text-muted)] font-mono">{activeTransaction.transactionCode}</p>
+                                        <p className={`text-base font-bold mt-1 ${activeTransaction.type === 'received' ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
                                             {activeTransaction.type === 'received' ? '+' : '-'}{fmt(activeTransaction.amount)}
                                         </p>
                                     </div>
                                     <button
                                         onClick={() => setActiveIdx(null)}
-                                        className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100"
+                                        className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-[var(--bg-elevated)]"
                                     >
-                                        <X className="w-4 h-4 text-gray-500" />
+                                        <X className="w-4 h-4 text-[var(--text-secondary)]" />
                                     </button>
                                 </div>
-                                <p className="text-xs text-[#00A651] font-medium mt-2">Choose a label for this transaction</p>
+                                <p className="text-xs text-[var(--accent)] font-medium mt-2">Choose a label for this transaction</p>
                             </div>
 
                             {/* Preset labels */}
@@ -410,31 +396,30 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                                         <motion.button
                                             key={label}
                                             onClick={() => setLabel(activeIdx, label)}
-                                            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all text-left ${
-                                                isActive
-                                                    ? 'border-[#00A651] bg-green-50'
-                                                    : 'border-gray-100 bg-gray-50 hover:border-gray-200'
-                                            }`}
+                                            className="w-full flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all text-left"
+                                            style={isActive
+                                                ? { borderColor: 'var(--accent)', background: 'var(--accent-subtle)' }
+                                                : { borderColor: 'var(--border-glass)', background: 'var(--bg-elevated)' }}
                                             whileTap={{ scale: 0.98 }}
                                         >
-                                            <span className={`text-sm font-medium ${isActive ? 'text-[#00A651]' : 'text-gray-800'}`}>
+                                            <span className={`text-sm font-medium ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
                                                 {label}
                                             </span>
-                                            {isActive && <Check className="w-4 h-4 text-[#00A651] flex-shrink-0" />}
+                                            {isActive && <Check className="w-4 h-4 text-[var(--accent)] flex-shrink-0" />}
                                         </motion.button>
                                     );
                                 })}
 
                                 {/* Custom label input */}
                                 <div className="pt-2 pb-1">
-                                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Custom label</p>
+                                    <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest mb-2">Custom label</p>
                                     <div className="flex gap-2">
                                         <input
                                             type="text"
                                             value={customInput}
                                             onChange={e => setCustomInput(e.target.value)}
                                             placeholder="e.g. Java lunch, Autoexpress, Bolt ride..."
-                                            className="flex-1 px-4 py-3 bg-gray-100 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#00A651]/30"
+                                            className="flex-1 px-4 py-3 bg-[var(--bg-elevated)] rounded-xl text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[rgba(232,133,10,0.3)]"
                                             onKeyDown={e => {
                                                 if (e.key === 'Enter' && customInput.trim()) {
                                                     setLabel(activeIdx, 'Other Business Expense', customInput.trim());
@@ -448,7 +433,7 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                                                 }
                                             }}
                                             disabled={!customInput.trim()}
-                                            className="px-4 py-3 rounded-xl bg-[#00A651] text-white font-semibold text-sm disabled:opacity-40"
+                                            className="btn-primary px-4 py-3 rounded-xl font-semibold text-sm"
                                             whileTap={{ scale: 0.95 }}
                                         >
                                             Set
@@ -463,7 +448,7 @@ export function ReviewScreen({ mode, transactions: initialTransactions, onConfir
                                             clearLabel(activeIdx);
                                             setActiveIdx(null);
                                         }}
-                                        className="w-full py-3 text-sm text-gray-400 hover:text-red-500 transition-colors"
+                                        className="w-full py-3 text-sm text-[var(--text-muted)] hover:text-red-500 transition-colors"
                                     >
                                         Remove label
                                     </button>

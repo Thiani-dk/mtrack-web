@@ -2,9 +2,9 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Clock } from 'lucide-react';
 import type { TimeRange } from '../types';
 import { type Variants } from 'framer-motion';
+import { ThemeToggle } from './ThemeToggle';
 
 interface TimeRangeScreenProps {
-    mode: 'receipt' | 'ledger';
     onSelect: (range: TimeRange) => void;
     onBack: () => void;
 }
@@ -27,29 +27,29 @@ const item: Variants = {
     show: { opacity: 1, x: 0, transition: { type: 'spring', stiffness: 380, damping: 28 } }
 };
 
-export function TimeRangeScreen({ mode, onSelect, onBack }: TimeRangeScreenProps) {
+export function TimeRangeScreen({ onSelect, onBack }: TimeRangeScreenProps) {
     return (
         <motion.div
-            className="flex flex-col min-h-screen bg-white"
+            className="flex flex-col min-h-screen bg-[var(--bg-base)]"
             initial={{ opacity: 0, x: 60 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -60 }}
             transition={{ type: 'spring', stiffness: 380, damping: 32 }}
         >
             {/* Header */}
-            <div className="sticky top-0 z-10 h-14 bg-white/80 backdrop-blur-md border-b border-gray-100 flex items-center px-4">
+            <div className="glass-header sticky top-0 z-10 h-14 border-b border-[var(--border-glass)] flex items-center px-4">
                 <motion.button
                     onClick={onBack}
-                    className="flex items-center justify-center w-9 h-9 rounded-xl bg-gray-100 text-gray-600"
+                    className="flex items-center justify-center w-9 h-9 rounded-xl bg-[var(--bg-elevated)] text-[var(--text-secondary)]"
                     whileTap={{ scale: 0.88 }}
                     transition={{ type: 'spring', stiffness: 400 }}
                 >
                     <ArrowLeft className="w-4 h-4" />
                 </motion.button>
                 <div className="flex-1 text-center">
-                    <span className="text-sm font-semibold text-gray-900">M-Track</span>
+                    <span className="text-sm font-semibold text-[var(--text-primary)]">M-Track</span>
                 </div>
-                <div className="w-9" />
+                <ThemeToggle />
             </div>
 
             <div className="flex-1 px-5 pt-6 pb-8">
@@ -61,16 +61,14 @@ export function TimeRangeScreen({ mode, onSelect, onBack }: TimeRangeScreenProps
                     transition={{ delay: 0.05, type: 'spring', stiffness: 380, damping: 28 }}
                 >
                     <div className="flex items-center gap-2 mb-1">
-                        <Clock className="w-4 h-4 text-[#00A651]" />
-                        <span className="text-xs font-semibold text-[#00A651] uppercase tracking-widest">
+                        <Clock className="w-4 h-4 text-[var(--accent)]" />
+                        <span className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest">
                             Time Period
                         </span>
                     </div>
-                    <h1 className="text-2xl font-bold text-gray-900">How far back?</h1>
-                    <p className="text-sm text-gray-500 mt-1">
-                        {mode === 'receipt'
-                            ? 'Pick the date range your receipt should cover.'
-                            : 'Pick the date range you want to review.'}
+                    <h1 className="text-2xl font-bold text-[var(--text-primary)]">How far back?</h1>
+                    <p className="text-sm text-[var(--text-secondary)] mt-1">
+                        Pick the date range your receipt should cover.
                     </p>
                 </motion.div>
 
@@ -80,22 +78,22 @@ export function TimeRangeScreen({ mode, onSelect, onBack }: TimeRangeScreenProps
                         <motion.div key={option.value} variants={item} custom={i}>
                             <motion.button
                                 onClick={() => onSelect(option.value)}
-                                className="relative w-full text-left bg-white rounded-2xl border border-gray-100 overflow-hidden"
-                                style={{ boxShadow: '0 1px 8px rgba(0,0,0,0.05)' }}
-                                whileHover={{ y: -2, boxShadow: '0 6px 24px rgba(0,166,81,0.10)' }}
+                                className="glass-card glass-card-hover relative w-full text-left overflow-hidden"
+                                whileHover={{ y: -2 }}
                                 whileTap={{ scale: 0.97 }}
                                 transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                             >
                                 <div className="flex items-center gap-4 px-4 py-4">
                                     {/* Day pill */}
-                                    <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center">
-                                        <span className="text-xs font-bold text-[#00A651]">{option.days}</span>
+                                    <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
+                                        style={{ background: 'var(--accent-subtle)' }}>
+                                        <span className="text-xs font-bold text-[var(--accent)]">{option.days}</span>
                                     </div>
                                     <div className="flex-1">
-                                        <div className="font-semibold text-gray-900 text-[15px]">{option.label}</div>
-                                        <div className="text-sm text-gray-500">{option.subLabel}</div>
+                                        <div className="font-semibold text-[var(--text-primary)] text-[15px]">{option.label}</div>
+                                        <div className="text-sm text-[var(--text-secondary)]">{option.subLabel}</div>
                                     </div>
-                                    <svg className="text-gray-300 flex-shrink-0" width="18" height="18" viewBox="0 0 20 20" fill="none">
+                                    <svg className="text-[var(--text-muted)] flex-shrink-0" width="18" height="18" viewBox="0 0 20 20" fill="none">
                                         <path d="M7 5l5 5-5 5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
                                     </svg>
                                 </div>

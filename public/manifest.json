@@ -1,7 +1,7 @@
 {
   "name": "M-Track",
   "short_name": "M-Track",
-  "description": "Parse M-PESA messages into receipts, ledgers and Gmail cleanup commands",
+  "description": "Generate KRA-ready receipts from your M-PESA transactions",
   "start_url": "/",
   "id": "/",
   "display": "standalone",

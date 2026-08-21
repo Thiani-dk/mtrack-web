@@ -7,7 +7,8 @@ export function parseAmount(str: string): number {
 export function parseTransactionDate(dateStr: string, timeStr: string): Date {
     const [day, month, year] = dateStr.split('/').map(Number);
     const [time, period] = timeStr.split(' ');
-    let [hours, minutes] = time.split(':').map(Number);
+    const [rawHours, minutes] = time.split(':').map(Number);
+    let hours = rawHours;
     if (period === 'PM' && hours < 12) hours += 12;
     if (period === 'AM' && hours === 12) hours = 0;
     return new Date(2000 + year, month - 1, day, hours, minutes);

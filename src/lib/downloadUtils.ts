@@ -1,4 +1,4 @@
-import type { ParsedTransaction, DeclutterCommand } from '../types';
+import type { ParsedTransaction } from '../types';
 
 // ── Core download helpers ─────────────────────────────────────────────────────
 
@@ -15,11 +15,6 @@ function triggerDownload(blob: Blob, filename: string): void {
 
 export function downloadHTML(content: string, filename: string): void {
     triggerDownload(new Blob([content], { type: 'text/html' }), filename);
-}
-
-export function downloadCSV(content: string, filename: string): void {
-    // BOM is already prepended in ledgerGenerator — don't double-add it here.
-    triggerDownload(new Blob([content], { type: 'text/csv' }), filename);
 }
 
 export function downloadPDF(blob: Blob, filename: string): void {
@@ -55,35 +50,13 @@ function transactionFingerprint(transactions: ParsedTransaction[]): string {
         .join('::');
 }
 
-// Build a stable fingerprint string from Gmail declutter commands.
-function declutterFingerprint(commands: DeclutterCommand[]): string {
-    return commands
-        .filter(c => c.included)
-        .map(c => c.command)
-        .join('::');
-}
-
 // ── Filename generators ───────────────────────────────────────────────────────
 
-export async function getMpesaFilenames(
-    transactions: ParsedTransaction[],
-    mode: 'receipt' | 'ledger'
-): Promise<{ html: string; pdf: string; csv: string; csvSummary: string }> {
-    const hash = await sha256Hash(transactionFingerprint(transactions));
-    const base = `mtrack-${mode}-${hash}`;
-    return {
-        html:       `${base}.html`,
-        pdf:        `${base}.pdf`,
-        csv:        `${base}.csv`,
-        csvSummary: `${base}-summary.csv`,
-    };
-}
-
-export async function getGmailFilenames(
-    commands: DeclutterCommand[]
+export async function getReceiptFilenames(
+    transactions: ParsedTransaction[]
 ): Promise<{ html: string; pdf: string }> {
-    const hash = await sha256Hash(declutterFingerprint(commands));
-    const base = `mtrack-gmail-${hash}`;
+    const hash = await sha256Hash(transactionFingerprint(transactions));
+    const base = `mtrack-receipt-${hash}`;
     return {
         html: `${base}.html`,
         pdf:  `${base}.pdf`,
@@ -102,25 +75,11 @@ function djb2Hash(input: string): string {
     return String(hash % 1_000_000).padStart(6, '0');
 }
 
-export function getMpesaFilenamesSync(
-    transactions: ParsedTransaction[],
-    mode: 'receipt' | 'ledger'
-): { html: string; pdf: string; csv: string; csvSummary: string } {
-    const hash = djb2Hash(transactionFingerprint(transactions));
-    const base = `mtrack-${mode}-${hash}`;
-    return {
-        html:       `${base}.html`,
-        pdf:        `${base}.pdf`,
-        csv:        `${base}.csv`,
-        csvSummary: `${base}-summary.csv`,
-    };
-}
-
-export function getGmailFilenamesSync(
-    commands: DeclutterCommand[]
+export function getReceiptFilenamesSync(
+    transactions: ParsedTransaction[]
 ): { html: string; pdf: string } {
-    const hash = djb2Hash(declutterFingerprint(commands));
-    const base = `mtrack-gmail-${hash}`;
+    const hash = djb2Hash(transactionFingerprint(transactions));
+    const base = `mtrack-receipt-${hash}`;
     return {
         html: `${base}.html`,
         pdf:  `${base}.pdf`,
