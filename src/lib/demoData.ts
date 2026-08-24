@@ -84,11 +84,27 @@ function card(amount: number, merchant: string, location: string, daysAgo: numbe
 }
 
 // A deliberately garbled message — enough for the parser to build a
-// transaction (it has an amount and a date) but nothing else, so it lands
-// in the genuinely low-confidence bucket rather than getting rejected.
+// transaction (it has an amount, a date, and a transaction verb so the
+// pre-extraction classifier still lets it through) but nothing else — no
+// recognisable recipient, code, or provider — so it lands in the genuinely
+// low-confidence bucket rather than getting rejected outright.
 function messyMessage(daysAgo: number, hour: number, minute: number): string {
     const date = fmtMpesaDate(dateAt(daysAgo, hour, minute));
-    return `Ksh1,500 something on ${date} not sure what for tbh`;
+    return `Paid Ksh1,500 for something on ${date}, not sure what for tbh`;
+}
+
+// A GlobalPay virtual-card purchase: the M-PESA send SMS and the card's
+// own approval SMS, sharing a transaction code — demonstrates the Part A
+// linking/merchant-cleanup behaviour (a padded "PWL*Merchant   City   CC"
+// descriptor collapsing into a clean merchant name) rather than just the
+// plain M-PESA-send format used everywhere else in this demo set.
+function globalPaySend(code: string, amount: number, merchantBlob: string, daysAgo: number, hour: number, minute: number, balance: number): string {
+    const date = fmtMpesaDate(dateAt(daysAgo, hour, minute));
+    return `${code} Confirmed. Ksh${fmtAmt(amount)} sent to M-PESA CARD for account ${merchantBlob} on ${date}. New M-PESA balance is Ksh${fmtAmt(balance)}. Transaction cost, Ksh0.00.`;
+}
+
+function globalPayApproval(code: string, amount: number, merchantBlob: string, cardLast4: string): string {
+    return `Dear Customer, a transaction ${code} of Ksh. ${fmtAmt(amount)} (inclusive of Ksh. 0.00 charge) done at ${merchantBlob} has been approved on your card ****${cardLast4}. If not yours, contact us for assistance via; X (@Safaricom_Care, @SafaricomPLC), Facebook (@SafaricomPLC), or by calling 100 or 200.`;
 }
 
 export function generateDemoMessages(): string {
@@ -108,6 +124,11 @@ export function generateDemoMessages(): string {
     messages.push(airtime(100, 8, 19, 5, balance -= 100));
     messages.push(send(1000, 'MERCY NJERI', '0722556677', 7, 12, 40, balance -= 1000, 11));
     messages.push(till(180, 'MAMA MBOGA STORES', 7, 17, 5, balance -= 180));
+    const globalPayCode = fakeCode();
+    const globalPayBlob = 'PWL*Uber Eats                Nairobi      KE';
+    balance -= 450;
+    messages.push(globalPaySend(globalPayCode, 450, globalPayBlob, 6, 12, 30, balance));
+    messages.push(globalPayApproval(globalPayCode, 450, globalPayBlob, '7421'));
     messages.push(messyMessage(6, 15, 0));
     messages.push(card(350, 'Google One', 'Mountain View US', 6, 6, 40, balance -= 350));
     messages.push(paybill(1800, 'CITY POWER & LIGHT', '0091234567', 5, 20, 10, balance -= 1800, 22));
