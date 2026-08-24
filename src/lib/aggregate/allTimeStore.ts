@@ -1,6 +1,6 @@
 import type { ParsedTransaction } from '../../types';
 import { detectRecurring } from '../insights/recurring';
-import { applyNewlyEarnedBadges, type SessionSummary } from '../badges/definitions';
+import { applyNewlyEarnedBadges, type SessionSummary, type EvidenceTransaction } from '../badges/definitions';
 
 export interface MonthBucket {
     month: string;           // 'YYYY-MM'
@@ -34,8 +34,28 @@ export interface AllTimeStats {
         largestSingleTransaction: { amount: number; recipient: string; date: number } | null;
         longestGapBetweenSummaries: number; // days
     };
-    // Badge id -> unlock timestamp
-    earnedBadges: Record<string, number>;
+    // Badge id -> unlock record (evidence: [] for badges not about a
+    // specific transaction, e.g. completionist)
+    earnedBadges: Record<string, { earnedAt: number; evidence: EvidenceTransaction[] }>;
+}
+
+// Pre-Part-C records stored a bare unlock timestamp per badge id
+// (Record<string, number>) instead of { earnedAt, evidence }. IndexedDB
+// doesn't validate shapes on read, so a user who earned badges before this
+// migration would otherwise crash the first time badge code touches
+// `.earnedAt`/`.evidence` on what's still a plain number.
+export function migrateEarnedBadges(stats: AllTimeStats): boolean {
+    let migrated = false;
+    // Cast away the compile-time shape — the whole point here is defending
+    // against data written before that shape existed.
+    const raw = stats.earnedBadges as Record<string, number | { earnedAt: number; evidence: EvidenceTransaction[] }>;
+    for (const [id, value] of Object.entries(raw)) {
+        if (typeof value === 'number') {
+            stats.earnedBadges[id] = { earnedAt: value, evidence: [] };
+            migrated = true;
+        }
+    }
+    return migrated;
 }
 
 const DB_NAME = 'mtrack-db';
@@ -82,12 +102,18 @@ export function initDB(): Promise<IDBDatabase> {
 
 export async function getAllTimeStats(): Promise<AllTimeStats | undefined> {
     const db = await initDB();
-    return new Promise((resolve, reject) => {
+    const stats = await new Promise<AllTimeStats | undefined>((resolve, reject) => {
         const tx = db.transaction(AGGREGATE_STORE, 'readonly');
         const req = tx.objectStore(AGGREGATE_STORE).get(STATS_KEY);
         req.onsuccess = () => resolve(req.result as AllTimeStats | undefined);
         req.onerror = () => reject(req.error);
     });
+
+    if (stats && migrateEarnedBadges(stats)) {
+        await saveAllTimeStats(stats);
+    }
+
+    return stats;
 }
 
 async function saveAllTimeStats(stats: AllTimeStats): Promise<void> {
@@ -276,7 +302,8 @@ export function mergeSessionIntoStats(
         subscriptionCount: sessionSubscriptionMerchants.size,
         fees: sessionFees,
         generatedAt: now,
-        hasRecurringPattern: detectRecurring(inScope).length > 0,
+        recurringPatterns: detectRecurring(inScope),
+        transactions: inScope,
     };
     const newlyEarnedBadges = applyNewlyEarnedBadges(stats, summary, now);
 
