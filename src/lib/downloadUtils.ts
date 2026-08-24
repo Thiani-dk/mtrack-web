@@ -68,26 +68,3 @@ export async function getReceiptFilenames(
         pdf:  `${base}.pdf`,
     };
 }
-
-// ── Legacy sync fallback (used if async hash isn't available) ─────────────────
-// Simple djb2 hash — runs synchronously, no Web Crypto needed.
-// Less collision-resistant than SHA-256 but fine as a fallback.
-function djb2Hash(input: string): string {
-    let hash = 5381;
-    for (let i = 0; i < input.length; i++) {
-        hash = ((hash << 5) + hash) ^ input.charCodeAt(i);
-        hash = hash >>> 0; // keep unsigned 32-bit
-    }
-    return String(hash % 1_000_000).padStart(6, '0');
-}
-
-export function getReceiptFilenamesSync(
-    transactions: ParsedTransaction[]
-): { html: string; pdf: string } {
-    const hash = djb2Hash(transactionFingerprint(transactions));
-    const base = `mtrack-receipt-${hash}`;
-    return {
-        html: `${base}.html`,
-        pdf:  `${base}.pdf`,
-    };
-}

@@ -1,34 +1,25 @@
 import { useEffect, useState } from 'react';
-import type { AppState, ParsedTransaction, InputSource } from './types';
-import { getCutoffDate, getDaysLabel } from './lib/dateUtils';
-import { parseAllSMS } from './lib/smsParser';
+import type { AppStep } from './types';
 import { HomeScreen } from './components/HomeScreen';
-import { TimeRangeScreen } from './components/TimeRangeScreen';
-import { InputScreen } from './components/InputScreen';
-import { ReviewScreen } from './components/ReviewScreen';
-import { OutputScreen } from './components/OutputScreen';
 import { HistoryScreen } from './components/HistoryScreen';
+import { AllTimeScreen } from './components/AllTimeScreen';
+import { BadgesScreen } from './components/BadgesScreen';
+import { ChatScreen } from './components/chat/ChatScreen';
 
 export default function App() {
-    const [state, setState] = useState<AppState>({
-        step: 'home',
-        timeRange: null,
-        smsText: '',
-        cutoffDate: null,
-        inputSource: 'manual',
-    });
-    const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
-
     // ── Share target handler ─────────────────────────────────────────────────
     // When the PWA is opened via Android Share, the OS appends
-    // ?text=<shared content> to /share-target. We read it synchronously on
-    // first render and pass it to InputScreen as a pre-filled value.
+    // ?text=<shared content> to /share-target. Shared text lands directly in
+    // the chat flow's parse step and gets auto-submitted there.
 
-    const [sharedText, setSharedText] = useState<string | null>(() => {
+    const [sharedText] = useState<string | null>(() => {
         const params = new URLSearchParams(window.location.search);
         const text = params.get('text') ?? params.get('title') ?? null;
         return text && text.trim().length > 0 ? text.trim() : null;
     });
+
+    const [step, setStep] = useState<AppStep>(() => (sharedText ? 'chat' : 'home'));
+    const [chatDemoMode, setChatDemoMode] = useState(false);
 
     useEffect(() => {
         if (sharedText) {
@@ -37,96 +28,58 @@ export default function App() {
         }
     }, [sharedText]);
 
-    // ── M-PESA flow ──────────────────────────────────────────────────────────
-
     const handleHomeSelect = () => {
-        setState(prev => ({ ...prev, step: 'timeRange' }));
+        setChatDemoMode(false);
+        setStep('chat');
     };
 
-    const handleTimeRangeSelect = (range: 'week' | 'month' | '3months' | '6months' | 'year') => {
-        setState(prev => ({
-            ...prev,
-            timeRange: range,
-            cutoffDate: getCutoffDate(range),
-            step: 'input',
-        }));
-    };
-
-    const handleInputSubmit = (text: string, source: InputSource) => {
-        // Clear shared text once consumed
-        setSharedText(null);
-        const parsed = parseAllSMS(text);
-        setTransactions(parsed);
-        setState(prev => ({ ...prev, smsText: text, inputSource: source, step: 'review' }));
-    };
-
-    const handleReviewConfirm = (labelled: ParsedTransaction[]) => {
-        setTransactions(labelled);
-        setState(prev => ({ ...prev, step: 'output' }));
-    };
-
-    // ── Shared ───────────────────────────────────────────────────────────────
-
-    const handleReset = () => {
-        setState({ step: 'home', timeRange: null, smsText: '', cutoffDate: null, inputSource: 'manual' });
-        setTransactions([]);
-        setSharedText(null);
+    const handleDemoSelect = () => {
+        setChatDemoMode(true);
+        setStep('chat');
     };
 
     const renderStep = () => {
-        switch (state.step) {
+        switch (step) {
             case 'home':
                 return (
                     <HomeScreen
                         onSelect={handleHomeSelect}
-                        onHistoryClick={() => setState(prev => ({ ...prev, step: 'history' }))}
-                    />
-                );
-
-            case 'timeRange':
-                return (
-                    <TimeRangeScreen
-                        onSelect={handleTimeRangeSelect}
-                        onBack={() => setState(prev => ({ ...prev, step: 'home' }))}
-                    />
-                );
-
-            case 'input':
-                return (
-                    <InputScreen
-                        range={state.timeRange!}
-                        cutoffDate={state.cutoffDate!}
-                        initialText={sharedText ?? ''}
-                        onSubmit={handleInputSubmit}
-                        onBack={() => setState(prev => ({ ...prev, step: 'timeRange' }))}
-                    />
-                );
-
-            case 'review':
-                return (
-                    <ReviewScreen
-                        transactions={transactions}
-                        onConfirm={handleReviewConfirm}
-                        onBack={() => setState(prev => ({ ...prev, step: 'input' }))}
-                    />
-                );
-
-            case 'output':
-                return (
-                    <OutputScreen
-                        transactions={transactions}
-                        dateRangeLabel={getDaysLabel(state.timeRange!)}
-                        inputSource={state.inputSource}
-                        onReset={handleReset}
-                        onBack={() => setState(prev => ({ ...prev, step: 'review' }))}
+                        onDemoClick={handleDemoSelect}
+                        onHistoryClick={() => setStep('history')}
+                        onAllTimeClick={() => setStep('allTime')}
                     />
                 );
 
             case 'history':
                 return (
                     <HistoryScreen
-                        onBack={() => setState(prev => ({ ...prev, step: 'home' }))}
-                        onStartNew={() => setState(prev => ({ ...prev, step: 'timeRange' }))}
+                        onBack={() => setStep('home')}
+                        onDemoClick={handleDemoSelect}
+                    />
+                );
+
+            case 'allTime':
+                return (
+                    <AllTimeScreen
+                        onBack={() => setStep('home')}
+                        onBadgesClick={() => setStep('badges')}
+                    />
+                );
+
+            case 'badges':
+                return (
+                    <BadgesScreen onBack={() => setStep('allTime')} />
+                );
+
+            case 'chat':
+                return (
+                    <ChatScreen
+                        demoMode={chatDemoMode}
+                        initialSharedText={sharedText}
+                        onBack={() => {
+                            setChatDemoMode(false);
+                            setStep('home');
+                        }}
                     />
                 );
 
@@ -134,6 +87,16 @@ export default function App() {
                 return null;
         }
     };
+
+    // The chat screen owns a full-width, two-column desktop layout — it opts
+    // out of the max-w-lg phone-frame wrapper the other screens share.
+    if (step === 'chat') {
+        return (
+            <div className="min-h-screen bg-[var(--bg-base)]">
+                {renderStep()}
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-[var(--bg-base)]">

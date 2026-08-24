@@ -1,13 +1,12 @@
-export type TimeRange = 'week' | 'month' | '3months' | '6months' | 'year';
+import type { Insight } from '../lib/insights/types';
+import type { RecurringPattern } from '../lib/insights/recurring';
+
 export type AppStep =
     | 'home'
-    | 'timeRange'
-    | 'input'
-    | 'review'
-    | 'output'
-    | 'history';
-
-export type InputSource = 'manual' | 'xml';
+    | 'history'
+    | 'chat'
+    | 'allTime'
+    | 'badges';
 
 export type TransactionSubType =
     | 'person_send'
@@ -37,23 +36,8 @@ export type ExpenseLabel =
     | 'Other Business Expense'
     | null;
 
-// Preset receipt labels shown on OutputScreen for reimbursement receipts
-export type ReceiptLabelPreset =
-    | 'Transport'
-    | 'Accommodation'
-    | 'Fuel'
-    | 'Medical Aid'
-    | 'Other';
-
-export interface AppState {
-    step: AppStep;
-    timeRange: TimeRange | null;
-    smsText: string;
-    cutoffDate: Date | null;
-    inputSource: InputSource;
-}
-
 export interface ParsedTransaction {
+    // core (existing fields preserved for compatibility)
     date: Date;
     time: string;
     type: 'sent' | 'received';
@@ -67,10 +51,30 @@ export interface ParsedTransaction {
     rawLine: string;
     label: ExpenseLabel;
     customLabel: string | null;
-    // Per-transaction label added on OutputScreen before downloading receipt
+    // Per-transaction label added before downloading the receipt
     receiptLabel: string | null;
     // Whether the user has toggled this transaction out of the receipt
     excludedFromReceipt: boolean;
+
+    // new normalised fields (field-extraction parsing engine)
+    currency: string;                // 'KES' | 'USD' | ...
+    sender: string | null;
+    account: string | null;          // paybill account number
+    provider: string;                // 'M-PESA' | 'Co-operative Bank' | 'Unknown'
+    method: string;                  // 'p2p' | 'till' | 'paybill' | 'card' | 'airtime' | ...
+    merchant: string | null;         // 'Netflix', 'Naivas'
+    merchantCategory: string | null; // 'Streaming & Subscriptions'
+    location: string | null;         // 'Los Gatos NL'
+    isBusiness: boolean;             // P2B vs P2P
+
+    // quality metadata
+    confidence: number;              // 0-100
+    confidenceLevel: 'high' | 'medium' | 'low';
+    missingFields: string[];
+    codeIsSynthetic: boolean;
+    dateAmbiguous: boolean;
+    failed: boolean;                 // "Was Declined" / "Unsuccessful"
+    isHold: boolean;                 // zero-value authorisation hold
 }
 
 // ---------------------------------------------------------------------------
@@ -90,4 +94,60 @@ export interface StoredReceipt {
     // Quick summary for the dashboard card
     topRecipients: string[]; // top 3 recipients by total amount
     labels: string[];        // unique receipt labels used
+}
+
+// ---------------------------------------------------------------------------
+// Conversational receipt builder (chat)
+// ---------------------------------------------------------------------------
+
+export type ChatMessageRole = 'bot' | 'user' | 'system';
+
+export type ChatMessageKind =
+    | 'text'              // plain message bubble
+    | 'options'           // tappable option cards
+    | 'dropzone'          // the paste/upload input widget
+    | 'transactions'      // parsed transaction list with label pickers
+    | 'receipt'           // final receipt preview + download buttons
+    | 'insight'           // a single generated observation
+    | 'recurring'         // detected recurring payment patterns
+    | 'badge'             // a newly-unlocked badge
+    | 'thinking';         // animated typing indicator
+
+export interface ChatOption {
+    id: string;
+    label: string;
+    sublabel?: string;
+    icon?: string;        // lucide icon name
+    value: string;        // what gets passed back when tapped
+}
+
+export interface ChatMessage {
+    id: string;
+    role: ChatMessageRole;
+    kind: ChatMessageKind;
+    text?: string;                      // for 'text' kind
+    options?: ChatOption[];             // for 'options' kind
+    transactions?: ParsedTransaction[]; // for 'transactions' and 'receipt' kinds
+    dateRange?: string;                 // for 'receipt' kind
+    isDemo?: boolean;                   // for 'receipt' kind — watermarks the PDF/HTML
+    insight?: Insight;                  // for 'insight' kind
+    recurringPatterns?: RecurringPattern[]; // for 'recurring' kind
+    badgeId?: string;                   // for 'badge' kind
+    badgeLeadIn?: string;                // for 'badge' kind — varied unlock copy
+    timestamp: number;
+    // Once the user has answered an options message, lock it
+    answered?: boolean;
+    answeredValue?: string;
+}
+
+export interface ChatSession {
+    id: string;
+    createdAt: number;
+    updatedAt: number;
+    title: string;              // e.g. "Expense Summary — Aug 22"
+    messages: ChatMessage[];
+    // Denormalised for the sidebar preview
+    transactionCount: number;
+    totalSpent: number;
+    isComplete: boolean;        // true once a receipt was generated
 }

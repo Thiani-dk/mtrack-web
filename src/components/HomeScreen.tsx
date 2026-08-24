@@ -1,11 +1,15 @@
-import { motion, type Variants } from 'framer-motion';
-import { FileText, Share2 } from 'lucide-react';
+import { useState } from 'react';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
+import { FileText, Share2, Settings, Trash2, X, History as HistoryIcon } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { HistoryButton } from './HistoryButton';
+import { useAllTimeStats } from '../lib/aggregate/useAllTimeStats';
 
 interface HomeScreenProps {
     onSelect: () => void;
+    onDemoClick: () => void;
     onHistoryClick: () => void;
+    onAllTimeClick: () => void;
 }
 
 const container: Variants = {
@@ -33,7 +37,104 @@ const CARDS: {
     },
 ];
 
-export function HomeScreen({ onSelect, onHistoryClick }: HomeScreenProps) {
+function fmt(n: number): string {
+    return `Ksh ${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+}
+
+// ── Passive return note ──────────────────────────────────────────────────────
+// Dismissible, and once dismissed, silent for 7 days — no nag, no badge.
+
+const RETURN_NOTE_DISMISS_KEY = 'mtrack-return-note-dismissed-until';
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function isReturnNoteDismissedAt(now: number): boolean {
+    try {
+        const until = localStorage.getItem(RETURN_NOTE_DISMISS_KEY);
+        return !!until && now < Number(until);
+    } catch {
+        return false;
+    }
+}
+
+function dismissReturnNote(): void {
+    try {
+        localStorage.setItem(RETURN_NOTE_DISMISS_KEY, String(Date.now() + 7 * DAY_MS));
+    } catch {
+        // Storage unavailable — the note will just show again next time
+    }
+}
+
+// ── Settings affordance ──────────────────────────────────────────────────────
+
+function SettingsMenu({ onClearData }: { onClearData: () => void }) {
+    const [open, setOpen] = useState(false);
+    const [confirming, setConfirming] = useState(false);
+
+    const handleClearTap = () => {
+        if (confirming) {
+            onClearData();
+            setConfirming(false);
+            setOpen(false);
+        } else {
+            setConfirming(true);
+        }
+    };
+
+    return (
+        <div className="relative">
+            <motion.button
+                onClick={() => { setOpen(o => !o); setConfirming(false); }}
+                aria-label="Settings"
+                className="flex items-center justify-center w-9 h-9 rounded-xl border border-[var(--border-glass)] bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+                whileTap={{ scale: 0.88 }}
+            >
+                <Settings className="w-4 h-4" />
+            </motion.button>
+
+            <AnimatePresence>
+                {open && (
+                    <>
+                        <div className="fixed inset-0" style={{ zIndex: 15 }} onClick={() => setOpen(false)} />
+                        <motion.div
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 8 }}
+                            className="glass-panel z-chip-row absolute top-full right-0 mt-1.5 w-56 rounded-xl overflow-hidden p-1.5"
+                        >
+                            <button
+                                onClick={handleClearTap}
+                                className="w-full flex items-center gap-2 text-left text-xs px-3 py-2.5 rounded-lg transition-colors"
+                                style={confirming
+                                    ? { background: 'rgba(239,68,68,0.12)', color: '#ef4444' }
+                                    : { color: 'var(--text-secondary)' }}
+                            >
+                                <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+                                {confirming ? 'Tap again to clear my data' : 'Clear my data'}
+                            </button>
+                        </motion.div>
+                    </>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeClick }: HomeScreenProps) {
+    const { stats, resetAll } = useAllTimeStats();
+    // Captured once on mount rather than read fresh on every render — keeps
+    // the render body pure (no direct Date.now() calls in render).
+    const [now] = useState(() => Date.now());
+    const [dismissedThisVisit, setDismissedThisVisit] = useState(false);
+
+    const daysSinceLast = stats ? Math.floor((now - stats.lastTrackedAt) / DAY_MS) : 0;
+    const showReturnNote = !!stats && stats.sessionCount > 0 && daysSinceLast > 25 &&
+        !dismissedThisVisit && !isReturnNoteDismissedAt(now);
+
+    const handleDismissReturnNote = () => {
+        dismissReturnNote();
+        setDismissedThisVisit(true);
+    };
+
     return (
         <div className="relative flex flex-col items-center justify-center min-h-screen overflow-hidden bg-[var(--bg-base)]">
 
@@ -43,8 +144,9 @@ export function HomeScreen({ onSelect, onHistoryClick }: HomeScreenProps) {
                 style={{ background: 'radial-gradient(ellipse at top right, rgba(232,133,10,0.06), transparent 60%)' }}
             />
 
-            {/* Theme toggle */}
-            <div className="absolute top-4 right-4 z-20">
+            {/* Theme toggle + settings */}
+            <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+                <SettingsMenu onClearData={resetAll} />
                 <ThemeToggle />
             </div>
 
@@ -64,6 +166,30 @@ export function HomeScreen({ onSelect, onHistoryClick }: HomeScreenProps) {
                         Paste your M-PESA messages, label your transactions, download a KRA-ready receipt.
                     </p>
                 </motion.div>
+
+                {/* Passive return note — quiet, dismissible, never a nag */}
+                <AnimatePresence>
+                    {showReturnNote && (
+                        <motion.div
+                            variants={item}
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="flex items-center justify-center gap-2"
+                        >
+                            <p className="text-xs text-[var(--text-muted)] text-center">
+                                It's been {daysSinceLast} days since your last summary.
+                            </p>
+                            <button
+                                onClick={handleDismissReturnNote}
+                                aria-label="Dismiss"
+                                className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] flex-shrink-0"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 {/* Share tip banner */}
                 <motion.div variants={item}>
@@ -132,6 +258,50 @@ export function HomeScreen({ onSelect, onHistoryClick }: HomeScreenProps) {
                         </motion.div>
                     ))}
                 </div>
+
+                {/* All Time card — only once there's a real running picture */}
+                {stats && stats.sessionCount >= 2 && (
+                    <motion.div variants={item}>
+                        <motion.button
+                            onClick={onAllTimeClick}
+                            className="glass-card glass-card-hover relative w-full text-left overflow-hidden"
+                            whileHover={{ y: -2 }}
+                            whileTap={{ scale: 0.975 }}
+                            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                        >
+                            <div className="flex items-start gap-3 p-4">
+                                <div className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-lg"
+                                    style={{ background: 'var(--accent-subtle)' }}>
+                                    <HistoryIcon className="w-4 h-4 text-[var(--accent)]" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-[10px] font-semibold text-[var(--accent)] uppercase tracking-widest">All time</p>
+                                    <p className="text-sm font-medium text-[var(--text-primary)] mt-0.5">
+                                        {stats.sessionCount} summaries · {stats.totalTransactionsTracked} transactions
+                                    </p>
+                                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                        Tracked since {new Date(stats.firstTrackedAt).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
+                                    </p>
+                                    {stats.totalFees > 0 && (
+                                        <p className="text-xs mt-0.5" style={{ color: 'var(--warn-heading)' }}>
+                                            {fmt(stats.totalFees)} in fees spotted
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.button>
+                    </motion.div>
+                )}
+
+                {/* Demo link — subtle, secondary to the primary card */}
+                <motion.div variants={item} className="flex items-center justify-center">
+                    <button
+                        onClick={onDemoClick}
+                        className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline underline-offset-2 decoration-[var(--border-glass)] transition-colors"
+                    >
+                        Just curious? See it with sample data
+                    </button>
+                </motion.div>
 
                 {/* History */}
                 <motion.div variants={item}>

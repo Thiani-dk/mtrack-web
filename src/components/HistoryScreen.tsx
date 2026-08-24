@@ -9,7 +9,7 @@ import { ThemeToggle } from './ThemeToggle';
 
 interface HistoryScreenProps {
     onBack: () => void;
-    onStartNew: () => void;
+    onDemoClick: () => void;
 }
 
 function fmt(n: number) {
@@ -48,7 +48,7 @@ function ReceiptCard({
         setDownloading(true);
         try {
             const [blob, filenames] = await Promise.all([
-                Promise.resolve(generateReceiptPDF(receipt.transactions, receipt.dateRange)),
+                generateReceiptPDF(receipt.transactions, receipt.dateRange),
                 getReceiptFilenames(receipt.transactions),
             ]);
             downloadPDF(blob, filenames.pdf);
@@ -126,7 +126,7 @@ function ReceiptCard({
                     whileTap={{ scale: 0.97 }}
                 >
                     <Download className="w-3.5 h-3.5" />
-                    {downloading ? 'Generating…' : 'Re-download'}
+                    {downloading ? 'Generating…' : 'Save again'}
                 </motion.button>
                 <motion.button
                     onClick={handleDeleteTap}
@@ -144,7 +144,7 @@ function ReceiptCard({
     );
 }
 
-export function HistoryScreen({ onBack, onStartNew }: HistoryScreenProps) {
+export function HistoryScreen({ onBack, onDemoClick }: HistoryScreenProps) {
     const { receipts, isLoading, isAvailable, deleteReceipt } = useReceiptStore();
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -170,7 +170,7 @@ export function HistoryScreen({ onBack, onStartNew }: HistoryScreenProps) {
                     <ArrowLeft className="w-4 h-4" />
                 </motion.button>
                 <div className="flex-1 text-center">
-                    <span className="text-sm font-semibold text-[var(--text-primary)]">Receipt History</span>
+                    <span className="text-sm font-semibold text-[var(--text-primary)]">Past summaries</span>
                 </div>
                 <ThemeToggle />
             </div>
@@ -178,7 +178,7 @@ export function HistoryScreen({ onBack, onStartNew }: HistoryScreenProps) {
             <div className="flex-1 px-4 pt-5 pb-10 space-y-3 max-w-md mx-auto w-full">
                 {!isAvailable && (
                     <p className="text-xs text-center text-[var(--text-muted)] rounded-xl px-3 py-2 bg-[var(--bg-elevated)]">
-                        History unavailable in private browsing.
+                        Can't save history in private browsing — everything else works fine, it just won't stick around after you close this.
                     </p>
                 )}
 
@@ -190,15 +190,15 @@ export function HistoryScreen({ onBack, onStartNew }: HistoryScreenProps) {
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     >
                         <Inbox className="w-14 h-14 text-[var(--text-muted)]" />
-                        <p className="text-sm text-[var(--text-secondary)] max-w-[240px]">
-                            No receipts yet. Generate your first one to see it here.
+                        <p className="text-sm text-[var(--text-secondary)] max-w-[260px]">
+                            Nothing here yet. Summaries you generate will show up here — try the demo if you want to see what that looks like first.
                         </p>
                         <motion.button
-                            onClick={onStartNew}
+                            onClick={onDemoClick}
                             className="btn-primary min-h-[48px] px-6 rounded-2xl font-semibold text-sm"
                             whileTap={{ scale: 0.97 }}
                         >
-                            Generate a receipt
+                            Try the demo
                         </motion.button>
                     </motion.div>
                 ) : (

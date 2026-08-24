@@ -1,5 +1,13 @@
 import type { ParsedTransaction } from '../types';
 import { jsPDF } from 'jspdf';
+import QRCode from 'qrcode';
+import { detectRecurring, type RecurringPattern } from './insights/recurring';
+
+const QR_TARGET_URL = 'https://mtrack.vercel.app';
+
+function buildQRDataUrl(): Promise<string> {
+    return QRCode.toDataURL(QR_TARGET_URL, { margin: 1, width: 200 });
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,24 +59,17 @@ function getRecipientShort(t: ParsedTransaction): string {
         case 'mshwari':        return 'M-SHWARI';
         case 'investment':     return 'ZIIDI MMF';
         case 'withdrawal':     return 'CASH WITHDRAWAL';
-        default:               return t.recipient.toUpperCase();
+        default:               return (t.merchant ?? t.recipient).toUpperCase();
     }
 }
 
-function getTypeFlag(t: ParsedTransaction): string {
-    // Right-margin single-char flag — Costco pattern
-    switch (t.subType) {
-        case 'person_receive': return 'R'; // Received
-        case 'person_send':    return 'S'; // Send
-        case 'pochi_send':     return 'P'; // Pochi
-        case 'paybill':        return 'B'; // Bill
-        case 'airtime':        return 'A'; // Airtime
-        case 'data':           return 'D'; // Data
-        case 'withdrawal':     return 'W'; // Withdrawal
-        case 'mshwari':        return 'M'; // M-Shwari
-        case 'investment':     return 'I'; // Investment
-        default:               return '?';
-    }
+// Short provider tag shown next to the name when the channel isn't M-PESA —
+// e.g. "NETFLIX  ·  Card" for a Co-op card alert.
+function getProviderSuffix(t: ParsedTransaction): string | null {
+    if (t.method === 'card') return 'Card';
+    if (t.provider === 'M-PESA' || t.provider === 'Unknown') return null;
+    if (t.provider === 'Co-operative Bank') return 'Co-op';
+    return t.provider;
 }
 
 // ── Shared computation ────────────────────────────────────────────────────────
@@ -93,7 +94,9 @@ interface ReceiptData {
     totalFees: number;
     feesBreakdown: { label: string; count: number; total: number }[];
     labelTotals: Record<string, number>;
+    labelCounts: Record<string, number>;
     hasLabels: boolean;
+    recurringPatterns: RecurringPattern[];
     activeTransactions: ParsedTransaction[];
 }
 
@@ -145,114 +148,177 @@ function computeReceiptData(transactions: ParsedTransaction[]): ReceiptData {
     });
     const feesBreakdown = Object.entries(feeGroups).map(([label, v]) => ({ label, ...v }));
 
-    // Receipt label totals
+    // Category summary — grouped by receiptLabel, falling back to the
+    // parser's own merchantCategory before landing in "Unlabelled"
     const labelTotals: Record<string, number> = {};
+    const labelCounts: Record<string, number> = {};
     activeTransactions.forEach(t => {
-        if (t.receiptLabel && t.type === 'sent') {
-            labelTotals[t.receiptLabel] = (labelTotals[t.receiptLabel] ?? 0) + t.amount;
-        }
+        const key = t.receiptLabel
+            ? t.receiptLabel.toUpperCase()
+            : t.merchantCategory
+            ? t.merchantCategory.toUpperCase()
+            : 'Unlabelled';
+        labelTotals[key] = (labelTotals[key] ?? 0) + t.amount;
+        labelCounts[key] = (labelCounts[key] ?? 0) + 1;
     });
     const hasLabels = activeTransactions.some(t => t.receiptLabel != null);
+
+    // Only surface patterns confident enough to print without caveats.
+    const recurringPatterns = detectRecurring(activeTransactions).filter(p => p.confidence >= 60);
 
     return {
         currentDate, currentTime, receiptRef, secCode,
         totalSent, totalReceived, personSendTotal, pochiTotal,
         paybillTotal, airtimeTotal, dataTotal, withdrawalTotal,
         mshwariTotal, investmentTotal, trueOutflow, net,
-        totalFees, feesBreakdown, labelTotals, hasLabels,
+        totalFees, feesBreakdown, labelTotals, labelCounts, hasLabels,
+        recurringPatterns,
         activeTransactions,
     };
 }
 
+// Shared disclaimer copy — the load-bearing part of the repositioning
+const DISCLAIMER_LINES = [
+    '⚠ THIS IS NOT A TAX INVOICE',
+    'For record-keeping only. Not valid',
+    'for eTIMS or VAT claims. Obtain',
+    'eTIMS invoices from your suppliers.',
+];
+
+// A demo receipt must never be mistakable for a real one — this line is
+// non-negotiable whenever isDemo is set.
+const DEMO_LINE = 'SAMPLE — NOT REAL DATA';
+
+const CADENCE_DISPLAY: Record<RecurringPattern['cadence'], string> = {
+    weekly: 'Weekly',
+    fortnightly: 'Fortnightly',
+    monthly: 'Monthly',
+    irregular: 'Irregular',
+};
+
+// Fixed-width 3-column row: name | cadence | amount (right-aligned)
+function recurringRow(name: string, cadence: string, amount: string, W: number): string {
+    const nameW = 18;
+    const cadenceW = 10;
+    const amountW = W - nameW - cadenceW;
+    return trunc(name, nameW).padEnd(nameW) + cadence.padEnd(cadenceW) + amount.padStart(amountW);
+}
+
 // ── HTML Receipt ──────────────────────────────────────────────────────────────
 
-export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange: string): string {
+export async function generateReceiptHTML(transactions: ParsedTransaction[], dateRange: string, isDemo = false): Promise<string> {
     const d = computeReceiptData(transactions);
     const W = 44;
 
     const lines: string[] = [
         // Security code top-left, date top-right — Costco pattern
         leftRight(d.secCode, d.currentDate.toUpperCase(), W),
+        leftRight('', d.currentTime, W),
         '',
         center('M-TRACK', W),
-        center('Expense Receipt', W),
+        center('EXPENSE SUMMARY', W),
         '',
-        leftRight(`REF: ${d.receiptRef}`, `PERIOD: ${dateRange.toUpperCase()}`, W),
-        repeat('=', W),
-        // Item count bold — Costco pattern
-        leftRight(`${d.activeTransactions.length} ITEMS`, d.currentTime, W),
-        repeat('-', W),
-        // Column headers
-        leftRight('  # DATE       RECIPIENT', 'AMOUNT  [T]', W),
-        repeat('-', W),
     ];
 
-    // Single-line transaction rows — Costco dense layout
+    // ── Disclaimer block ──
+    DISCLAIMER_LINES.forEach(l => lines.push(center(l, W)));
+    if (isDemo) lines.push(center(DEMO_LINE, W));
+    lines.push('');
+
+    lines.push(`REF: ${d.receiptRef}`);
+    lines.push(`PERIOD: ${dateRange.toUpperCase()}`);
+    lines.push(repeat('=', W));
+    // Item count bold — Costco pattern
+    lines.push(leftRight(`${d.activeTransactions.length} ITEMS`, '', W));
+    lines.push(repeat('-', W));
+    // Column headers
+    lines.push(leftRight('DATE DESCRIPTION', 'AMOUNT', W));
+    lines.push(repeat('-', W));
+    lines.push('');
+
+    // ── Transaction rows — breathing room, one blank line between each ──
     d.activeTransactions.forEach((t, i) => {
-        const num      = String(i + 1).padStart(2, '0');
-        const dateStr  = t.date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
-        const flag     = getTypeFlag(t);
-        const sign     = t.type === 'sent' ? '-' : '+';
-        const amtStr   = `${sign}${fmt(t.amount)}`;
-        const nameCol  = trunc(getRecipientShort(t), 16);
-        const left     = `  ${num} ${dateStr}  ${nameCol}`;
-        lines.push(leftRight(left, `${amtStr}  [${flag}]`, W));
-        // Receipt label indented below if set — Target "You Saved" style
-        if (t.receiptLabel) {
-            lines.push(`       → ${t.receiptLabel.toUpperCase()}`);
-        }
-        // Transaction code on its own line, small
-        lines.push(`       ${t.transactionCode}`);
+        const num       = String(i + 1).padStart(2, '0');
+        const dateStr   = t.date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
+        const sign      = t.type === 'sent' ? '-' : '+';
+        const amtStr    = `${sign}${fmt(t.amount)}`;
+        const nameCol   = trunc(getRecipientShort(t), 16);
+        const providerTag = getProviderSuffix(t);
+        const nameWithProvider = providerTag ? `${nameCol}  ·  ${providerTag}` : nameCol;
+        const left      = `${num} ${dateStr} ${nameWithProvider}`;
+        lines.push(leftRight(left, amtStr, W));
+        lines.push(`   Ref: ${t.transactionCode}`);
         if (t.transactionCost != null && t.transactionCost > 0) {
-            lines.push(`       FEE: ${fmt(t.transactionCost)}`);
+            lines.push(`   Fee: ${fmt(t.transactionCost)}`);
         }
+        if (t.receiptLabel) {
+            lines.push(`   → ${t.receiptLabel.toUpperCase()}`);
+        } else if (t.merchantCategory) {
+            lines.push(`   → ${t.merchantCategory.toUpperCase()}`);
+        }
+        lines.push('');
     });
 
-    lines.push(repeat('-', W));
-    lines.push('');
-    lines.push(center('TYPE FLAGS: R=Received S=Send P=Pochi', W));
-    lines.push(center('B=Bill  A=Airtime  W=Withdrawal  M=M-Shwari', W));
-    lines.push('');
     lines.push(repeat('=', W));
 
-    // Totals section — Target rigid negative space
+    // ── Category summary ──
     lines.push('');
-    lines.push(leftRight('SUBTOTAL', fmt(d.trueOutflow), W));
-    if (d.totalFees > 0) {
-        lines.push(leftRight('TRANSACTION FEES', fmt(d.totalFees), W));
-        if (d.feesBreakdown.length > 0) {
-            d.feesBreakdown.forEach(f => {
-                lines.push(leftRight(`  ${f.label} (x${f.count})`, fmt(f.total), W));
-            });
-        }
-    }
+    lines.push(center('CATEGORY SUMMARY', W));
     lines.push(repeat('-', W));
-    lines.push(leftRight('TOTAL SPENT', fmt(d.trueOutflow + d.totalFees), W));
-    if (d.totalReceived > 0) {
-        lines.push(leftRight('TOTAL RECEIVED', fmt(d.totalReceived), W));
-        lines.push(repeat('-', W));
-        lines.push(leftRight('NET FLOW', fmtSigned(d.net), W));
-    }
+    Object.entries(d.labelTotals).forEach(([label, total]) => {
+        const count = d.labelCounts[label];
+        lines.push(leftRight(`${label} (x${count})`, fmt(total), W));
+    });
     lines.push(repeat('=', W));
 
-    // Label / category breakdown — Target "You Saved" block
-    if (d.hasLabels) {
+    // ── Recurring payments — only confident, repeated patterns ──
+    if (d.recurringPatterns.length > 0) {
         lines.push('');
-        lines.push(center('CATEGORY BREAKDOWN', W));
+        lines.push(center('RECURRING PAYMENTS', W));
         lines.push(repeat('-', W));
-        Object.entries(d.labelTotals).forEach(([label, total]) => {
-            lines.push(leftRight(`  ${label.toUpperCase()}`, fmt(total), W));
+        d.recurringPatterns.forEach(p => {
+            lines.push(recurringRow(p.recipient, CADENCE_DISPLAY[p.cadence], fmt(p.averageAmount), W));
+        });
+        lines.push(repeat('-', W));
+    }
+
+    // ── Totals ──
+    lines.push('');
+    lines.push(center('TOTALS', W));
+    lines.push(repeat('-', W));
+    lines.push(leftRight('Items sent', fmt(d.trueOutflow), W));
+    lines.push(leftRight('Items received', fmt(d.totalReceived), W));
+    lines.push(leftRight('Transaction fees', fmt(d.totalFees), W));
+    lines.push(repeat('-', W));
+    lines.push(leftRight('NET', fmtSigned(d.net), W));
+    lines.push(leftRight('TOTAL + FEES', fmt(d.trueOutflow + d.totalFees), W));
+    lines.push(repeat('=', W));
+
+    // ── Fee breakdown ──
+    if (d.feesBreakdown.length > 0) {
+        lines.push('');
+        lines.push(center('FEE BREAKDOWN', W));
+        lines.push(repeat('-', W));
+        d.feesBreakdown.forEach(f => {
+            lines.push(leftRight(`${f.label} (x${f.count})`, fmt(f.total), W));
         });
         lines.push(repeat('=', W));
     }
 
     lines.push('');
     lines.push(center('GENERATED BY M-TRACK', W));
-    lines.push(center(`REF: ${d.receiptRef}`, W));
-    // Security code repeated at bottom — Costco daily-code pattern
-    lines.push(leftRight('mtrack.vercel.app', d.secCode, W));
+    // Security code paired with the ref — Costco daily-code pattern
+    lines.push(leftRight(`REF: ${d.receiptRef}`, d.secCode, W));
 
-    const receiptText = lines.join('\n');
+    const bodyText = lines.join('\n');
+
+    // QR footer block — a footer mark, not an advertisement. The image sits
+    // between two <pre> blocks so the surrounding text keeps its monospace
+    // grid; the data URL keeps the file fully self-contained (no CDN, works
+    // offline).
+    const qrTopText = [repeat('=', W), center('MADE WITH M-TRACK', W)].join('\n');
+    const qrBottomText = [center('mtrack.vercel.app', W), repeat('=', W)].join('\n');
+    const qrDataUrl = await buildQRDataUrl();
 
     return `<!DOCTYPE html>
 <html>
@@ -294,6 +360,18 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
             white-space: pre;
             overflow-x: auto;
         }
+        .disclaimer {
+            border: 1px dashed var(--warn-border, #fde68a);
+            background: var(--warn-bg, #fffbeb);
+            color: var(--warn-text, #b45309);
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 10px;
+            line-height: 1.5;
+            text-align: center;
+            padding: 6px 4px;
+            margin: 8px 0;
+            white-space: pre-line;
+        }
         @media print {
             body { background: white; padding: 0; }
             .tear-top, .tear-bottom { display: none; }
@@ -305,7 +383,14 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
 <body>
     <div class="receipt-wrap">
         <div class="tear-top"></div>
-        <div class="receipt"><pre>${receiptText}</pre></div>
+        <div class="receipt">
+            <pre>${bodyText}</pre>
+            <pre>${qrTopText}</pre>
+            <div style="text-align:center; padding: 6px 0;">
+                <img src="${qrDataUrl}" width="94" height="94" alt="QR code linking to mtrack.vercel.app" />
+            </div>
+            <pre>${qrBottomText}</pre>
+        </div>
         <div class="tear-bottom"></div>
     </div>
 </body>
@@ -314,14 +399,27 @@ export function generateReceiptHTML(transactions: ParsedTransaction[], dateRange
 
 // ── PDF Receipt ───────────────────────────────────────────────────────────────
 
-export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange: string): Blob {
+export async function generateReceiptPDF(transactions: ParsedTransaction[], dateRange: string, isDemo = false): Promise<Blob> {
     const d = computeReceiptData(transactions);
+    const qrDataUrl = await buildQRDataUrl();
 
-    // Dynamic height: base ~80mm + ~14mm per transaction + label/fee extras
-    const extraPerTx   = d.hasLabels ? 18 : 14;
-    const featureLines = d.totalFees > 0 ? d.feesBreakdown.length * 4 + 8 : 0;
-    const labelLines   = d.hasLabels ? Object.keys(d.labelTotals).length * 4 + 12 : 0;
-    const pageHeight   = Math.max(120, Math.min(80 + d.activeTransactions.length * extraPerTx + featureLines + labelLines, 900));
+    // Dynamic height: base ~80mm + ~14mm per transaction + fee/category extras
+    // + ~20mm for the disclaimer block + ~4mm per category in the summary
+    // + ~4mm per recurring pattern row + ~35mm for the QR footer block
+    const extraPerTx    = 18;
+    const feeLines      = d.feesBreakdown.length > 0 ? d.feesBreakdown.length * 4 + 8 : 0;
+    const categoryCount = Object.keys(d.labelTotals).length;
+    const categoryLines = categoryCount * 4 + 12;
+    const disclaimerLines = isDemo ? 24 : 20;
+    const recurringLines = d.recurringPatterns.length > 0 ? d.recurringPatterns.length * 4 + 12 : 0;
+    const qrBlockLines = 35;
+    const pageHeight = Math.max(
+        140,
+        Math.min(
+            80 + d.activeTransactions.length * extraPerTx + feeLines + categoryLines + recurringLines + disclaimerLines + qrBlockLines,
+            900
+        )
+    );
 
     const doc    = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, pageHeight] });
     const pageW  = 80;
@@ -352,90 +450,105 @@ export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange:
     function sp(factor = 0.5) { y += lh * factor; }
 
     // ── Header ──
-    // Security code left, date right
+    // Security code left, date right, time below right
     lr(d.secCode, d.currentDate.toUpperCase(), 6.5);
+    lr('', d.currentTime, 6.5);
     sp();
     line('M-TRACK', 13, true, 'center');
-    line('Expense Receipt', 7.5, false, 'center');
+    line('EXPENSE SUMMARY', 8.5, true, 'center');
     sp();
-    lr(`REF: ${d.receiptRef}`, `PERIOD: ${dateRange.toUpperCase()}`, 6.5);
+
+    // ── Disclaimer block — smaller font, still readable ──
+    DISCLAIMER_LINES.forEach(l => line(l, 6, false, 'center'));
+    if (isDemo) line(DEMO_LINE, 6.5, true, 'center');
+    sp();
+
+    line(`REF: ${d.receiptRef}`, 6.5);
+    line(`PERIOD: ${dateRange.toUpperCase()}`, 6.5);
     divider('=');
 
-    // Item count large — Costco pattern
-    lr(`${d.activeTransactions.length} ITEMS`, d.currentTime, 8, true);
+    // Item count
+    line(`${d.activeTransactions.length} ITEMS`, 8, true);
     divider();
 
     // Column header
-    line('  # DATE      RECIPIENT        AMT    [T]', 6.5);
+    lr('DATE DESCRIPTION', 'AMOUNT', 6.5, true);
     divider();
+    sp(0.3);
 
-    // ── Transaction rows ──
+    // ── Transaction rows — breathing room, blank line between each ──
     d.activeTransactions.forEach((t, i) => {
         const num     = String(i + 1).padStart(2, '0');
         const dateStr = t.date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
-        const flag    = getTypeFlag(t);
         const sign    = t.type === 'sent' ? '-' : '+';
         const name    = trunc(getRecipientShort(t), 13);
         const amt     = `${sign}${fmt(t.amount)}`;
+        const providerTag = getProviderSuffix(t);
+        const nameWithProvider = providerTag ? `${name}  ·  ${providerTag}` : name;
 
-        // Main row — left name, right amount + flag
-        lr(`  ${num} ${dateStr}  ${name}`, `${amt} [${flag}]`, 7);
+        // Main row — left name, right amount
+        lr(`${num} ${dateStr} ${nameWithProvider}`, amt, 7);
 
-        // Transaction code
-        line(`       ${t.transactionCode}`, 6);
+        // Ref line, indented
+        line(`   Ref: ${t.transactionCode}`, 6);
 
-        // Receipt label
-        if (t.receiptLabel) {
-            line(`       > ${t.receiptLabel.toUpperCase()}`, 6.5, true);
-        }
-
-        // Fee line
+        // Fee line, indented
         if (t.transactionCost != null && t.transactionCost > 0) {
-            lr(`       FEE:`, fmt(t.transactionCost), 6);
+            line(`   Fee: ${fmt(t.transactionCost)}`, 6);
         }
 
-        sp(0.3);
+        // Label line, indented — falls back to the parser's own category
+        if (t.receiptLabel) {
+            line(`   → ${t.receiptLabel.toUpperCase()}`, 6.5, true);
+        } else if (t.merchantCategory) {
+            line(`   → ${t.merchantCategory.toUpperCase()}`, 6.5, true);
+        }
+
+        sp(0.6);
     });
 
-    divider();
-    sp();
-
-    // Flag legend
-    line('FLAGS: R=Received S=Send P=Pochi B=Bill', 6, false, 'center');
-    line('A=Airtime W=Withdrawal M=M-Shwari I=Invest', 6, false, 'center');
-    sp();
     divider('=');
 
-    // ── Totals — Target rigid spacing ──
+    // ── Category summary ──
     sp(0.5);
-    lr('SUBTOTAL', fmt(d.trueOutflow), 7.5);
-
-    if (d.totalFees > 0) {
-        lr('TRANSACTION FEES', fmt(d.totalFees), 7.5);
-        d.feesBreakdown.forEach(f => {
-            lr(`  ${f.label} (x${f.count})`, fmt(f.total), 6.5);
-        });
-    }
-
+    line('CATEGORY SUMMARY', 7.5, true, 'center');
     divider();
-    lr('TOTAL SPENT', fmt(d.trueOutflow + d.totalFees), 8.5, true);
-
-    if (d.totalReceived > 0) {
-        sp(0.3);
-        lr('TOTAL RECEIVED', fmt(d.totalReceived), 7.5);
-        divider();
-        lr('NET FLOW', fmtSigned(d.net), 8.5, true);
-    }
-
+    Object.entries(d.labelTotals).forEach(([label, total]) => {
+        const count = d.labelCounts[label];
+        lr(`${label} (x${count})`, fmt(total), 7);
+    });
     divider('=');
 
-    // ── Category breakdown — Target "You Saved" style ──
-    if (d.hasLabels) {
+    // ── Recurring payments — only confident, repeated patterns ──
+    if (d.recurringPatterns.length > 0) {
         sp(0.5);
-        line('CATEGORY BREAKDOWN', 7.5, true, 'center');
+        line('RECURRING PAYMENTS', 7.5, true, 'center');
         divider();
-        Object.entries(d.labelTotals).forEach(([label, total]) => {
-            lr(`  ${label.toUpperCase()}`, fmt(total), 7);
+        d.recurringPatterns.forEach(p => {
+            lr(`${trunc(p.recipient, 18)}  ${CADENCE_DISPLAY[p.cadence]}`, fmt(p.averageAmount), 6.5);
+        });
+        divider();
+    }
+
+    // ── Totals ──
+    sp(0.5);
+    line('TOTALS', 7.5, true, 'center');
+    divider();
+    lr('Items sent', fmt(d.trueOutflow), 7.5);
+    lr('Items received', fmt(d.totalReceived), 7.5);
+    lr('Transaction fees', fmt(d.totalFees), 7.5);
+    divider();
+    lr('NET', fmtSigned(d.net), 8.5, true);
+    lr('TOTAL + FEES', fmt(d.trueOutflow + d.totalFees), 8.5, true);
+    divider('=');
+
+    // ── Fee breakdown ──
+    if (d.feesBreakdown.length > 0) {
+        sp(0.5);
+        line('FEE BREAKDOWN', 7.5, true, 'center');
+        divider();
+        d.feesBreakdown.forEach(f => {
+            lr(`${f.label} (x${f.count})`, fmt(f.total), 6.5);
         });
         divider('=');
     }
@@ -443,10 +556,36 @@ export function generateReceiptPDF(transactions: ParsedTransaction[], dateRange:
     // ── Footer ──
     sp(0.5);
     line('GENERATED BY M-TRACK', 7, false, 'center');
-    line(`REF: ${d.receiptRef}`, 6.5, false, 'center');
+    // Security code paired with the ref — Costco daily-code pattern
+    lr(`REF: ${d.receiptRef}`, d.secCode, 6.5);
+
+    // ── QR footer block — a footer mark, not an advertisement ──
+    sp(0.5);
+    divider('=');
+    line('MADE WITH M-TRACK', 7, true, 'center');
     sp(0.3);
-    // Security code bottom-right, URL bottom-left — Costco mirror pattern
-    lr('mtrack.vercel.app', d.secCode, 6.5);
+    const qrSize = 25; // mm, per spec
+    doc.addImage(qrDataUrl, 'PNG', (pageW - qrSize) / 2, y, qrSize, qrSize);
+    y += qrSize + 2;
+    line('mtrack.vercel.app', 6.5, false, 'center');
+    divider('=');
 
     return doc.output('blob');
+}
+
+// ── Share text ────────────────────────────────────────────────────────────────
+
+// Plain-text summary for the Web Share API / clipboard fallback — deliberately
+// short, not the full receipt.
+export function summariseReceiptForShare(transactions: ParsedTransaction[], dateRangeLabel: string): string {
+    const d = computeReceiptData(transactions);
+    const lines = [
+        `Expense summary · ${dateRangeLabel}`,
+        `${d.activeTransactions.length} transaction${d.activeTransactions.length !== 1 ? 's' : ''} · ${fmt(d.trueOutflow)} out`,
+    ];
+    if (d.totalFees > 0) lines.push(`${fmt(d.totalFees)} in fees`);
+    lines.push('');
+    lines.push('Made with M-Track');
+    lines.push('mtrack.vercel.app');
+    return lines.join('\n');
 }

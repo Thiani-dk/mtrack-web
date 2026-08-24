@@ -40,6 +40,12 @@
     --info-bg: rgba(96, 165, 250, 0.12);
     --info-icon: #60a5fa;
     --info-heading: #93c5fd;
+
+    /* Opaque layer for anything floating ABOVE a card — modals, dropdowns,
+       popovers. Never blurred: it's the layer that ends the glass stack. */
+    --bg-overlay: #0d0d0d;
+    --bg-header-solid: #0a0a0a;
+    --scrim: rgba(0, 0, 0, 0.6);
 }
 
 :root.light {
@@ -66,6 +72,10 @@
     --info-bg: #dbeafe;
     --info-icon: #3b82f6;
     --info-heading: #1e40af;
+
+    --bg-overlay: #ffffff;
+    --bg-header-solid: #fcfcfc;
+    --scrim: rgba(0, 0, 0, 0.35);
 }
 
 /* ── Glass card mixin ──────────────────────────────────────────────────────── */
@@ -88,19 +98,22 @@
     box-shadow: 0 0 20px rgba(232, 133, 10, 0.06);
 }
 
+/* Sticky headers are the ONE glass layer's ceiling — content must never read
+   through the title, so opacity is capped near-solid and blur is shallow. */
 .glass-header {
-    background: var(--bg-header);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    background: color-mix(in srgb, var(--bg-header-solid) 96%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
 }
 
-/* Same recipe as .glass-card, but without a fixed border-radius — for panels
-   like bottom sheets and dropdowns that need custom corner rounding. */
+/* Opaque layer for anything that floats ABOVE a glass card — modals, bottom
+   sheets, dropdowns, popovers. No blur: this is where the glass stack ends.
+   (Used for both full modals and small popovers; modals additionally get a
+   --scrim behind them.) */
 .glass-panel {
-    background: var(--bg-surface);
-    backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+    background: var(--bg-overlay);
     border: 1px solid var(--border-glass);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────────── */
@@ -133,6 +146,27 @@
 
 .btn-secondary:disabled {
     opacity: 0.4;
+}
+
+/* ── Layering scale ────────────────────────────────────────────────────────── */
+/* base 0 · sticky header 10 · chip row / popover 20 · bottom bar 30 · scrim 40 · modal 50 */
+
+.z-base       { z-index: 0; }
+.z-header     { z-index: 10; }
+.z-chip-row   { z-index: 20; }
+.z-bottom-bar { z-index: 30; }
+.z-scrim      { z-index: 40; }
+.z-modal      { z-index: 50; }
+
+/* Gradient fade above an opaque sticky bottom bar, so content scrolls out
+   cleanly instead of clipping mid-card. Place directly above the bar. */
+.bottom-fade {
+    position: fixed;
+    left: 0;
+    right: 0;
+    height: 28px;
+    background: linear-gradient(to bottom, transparent, var(--bg-base));
+    pointer-events: none;
 }
 
 /* ── Base ──────────────────────────────────────────────────────────────────── */
