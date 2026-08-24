@@ -98,6 +98,22 @@ export const FIXTURES: Fixture[] = [
         description: 'Duplicate Spotify card charge #2 — identical, pasted twice',
         raw: 'Card PAYMENT of KES 1,190.00 on Spotify P405C0A90E>Stockholm SE 15-06-2026 08:00:00 Avail Bal KES 20,000.00. Co-operative Bank.',
     },
+    {
+        id: 'globalpay-glovo-linking',
+        description: 'M-PESA GlobalPay virtual card: two send/approval pairs that must merge by code (one a verification-charge pair with a standalone receive), plus five account-notice messages that must be classified out before extraction',
+        raw: [
+            'UHN7A3XX7G Confirmed. Ksh816.00 sent to M-PESA CARD for account PWL*Glovo                Nairobi      KE on 23/8/26 at 11:07 PM New M-PESA balance is Ksh1,134.11. Transaction cost, Ksh0.00.Amount you can transact within the day is 498,605.00. Download My OneApp on https://saf.cx/kWQpy',
+            'UHN7A3XYK4 Confirmed.You have received Ksh1.00 from M-PESA GlobalPay 903470 on 23/8/26 at 11:05 PM New M-PESA balance is Ksh1,950.11.  Separate personal and business funds through Pochi la Biashara on *334#.',
+            'UHN7A3Y0P0 Confirmed. Ksh1.00 sent to M-PESA CARD for account PWL*Glovo                Nairobi      KE on 23/8/26 at 11:02 PM New M-PESA balance is Ksh1,949.11. Transaction cost, Ksh0.00.Amount you can transact within the day is 499,421.00. Download My OneApp on https://saf.cx/kWQpy',
+            'Dear Daniel, a transaction UHN7A3XX7G of Ksh. 816.00 (inclusive of Ksh. 0.00 charge) done at PWL*Glovo                Nairobi      KE has been approved on your card ****3388. If not yours, contact us for assistance via; X (@Safaricom_Care, @SafaricomPLC), Facebook (@SafaricomPLC), or by calling 100 or 200.',
+            'Dear Daniel, a transaction UHN7A3Y0P0 of Ksh. 1.00 (inclusive of Ksh. 0.00 charge) done at PWL*Glovo                Nairobi      KE has been approved on your card ****3388. If not yours, contact us for assistance via; X (@Safaricom_Care, @SafaricomPLC), Facebook (@SafaricomPLC), or by calling 100 or 200.',
+            'Dear Daniel ,your M-PESA GlobalPay Virtual Visa card has been unsuspended successfully. Use it to shop on global websites securely and conveniently. To view card details, Go to M-PESA App>Global Payments>GlobalPay Virtual card. Remember to keep them secure!',
+            'Dear Daniel, your account has been suspended for exceeding number of PIN entries. To unsuspend, Go to M-PESA App, Select Global Payments>GlobalPay Virtual card > Click unsuspend >Enter M-PESA PIN>.You will receive an SMS confirming successful unsuspension.',
+            "Dear customer, you have viewed your card details. Remember to keep them secure! For recurring payments, ensure sufficient funds for successful subscriptions. For full control over your repeat payments subscriptions, go to the merchant's website to subscribe /unsubscribe from a service.",
+            'Dear customer, your M-PESA GlobalPay Virtual VISA card has been created successfully. You can only apply for up to three new cards within 12 months.',
+            'Dear customer, You have been successfully registered to the M-PESA GlobalPay virtual Visa card service.',
+        ].join('\n'),
+    },
 ];
 
 export const ALL_FIXTURES_TEXT = FIXTURES.map(f => f.raw).join('\n\n');

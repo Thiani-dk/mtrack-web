@@ -5,10 +5,13 @@ import { extractDate } from './extractors/date';
 import { extractCode } from './extractors/code';
 import { extractParties } from './extractors/parties';
 import { extractDirection } from './extractors/direction';
-import { extractChannel } from './extractors/channel';
+import { extractChannel, extractCardLast4 } from './extractors/channel';
 import { extractMerchant } from './extractors/merchant';
 import { scoreTransaction } from './confidence';
 import { applyProviderHint } from './hints/providerHints';
+import { classifyMessage } from './classify';
+import { linkTransactions, type RawBlockResult } from './linkTransactions';
+import { applyVerificationChargeDetection } from './verificationCharge';
 
 export type { ParseStats };
 
@@ -48,6 +51,7 @@ function deriveSubType(
         case 'paybill':
         case 'till':
         case 'card':
+        case 'virtual_card':
             return 'paybill';
         case 'savings':
             if (lower.includes('shwari')) return 'mshwari';
@@ -60,30 +64,42 @@ function deriveSubType(
     }
 }
 
-interface BlockResult {
-    transaction: ParsedTransaction | null;
-}
-
-function processBlock(rawBlock: string): BlockResult {
+// Runs every extractor over one block without judging the result — amount
+// and date may both come back null. Rejection only happens after linking,
+// once a block has had the chance to inherit fields from a sibling sharing
+// its transaction code (see linkTransactions.ts).
+function extractRawBlock(rawBlock: string, index: number): RawBlockResult {
     const amount = extractAmount(rawBlock);
     const fee = extractFee(rawBlock);
+    const balance = extractBalance(rawBlock);
     const dateResult = extractDate(rawBlock);
     const direction = extractDirection(rawBlock);
     const parties = extractParties(rawBlock);
     const channel = extractChannel(rawBlock);
     const merchant = extractMerchant(rawBlock, parties.recipient);
+    const cardLast4 = extractCardLast4(rawBlock);
     const isoDate = dateResult ? dateResult.date.toISOString() : null;
     const codeResult = extractCode(rawBlock, {
         merchant: merchant?.name ?? null,
         amount: amount?.amount ?? null,
         isoDate,
     });
-
     const failed = /was declined|declined|unsuccessful|failed/i.test(rawBlock);
-    const isHold = amount != null && amount.amount === 0;
+
+    return {
+        index, rawBlock, amount, fee, balance, dateResult, direction, parties,
+        channel, merchant, codeResult, cardLast4, failed,
+    };
+}
+
+// Applies the amount/date requirement and confidence threshold to a
+// (possibly already-merged) block result, and derives the full transaction
+// record. Returns null if the record still isn't trustworthy enough to keep.
+function finalizeTransaction(r: RawBlockResult): ParsedTransaction | null {
+    const { amount, dateResult, direction, parties, channel, merchant, codeResult } = r;
 
     // Amount and date are structurally required — nothing else can substitute.
-    if (!amount || !dateResult) return { transaction: null };
+    if (!amount || !dateResult) return null;
 
     const displayName =
         merchant?.name ??
@@ -92,7 +108,7 @@ function processBlock(rawBlock: string): BlockResult {
         fallbackNameForMethod(channel.method) ??
         'Unknown';
 
-    const isBusiness = (merchant?.isBusiness ?? false) || ['till', 'paybill', 'card'].includes(channel.method);
+    const isBusiness = (merchant?.isBusiness ?? false) || ['till', 'paybill', 'card', 'virtual_card'].includes(channel.method);
     const subType = deriveSubType(channel.method, direction.type, isBusiness, displayName);
     const senderField = direction.type === 'received' ? (parties.sender ?? displayName) : null;
 
@@ -109,14 +125,16 @@ function processBlock(rawBlock: string): BlockResult {
     };
 
     const base = scoreTransaction(partial);
-    const boost = applyProviderHint(rawBlock, channel.provider);
+    const boost = applyProviderHint(r.rawBlock, channel.provider);
     const score = Math.min(100, base.score + boost);
     const level: 'high' | 'medium' | 'low' = score >= 80 ? 'high' : score >= 75 ? 'medium' : 'low';
 
     // Below this, the extracted fields aren't trustworthy enough to keep.
-    if (score < 40) return { transaction: null };
+    if (score < 40) return null;
 
-    const transaction: ParsedTransaction = {
+    const isHold = amount.amount === 0;
+
+    return {
         date: dateResult.date,
         time: dateResult.date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }),
         type: direction.type,
@@ -124,9 +142,9 @@ function processBlock(rawBlock: string): BlockResult {
         amount: amount.amount,
         recipient: displayName,
         transactionCode: codeResult.code,
-        balance: extractBalance(rawBlock),
-        transactionCost: fee,
-        rawLine: rawBlock,
+        balance: r.balance,
+        transactionCost: r.fee,
+        rawLine: r.rawBlock,
         label: null,
         customLabel: null,
         receiptLabel: null,
@@ -147,30 +165,58 @@ function processBlock(rawBlock: string): BlockResult {
         missingFields: base.missing,
         codeIsSynthetic: codeResult.synthetic,
         dateAmbiguous: dateResult.ambiguous,
-        failed,
+        failed: r.failed,
         isHold,
+        isVerificationCharge: false,
+        cardLast4: r.cardLast4,
     };
-
-    return { transaction };
 }
 
 export function parseAllMessages(raw: string): { transactions: ParsedTransaction[]; stats: ParseStats } {
     const blocks = preprocessToBlocks(raw);
-    const results = blocks.map(processBlock);
 
-    const successfulTransactions = results
-        .map(r => r.transaction)
-        .filter((t): t is ParsedTransaction => t !== null);
+    let serviceNoticeCount = 0;
+    let securityAlertCount = 0;
+    const serviceNoticeSamples: string[] = [];
+    const noiseSamples: string[] = [];
+    const transactionBlocks: { block: string; index: number }[] = [];
 
-    const rejectedBlocks = blocks.filter((_, i) => results[i].transaction === null);
+    blocks.forEach((block, index) => {
+        const cls = classifyMessage(block);
+        if (cls === 'transaction') {
+            transactionBlocks.push({ block, index });
+            return;
+        }
+        if (cls === 'service_notice') {
+            serviceNoticeCount++;
+            if (serviceNoticeSamples.length < 3) serviceNoticeSamples.push(block.slice(0, 120));
+            return;
+        }
+        if (cls === 'security_alert') {
+            securityAlertCount++;
+            if (noiseSamples.length < 3) noiseSamples.push(block.slice(0, 120));
+            return;
+        }
+        // 'promotional' and 'unknown' — set aside silently, same as before.
+        if (noiseSamples.length < 3) noiseSamples.push(block.slice(0, 120));
+    });
 
-    const { unique, duplicatesRemoved } = dedupeTransactions(successfulTransactions);
+    const rawResults = transactionBlocks.map(({ block, index }) => extractRawBlock(block, index));
+    const linked = linkTransactions(rawResults);
+
+    const finalized = linked.map(finalizeTransaction);
+    const successfulTransactions = finalized.filter((t): t is ParsedTransaction => t !== null);
+    const failedToFinalize = linked.length - successfulTransactions.length;
+
+    const withVerificationCharges = applyVerificationChargeDetection(successfulTransactions);
+
+    const { unique, duplicatesRemoved } = dedupeTransactions(withVerificationCharges);
     unique.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     const stats: ParseStats = {
         totalBlocks: blocks.length,
         parsed: unique.length,
-        rejected: rejectedBlocks.length,
+        rejected: (blocks.length - transactionBlocks.length) + failedToFinalize,
         duplicatesRemoved,
         byProvider: {},
         byMethod: {},
@@ -179,7 +225,10 @@ export function parseAllMessages(raw: string): { transactions: ParsedTransaction
         syntheticCodes: 0,
         holds: 0,
         failed: 0,
-        unparsedSamples: rejectedBlocks.slice(0, 3).map(b => b.slice(0, 120)),
+        unparsedSamples: noiseSamples,
+        serviceNoticeCount,
+        securityAlertCount,
+        serviceNoticeSamples,
     };
 
     for (const t of unique) {

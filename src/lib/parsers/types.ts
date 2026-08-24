@@ -62,4 +62,7 @@ export interface ParseStats {
     holds: number;
     failed: number;
     unparsedSamples: string[];
+    serviceNoticeCount: number;
+    securityAlertCount: number;
+    serviceNoticeSamples: string[];
 }

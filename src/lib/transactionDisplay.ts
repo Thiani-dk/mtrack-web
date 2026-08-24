@@ -43,6 +43,7 @@ export function providerChipLabel(t: ParsedTransaction): string {
 export function getExclusionReason(t: ParsedTransaction): string | null {
     if (t.isHold) return 'Authorisation hold';
     if (t.failed) return 'Payment declined';
+    if (t.isVerificationCharge) return 'Verification charge';
     return null;
 }
 

@@ -215,7 +215,7 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
 
             const { transactions } = parseAllMessages(generateDemoMessages());
             const withDefaults = transactions.map(t =>
-                t.isHold || t.failed ? { ...t, excludedFromReceipt: true } : t
+                t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
             );
             const inRange = withDefaults.filter(t => t.date >= cutoff);
             const scoped = inRange.filter(t => !t.excludedFromReceipt);
@@ -254,7 +254,7 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
 
         const { transactions } = parseAllMessages(text);
         const withDefaults = transactions.map(t =>
-            t.isHold || t.failed ? { ...t, excludedFromReceipt: true } : t
+            t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
         );
         const scoped = withDefaults.filter(t => !t.excludedFromReceipt);
 

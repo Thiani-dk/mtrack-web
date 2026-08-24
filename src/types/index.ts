@@ -75,6 +75,8 @@ export interface ParsedTransaction {
     dateAmbiguous: boolean;
     failed: boolean;                 // "Was Declined" / "Unsuccessful"
     isHold: boolean;                 // zero-value authorisation hold
+    isVerificationCharge: boolean;   // paired Ksh<=5 sent/received test charge (e.g. GlobalPay card verification)
+    cardLast4: string | null;        // last 3-4 digits from "card ****3388", when present
 }
 
 // ---------------------------------------------------------------------------
