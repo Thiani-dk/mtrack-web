@@ -413,11 +413,17 @@ export async function generateReceiptPDF(transactions: ParsedTransaction[], date
     const disclaimerLines = isDemo ? 24 : 20;
     const recurringLines = d.recurringPatterns.length > 0 ? d.recurringPatterns.length * 4 + 12 : 0;
     const qrBlockLines = 35;
+    // Upper bound is jsPDF's own hard ceiling (a PDF page can't exceed 14400
+    // "user units" — ~5080mm at this mm/pt scale), minus headroom, not an
+    // arbitrary round number: the previous 900mm cap silently truncated any
+    // receipt with more than ~45 transactions, chopping off everything past
+    // that row with no error and no indication anything was cut.
+    const MAX_PAGE_HEIGHT_MM = 5000;
     const pageHeight = Math.max(
         140,
         Math.min(
             80 + d.activeTransactions.length * extraPerTx + feeLines + categoryLines + recurringLines + disclaimerLines + qrBlockLines,
-            900
+            MAX_PAGE_HEIGHT_MM
         )
     );
 

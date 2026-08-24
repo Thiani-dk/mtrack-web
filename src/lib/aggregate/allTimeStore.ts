@@ -59,6 +59,8 @@ export function migrateEarnedBadges(stats: AllTimeStats): boolean {
 }
 
 const DB_NAME = 'mtrack-db';
+// Shared with receiptStore.ts and chatSessionStore.ts — see the comment on
+// DB_VERSION in receiptStore.ts. All three must stay in sync.
 const DB_VERSION = 3;
 const RECEIPTS_STORE = 'receipts';
 const SESSIONS_STORE = 'sessions';

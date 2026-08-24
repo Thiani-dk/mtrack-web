@@ -1,8 +1,17 @@
 import type { StoredReceipt } from '../types';
 
 const DB_NAME = 'mtrack-db';
-const DB_VERSION = 1;
+// Shared with chatSessionStore.ts and aggregate/allTimeStore.ts — all three
+// open the SAME underlying database by name. IndexedDB rejects an open()
+// call whose requested version is lower than the database's current
+// on-disk version, so every module touching 'mtrack-db' MUST request the
+// same version number, or whichever module runs first (bumping the disk
+// version) permanently breaks every other module's initDB() afterwards.
+// Bump this alongside the other two files' DB_VERSION, never alone.
+const DB_VERSION = 3;
 const STORE_NAME = 'receipts';
+const SESSIONS_STORE = 'sessions';
+const AGGREGATE_STORE = 'aggregate';
 
 export function initDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
@@ -10,9 +19,20 @@ export function initDB(): Promise<IDBDatabase> {
 
         request.onupgradeneeded = () => {
             const db = request.result;
+            // Whichever of the three store modules happens to run its
+            // initDB() first on a brand-new database creates the full
+            // schema — the others then open the (already up to date)
+            // database with nothing left to do.
             if (!db.objectStoreNames.contains(STORE_NAME)) {
                 const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
                 store.createIndex('createdAt', 'createdAt');
+            }
+            if (!db.objectStoreNames.contains(SESSIONS_STORE)) {
+                const store = db.createObjectStore(SESSIONS_STORE, { keyPath: 'id' });
+                store.createIndex('updatedAt', 'updatedAt');
+            }
+            if (!db.objectStoreNames.contains(AGGREGATE_STORE)) {
+                db.createObjectStore(AGGREGATE_STORE);
             }
         };
 

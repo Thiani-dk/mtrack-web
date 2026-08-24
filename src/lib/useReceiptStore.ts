@@ -102,7 +102,10 @@ export function useReceiptStore() {
             await receiptStore.saveReceipt(receipt);
             await refresh();
         } catch {
-            // IndexedDB unavailable (e.g. private browsing) — app still works, just no history
+            // IndexedDB unavailable, or the write itself failed (e.g. quota
+            // exceeded) — app still works, but the caller needs to know the
+            // summary was NOT actually saved to history, not silently drop it.
+            setIsAvailable(false);
         }
     }, [refresh]);
 

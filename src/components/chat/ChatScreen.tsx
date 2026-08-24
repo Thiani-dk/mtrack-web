@@ -38,6 +38,13 @@ const BADGE_LEAD_INS = [
     'You just earned something.',
 ];
 
+// Safety net for anything unexpected in the parse/insight/save pipeline —
+// never leave the "thinking" bubble (and the composer, disabled while
+// isProcessing) stuck forever. Deliberately generic: no raw error.message,
+// which would read as broken rather than handled and could leak internals.
+const PROCESSING_ERROR_TEXT =
+    "Something went wrong while I was working on that. Nothing was lost — try sending it again.";
+
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -66,7 +73,16 @@ async function deliverInsights(
     previousStats: AllTimeStats | undefined,
     newlyEarnedBadges: string[]
 ): Promise<void> {
-    if (scoped.length < 3) {
+    if (scoped.length === 0) {
+        // Every transaction was excluded (holds, failed, verification
+        // charges) or nothing parsed at all — say so plainly instead of
+        // promising "here's your summary" and then showing no receipt card
+        // at all, which the guard below would otherwise silently skip.
+        updateMsg(thinkingId, {
+            kind: 'text',
+            text: 'Nothing left to include — every transaction was filtered or excluded.',
+        });
+    } else if (scoped.length < 3) {
         updateMsg(thinkingId, {
             kind: 'text',
             text: `Not much to go on with ${scoped.length} transaction${scoped.length === 1 ? '' : 's'} — but here's your summary.`,
@@ -143,7 +159,7 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
         addMessage,
         updateMessage,
     } = useChatSession();
-    const { receipts, saveIfNew } = useReceiptStore();
+    const { receipts, saveIfNew, isAvailable: isReceiptStoreAvailable } = useReceiptStore();
     const { recordSession } = useAllTimeStats();
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -208,23 +224,29 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
             setIsProcessing(true);
 
             const thinkingId = addDemoMessage({ role: 'bot', kind: 'thinking' });
-            await sleep(800);
+            try {
+                await sleep(800);
 
-            const cutoff = new Date();
-            cutoff.setDate(cutoff.getDate() - 15);
+                const cutoff = new Date();
+                cutoff.setDate(cutoff.getDate() - 15);
 
-            const { transactions } = parseAllMessages(generateDemoMessages());
-            const withDefaults = transactions.map(t =>
-                t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
-            );
-            const inRange = withDefaults.filter(t => t.date >= cutoff);
-            const scoped = inRange.filter(t => !t.excludedFromReceipt);
+                const { transactions } = parseAllMessages(generateDemoMessages());
+                const withDefaults = transactions.map(t =>
+                    t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
+                );
+                const inRange = withDefaults.filter(t => t.date >= cutoff);
+                const scoped = inRange.filter(t => !t.excludedFromReceipt);
 
-            // Demo history is fake and never persisted, so the "run a longer
-            // range" hint (which reads real past sessions) never applies here,
-            // and there's no aggregate/badges to consult or update.
-            await deliverInsights(scoped, thinkingId, addDemoMessage, updateDemoMessage, true, false, null, undefined, []);
-            setIsProcessing(false);
+                // Demo history is fake and never persisted, so the "run a longer
+                // range" hint (which reads real past sessions) never applies here,
+                // and there's no aggregate/badges to consult or update.
+                await deliverInsights(scoped, thinkingId, addDemoMessage, updateDemoMessage, true, false, null, undefined, []);
+            } catch (err) {
+                console.error('Demo bootstrap failed:', err);
+                updateDemoMessage(thinkingId, { kind: 'text', text: PROCESSING_ERROR_TEXT });
+            } finally {
+                setIsProcessing(false);
+            }
         })();
     }, [isDemoSession, addDemoMessage, updateDemoMessage]);
 
@@ -252,37 +274,43 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
 
         const thinkingId = addMsg({ role: 'bot', kind: 'thinking' });
 
-        const { transactions } = parseAllMessages(text);
-        const withDefaults = transactions.map(t =>
-            t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
-        );
-        const scoped = withDefaults.filter(t => !t.excludedFromReceipt);
+        try {
+            const { transactions } = parseAllMessages(text);
+            const withDefaults = transactions.map(t =>
+                t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
+            );
+            const scoped = withDefaults.filter(t => !t.excludedFromReceipt);
 
-        // Give the "thinking" bubble a beat before it resolves, then convert
-        // it in place into the first real reply — no separate remove step.
-        await sleep(500);
-        const longerRangeAvailable = !isDemoSession &&
-            receipts.some(r => computeDaySpan(r.transactions) > computeDaySpan(scoped));
+            // Give the "thinking" bubble a beat before it resolves, then convert
+            // it in place into the first real reply — no separate remove step.
+            await sleep(500);
+            const longerRangeAvailable = !isDemoSession &&
+                receipts.some(r => computeDaySpan(r.transactions) > computeDaySpan(scoped));
 
-        // Every real summary feeds the running all-time picture — this is
-        // also what lets comparison/fee-trend/milestone insights and badges
-        // reflect this session, not just history as of the last visit. Demo
-        // sessions are excluded entirely from both history and the aggregate.
-        let recordResult = null;
-        if (!isDemoSession) {
-            const dayCount = computeDaySpan(scoped);
-            const receiptRangeLabel = dayCount <= 1 ? 'today' : `past ${dayCount} days`;
-            [recordResult] = await Promise.all([
-                recordSession(scoped, false),
-                saveIfNew(scoped, receiptRangeLabel),
-            ]);
+            // Every real summary feeds the running all-time picture — this is
+            // also what lets comparison/fee-trend/milestone insights and badges
+            // reflect this session, not just history as of the last visit. Demo
+            // sessions are excluded entirely from both history and the aggregate.
+            let recordResult = null;
+            if (!isDemoSession) {
+                const dayCount = computeDaySpan(scoped);
+                const receiptRangeLabel = dayCount <= 1 ? 'today' : `past ${dayCount} days`;
+                [recordResult] = await Promise.all([
+                    recordSession(scoped, false),
+                    saveIfNew(scoped, receiptRangeLabel),
+                ]);
+            }
+
+            await deliverInsights(
+                scoped, thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
+                recordResult?.stats ?? null, recordResult?.previousStats, recordResult?.newlyEarnedBadges ?? []
+            );
+        } catch (err) {
+            console.error('handleSend failed:', err);
+            updateMsg(thinkingId, { kind: 'text', text: PROCESSING_ERROR_TEXT });
+        } finally {
+            setIsProcessing(false);
         }
-
-        await deliverInsights(
-            scoped, thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
-            recordResult?.stats ?? null, recordResult?.previousStats, recordResult?.newlyEarnedBadges ?? []
-        );
-        setIsProcessing(false);
     }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, recordSession, saveIfNew]);
 
     // Incoming Android share-target text lands directly in the chat flow's
@@ -322,7 +350,7 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
                 onToggleSidebar={() => setSidebarOpen(prev => !prev)}
             />
 
-            {!isDemoSession && !isAvailable && (
+            {!isDemoSession && (!isAvailable || !isReceiptStoreAvailable) && (
                 <p className="text-xs text-center text-[var(--text-muted)] py-2 px-4 flex-shrink-0">
                     Chat history unavailable in private browsing — this session won't be saved.
                 </p>

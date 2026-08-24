@@ -43,6 +43,7 @@ function ReceiptCard({
     onRequestDelete: (id: string | null) => void;
 }) {
     const [downloading, setDownloading] = useState(false);
+    const [notice, setNotice] = useState<string | null>(null);
 
     const handleRedownload = async () => {
         setDownloading(true);
@@ -52,6 +53,10 @@ function ReceiptCard({
                 getReceiptFilenames(receipt.transactions),
             ]);
             downloadPDF(blob, filenames.pdf);
+        } catch (err) {
+            console.error('Re-download failed:', err);
+            setNotice("Couldn't generate the PDF — try again.");
+            setTimeout(() => setNotice(null), 3000);
         } finally {
             setDownloading(false);
         }
@@ -140,6 +145,12 @@ function ReceiptCard({
                     {confirmingDelete ? 'Tap again to delete' : 'Delete'}
                 </motion.button>
             </div>
+
+            {notice && (
+                <p className="text-xs" style={{ color: 'var(--warn-heading, #ef4444)' }}>
+                    {notice}
+                </p>
+            )}
         </motion.div>
     );
 }

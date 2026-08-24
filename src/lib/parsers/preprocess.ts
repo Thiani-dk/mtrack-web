@@ -72,7 +72,7 @@ const NOISE_PATTERNS: RegExp[] = [
     /separate personal and business funds through pochi la biashara/i,
     /you can now access m-pesa via \*334#/i,
     /enquiries\s*\+254\S*/i,
-    /amount you can transact within the day is[^.]*/i,
+    /amount you can transact within the day is[^.]{0,80}/i,
     /we are you!?/i,
     /this is an automated message/i,
     /do not reply to this/i,
@@ -80,10 +80,21 @@ const NOISE_PATTERNS: RegExp[] = [
     /t&cs apply/i,
 ];
 
+// Bounded, not unbounded (*), on both sides of the phrase: an unbounded
+// [^.\n]* wrapper has nothing to anchor its backtracking when a long paste
+// has no nearby period/newline (a rambling forwarded chat, adversarial
+// input) — the engine tries every possible span length at every position,
+// which is quadratic in the input length. 300 chars comfortably covers any
+// real SMS trailer sentence while keeping the worst-case backtrack bounded.
+const NOISE_CONTEXT_SPAN = 300;
+
 export function stripNoiseLines(text: string): string {
     let out = text;
     for (const re of NOISE_PATTERNS) {
-        out = out.replace(new RegExp(`[^.\\n]*${re.source}[^.\\n]*\\.?`, 'gi'), '');
+        out = out.replace(
+            new RegExp(`[^.\\n]{0,${NOISE_CONTEXT_SPAN}}${re.source}[^.\\n]{0,${NOISE_CONTEXT_SPAN}}\\.?`, 'gi'),
+            ''
+        );
     }
     return out.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n');
 }

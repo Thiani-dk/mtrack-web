@@ -40,6 +40,9 @@ export function ChatReceipt({ transactions, dateRange, isDemo = false }: ChatRec
                 getReceiptFilenames(transactions),
             ]);
             downloadPDF(blob, filenames.pdf);
+        } catch (err) {
+            console.error('PDF download failed:', err);
+            flash("Couldn't generate the PDF — try again.");
         } finally {
             setBusy(null);
         }
@@ -53,6 +56,9 @@ export function ChatReceipt({ transactions, dateRange, isDemo = false }: ChatRec
                 getReceiptFilenames(transactions),
             ]);
             downloadHTML(html, filenames.html);
+        } catch (err) {
+            console.error('HTML download failed:', err);
+            flash("Couldn't generate the web page — try again.");
         } finally {
             setBusy(null);
         }
@@ -73,6 +79,9 @@ export function ChatReceipt({ transactions, dateRange, isDemo = false }: ChatRec
             });
             if (result === 'copied') flash('Copied — paste it wherever.');
             else if (result === 'failed') flash('Unable to share on this device');
+        } catch (err) {
+            console.error('Share failed:', err);
+            flash("Couldn't prepare that to share — try again.");
         } finally {
             setBusy(null);
         }

@@ -1,9 +1,12 @@
 import type { ChatSession } from '../types';
 
 const DB_NAME = 'mtrack-db';
-const DB_VERSION = 2;
+// Shared with receiptStore.ts and aggregate/allTimeStore.ts — see the
+// comment on DB_VERSION in receiptStore.ts. All three must stay in sync.
+const DB_VERSION = 3;
 const RECEIPTS_STORE = 'receipts';
 const SESSIONS_STORE = 'sessions';
+const AGGREGATE_STORE = 'aggregate';
 
 export function initDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
@@ -11,8 +14,8 @@ export function initDB(): Promise<IDBDatabase> {
 
         request.onupgradeneeded = () => {
             const db = request.result;
-            // Preserve the existing receipts store — only create it if this
-            // is a brand-new database that never went through v1.
+            // Preserve existing stores — only create what's missing,
+            // regardless of which module happens to run first.
             if (!db.objectStoreNames.contains(RECEIPTS_STORE)) {
                 const store = db.createObjectStore(RECEIPTS_STORE, { keyPath: 'id' });
                 store.createIndex('createdAt', 'createdAt');
@@ -20,6 +23,9 @@ export function initDB(): Promise<IDBDatabase> {
             if (!db.objectStoreNames.contains(SESSIONS_STORE)) {
                 const store = db.createObjectStore(SESSIONS_STORE, { keyPath: 'id' });
                 store.createIndex('updatedAt', 'updatedAt');
+            }
+            if (!db.objectStoreNames.contains(AGGREGATE_STORE)) {
+                db.createObjectStore(AGGREGATE_STORE);
             }
         };
 

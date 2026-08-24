@@ -87,6 +87,29 @@ function pickCode(a: CodeResult, b: CodeResult): CodeResult {
     return a;
 }
 
+const DATE_COMPATIBILITY_WINDOW_MS = 10 * 60 * 1000;
+
+// A shared transaction code is normally a strong signal that two blocks
+// describe the same event — but codes can coincide by accident (or by
+// adversarial input): a synthetic AUTO- code collision, a genuinely
+// duplicated real code, malformed text. Only treat siblings as mergeable
+// when nothing they both independently claim actually conflicts; a real
+// amount/date mismatch means these are two different transactions that
+// happen to share a code, not one transaction split across two messages.
+function amountsCompatible(a: AmountResult | null, b: AmountResult | null): boolean {
+    if (!a || !b) return true;
+    return a.amount === b.amount;
+}
+
+function datesCompatible(a: DateResult | null, b: DateResult | null): boolean {
+    if (!a || !b) return true;
+    return Math.abs(a.date.getTime() - b.date.getTime()) <= DATE_COMPATIBILITY_WINDOW_MS;
+}
+
+function areCompatible(a: RawBlockResult, b: RawBlockResult): boolean {
+    return amountsCompatible(a.amount, b.amount) && datesCompatible(a.dateResult, b.dateResult);
+}
+
 function mergeTwo(a: RawBlockResult, b: RawBlockResult): RawBlockResult {
     // Keep original block order (earlier block first) so provider-hint
     // matching, which anchors on the start of the text, still works.
@@ -137,7 +160,20 @@ export function linkTransactions(results: RawBlockResult[]): RawBlockResult[] {
             continue;
         }
 
-        merged.push(bucket.reduce((acc, r) => (acc === r ? r : mergeTwo(acc, r))));
+        // Fold each block into the first compatible cluster seen so far, or
+        // start a new cluster if it conflicts with all existing ones —
+        // handles both a genuine 3+-way merge and a collision that must
+        // stay split, within the same pass.
+        const clusters: RawBlockResult[] = [];
+        for (const r of bucket) {
+            const clusterIndex = clusters.findIndex(c => areCompatible(c, r));
+            if (clusterIndex === -1) {
+                clusters.push(r);
+            } else {
+                clusters[clusterIndex] = mergeTwo(clusters[clusterIndex], r);
+            }
+        }
+        merged.push(...clusters);
     }
     return merged;
 }
