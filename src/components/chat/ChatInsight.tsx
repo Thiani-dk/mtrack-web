@@ -30,7 +30,6 @@ export function ChatInsight({ insight }: ChatInsightProps) {
         >
             <div className="glass-card max-w-[80%] px-4 py-3">
                 <p className="text-sm text-[var(--text-primary)] leading-relaxed">
-                    {insight.emoji && <span className="mr-1.5">{insight.emoji}</span>}
                     {insight.headline}
                 </p>
                 {insight.detail && (

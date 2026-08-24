@@ -6,7 +6,6 @@ export interface Insight {
     priority: number;        // 0-100, higher surfaces first
     headline: string;        // one sentence, the observation
     detail?: string;         // optional second sentence with supporting numbers
-    emoji?: string;          // single emoji prefix, optional
     evidence: string[];      // transaction codes backing this claim
     shareable: boolean;      // is this a "screenshot this" moment
 }

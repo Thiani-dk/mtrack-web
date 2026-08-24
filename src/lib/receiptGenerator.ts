@@ -179,7 +179,7 @@ function computeReceiptData(transactions: ParsedTransaction[]): ReceiptData {
 
 // Shared disclaimer copy — the load-bearing part of the repositioning
 const DISCLAIMER_LINES = [
-    '⚠ THIS IS NOT A TAX INVOICE',
+    'THIS IS NOT A TAX INVOICE',
     'For record-keeping only. Not valid',
     'for eTIMS or VAT claims. Obtain',
     'eTIMS invoices from your suppliers.',

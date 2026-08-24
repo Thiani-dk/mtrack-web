@@ -51,7 +51,7 @@ export function generateInsights(transactions: ParsedTransaction[], context: Ins
 export function summariseForShare(insights: Insight[]): string {
     const lines = insights
         .slice(0, 3)
-        .map(i => `${i.emoji ? i.emoji + ' ' : ''}${i.headline}`);
+        .map(i => i.headline);
     lines.push('— via M-Track');
     return lines.join('\n');
 }

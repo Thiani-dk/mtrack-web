@@ -74,7 +74,6 @@ export function BadgesScreen({ onBack }: BadgesScreenProps) {
                                         </>
                                     ) : (
                                         <>
-                                            <span className="text-3xl">{badge.emoji}</span>
                                             <p className="text-sm font-bold text-[var(--text-primary)] mt-1">{badge.name}</p>
                                             <p className="text-xs text-[var(--text-muted)] leading-snug">{badge.description}</p>
                                             {isEarned ? (

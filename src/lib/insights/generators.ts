@@ -51,7 +51,6 @@ const feeTotal: Generator = (txns, ctx) => {
         priority: 90,
         headline: `You paid ${fmtProse(total)} in M-PESA fees ${ctx.dateRangeLabel}.`,
         detail,
-        emoji: '💸',
         evidence: paid.map(t => t.transactionCode),
         shareable: true,
     };
@@ -104,7 +103,6 @@ const topCategory: Generator = (txns) => {
         priority: 85,
         headline: `${topKey} took the biggest bite — ${fmtProse(topTotal)}, ${fmtPercent(pct)} of everything you spent.`,
         detail: topRecipients.length > 0 ? `Mostly ${joinNatural(topRecipients)}.` : undefined,
-        emoji: '🏷️',
         evidence: topTxns.map(t => t.transactionCode),
         shareable: false,
     };
@@ -127,7 +125,6 @@ const biggestSingle: Generator = (txns) => {
         kind: 'biggest_single',
         priority: 70,
         headline: `Your biggest single payment was ${fmtProse(biggest.amount)} to ${displayName(biggest)}.`,
-        emoji: '💥',
         evidence: [biggest.transactionCode],
         shareable: false,
     };
@@ -165,7 +162,6 @@ const subscriptionLoad: Generator = (txns, ctx) => {
         priority: 88,
         headline: `You're running ${byMerchant.size} subscriptions — ${fmtProse(total)} ${ctx.dateRangeLabel}.`,
         detail,
-        emoji: '📺',
         evidence: subs.map(t => t.transactionCode),
         shareable: true,
     };
@@ -188,7 +184,6 @@ const businessVsPersonal: Generator = (txns) => {
         kind: 'business_vs_personal',
         priority: 60,
         headline: `${fmtPercent(bizPct)} of your spending went to businesses, ${fmtPercent(100 - bizPct)} to people.`,
-        emoji: '⚖️',
         evidence: spend.map(t => t.transactionCode),
         shareable: false,
     };
@@ -224,7 +219,6 @@ const busiestDay: Generator = (txns) => {
         kind: 'busiest_day',
         priority: 50,
         headline: `${weekday} was your busiest — ${busiest.length} transactions, ${fmtProse(amount)}.`,
-        emoji: '📅',
         evidence: busiest.map(t => t.transactionCode),
         shareable: false,
     };
@@ -260,7 +254,6 @@ const spendVelocity: Generator = (txns, ctx) => {
         priority: 65,
         headline: `You averaged ${fmtProse(perDay)} a day.`,
         detail,
-        emoji: '📈',
         evidence: spend.map(t => t.transactionCode),
         shareable: false,
     };
@@ -285,7 +278,6 @@ const inflowOutflow: Generator = (txns) => {
         headline: net > 0
             ? `You came out ahead by ${fmtProse(net)}.`
             : `You spent ${fmtProse(Math.abs(net))} more than came in.`,
-        emoji: net > 0 ? '✅' : '⚠️',
         evidence: [...received, ...spend].map(t => t.transactionCode),
         shareable: true,
     };
@@ -321,7 +313,6 @@ const merchantFrequency: Generator = (txns) => {
         kind: 'merchant_frequency',
         priority: 55,
         headline: `${topName} saw you ${topBucket.length} times — ${fmtProse(total)} altogether.`,
-        emoji: '🔁',
         evidence: topBucket.map(t => t.transactionCode),
         shareable: false,
     };
@@ -341,7 +332,6 @@ const smallSpendCreep: Generator = (txns) => {
         priority: 45,
         headline: `${small.length} small payments under Ksh 200 added up to ${fmtProse(total)}.`,
         detail: 'Easy to miss individually.',
-        emoji: '🫧',
         evidence: small.map(t => t.transactionCode),
         shareable: true,
     };
@@ -363,7 +353,6 @@ const recurring: Generator = (txns, ctx) => {
             priority: 80,
             headline: `Found ${patterns.length} payment${patterns.length === 1 ? '' : 's'} that look regular.`,
             detail: `Only looking at ${ctx.dayCount} days here — run a longer range to spot monthly patterns.`,
-            emoji: '🔁',
             evidence: patterns.flatMap(p => p.occurrences.map(o => o.transactionCode)),
             shareable: false,
         };
@@ -378,7 +367,6 @@ const recurring: Generator = (txns, ctx) => {
         priority: 80,
         headline: `Found ${patterns.length} payment${patterns.length === 1 ? '' : 's'} that look regular.`,
         detail,
-        emoji: '🔁',
         evidence: patterns.flatMap(p => p.occurrences.map(o => o.transactionCode)),
         shareable: false,
     };
@@ -430,7 +418,6 @@ const comparison: Generator = (txns, ctx) => {
         kind: 'comparison',
         priority: 82,
         headline: `${biggest.category} is ${direction} ${fmtPercent(Math.abs(biggest.pctChange))} on last month.`,
-        emoji: direction === 'up' ? '📈' : '📉',
         evidence: spend.filter(t => (t.merchantCategory ?? t.receiptLabel) === biggest!.category).map(t => t.transactionCode),
         shareable: false,
     };
@@ -459,7 +446,6 @@ const feeTrendVsHistory: Generator = (txns, ctx) => {
         priority: 78,
         headline: `Your fees are running ${change > 0 ? 'higher' : 'lower'} than usual this time.`,
         detail: `${fmtProse(thisFees)} vs your usual ${fmtProse(avgMonthlyFees)}.`,
-        emoji: change > 0 ? '⬆️' : '⬇️',
         evidence: txns.filter(t => (t.transactionCost ?? 0) > 0).map(t => t.transactionCode),
         shareable: false,
     };
@@ -492,7 +478,6 @@ const milestone: Generator = (txns, ctx) => {
             kind: 'milestone',
             priority: 95,
             headline: `That's your ${ordinal(stats.sessionCount)} summary.`,
-            emoji: '🎉',
             evidence: [],
             shareable: true,
         };
@@ -504,7 +489,6 @@ const milestone: Generator = (txns, ctx) => {
             kind: 'milestone',
             priority: 95,
             headline: `You've now tracked ${stats.totalTransactionsTracked} transactions with M-Track.`,
-            emoji: '🎉',
             evidence: [],
             shareable: true,
         };
@@ -523,7 +507,6 @@ const milestone: Generator = (txns, ctx) => {
             kind: 'milestone',
             priority: 95,
             headline: `You've now tracked ${fmtProse(projected)} with M-Track.`,
-            emoji: '🎉',
             evidence: [],
             shareable: true,
         };

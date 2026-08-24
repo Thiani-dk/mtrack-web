@@ -34,16 +34,7 @@ export function ChatBadge({ badgeId, leadIn }: ChatBadgeProps) {
 
                 <p className="text-[11px] font-medium text-[var(--text-muted)] relative">{leadIn}</p>
 
-                <motion.div
-                    className="text-4xl mt-1 relative"
-                    initial={{ scale: 0.5, rotate: -8 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ type: 'spring', stiffness: 260, damping: 12, delay: 0.15 }}
-                >
-                    {badge.emoji}
-                </motion.div>
-
-                <p className="text-sm font-bold text-[var(--text-primary)] mt-1.5 relative">{badge.name}</p>
+                <p className="text-sm font-bold text-[var(--text-primary)] mt-2 relative">{badge.name}</p>
                 <p className="text-xs text-[var(--text-muted)] mt-0.5 relative">{badge.description}</p>
 
                 <span
