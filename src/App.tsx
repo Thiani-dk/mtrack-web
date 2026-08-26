@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { AppStep } from './types';
 import { HomeScreen } from './components/HomeScreen';
 import { HistoryScreen } from './components/HistoryScreen';
@@ -7,26 +7,8 @@ import { BadgesScreen } from './components/BadgesScreen';
 import { ChatScreen } from './components/chat/ChatScreen';
 
 export default function App() {
-    // ── Share target handler ─────────────────────────────────────────────────
-    // When the PWA is opened via Android Share, the OS appends
-    // ?text=<shared content> to /share-target. Shared text lands directly in
-    // the chat flow's parse step and gets auto-submitted there.
-
-    const [sharedText] = useState<string | null>(() => {
-        const params = new URLSearchParams(window.location.search);
-        const text = params.get('text') ?? params.get('title') ?? null;
-        return text && text.trim().length > 0 ? text.trim() : null;
-    });
-
-    const [step, setStep] = useState<AppStep>(() => (sharedText ? 'chat' : 'home'));
+    const [step, setStep] = useState<AppStep>('home');
     const [chatDemoMode, setChatDemoMode] = useState(false);
-
-    useEffect(() => {
-        if (sharedText) {
-            // Clean the URL so refresh doesn't re-trigger
-            window.history.replaceState({}, '', '/');
-        }
-    }, [sharedText]);
 
     const handleHomeSelect = () => {
         setChatDemoMode(false);
@@ -75,7 +57,6 @@ export default function App() {
                 return (
                     <ChatScreen
                         demoMode={chatDemoMode}
-                        initialSharedText={sharedText}
                         onBack={() => {
                             setChatDemoMode(false);
                             setStep('home');

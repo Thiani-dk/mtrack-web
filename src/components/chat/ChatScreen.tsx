@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatMessage, ParsedTransaction } from '../../types';
 import { useChatSession } from '../../lib/useChatSession';
 import { useReceiptStore } from '../../lib/useReceiptStore';
@@ -9,7 +8,6 @@ import { describeNewRecords } from '../../lib/aggregate/recordMessages';
 import { parseAllMessages } from '../../lib/parsers';
 import { generateDemoMessages } from '../../lib/demoData';
 import { generateInsights, computeDaySpan, detectRecurring, type InsightContext } from '../../lib/insights';
-import { getPendingDraft, setPendingDraft, clearPendingDraft } from '../../lib/pendingDraft';
 import { ChatShell } from './ChatShell';
 import { ChatSidebar } from './ChatSidebar';
 import { ChatHeader } from './ChatHeader';
@@ -18,7 +16,6 @@ import { ChatComposer } from './ChatComposer';
 
 interface ChatScreenProps {
     demoMode: boolean;
-    initialSharedText?: string | null;
     onBack: () => void;
 }
 
@@ -149,7 +146,7 @@ async function deliverInsights(
     }
 }
 
-export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenProps) {
+export function ChatScreen({ demoMode, onBack }: ChatScreenProps) {
     const {
         sessions,
         activeSession,
@@ -173,37 +170,9 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
     const [isDemoSession, setIsDemoSession] = useState(demoMode);
     const [demoMessages, setDemoMessages] = useState<ChatMessage[]>([]);
 
-    // Computed once at mount from the share-target URL param + whatever was
-    // already pending in sessionStorage (both external-to-React state) — a
-    // lazy initializer rather than an effect, since sessionStorage.getItem
-    // is a pure read (safe under a render-phase double-invoke) and this way
-    // the very first paint already reflects the right choice, no flash of
-    // an empty composer before an effect catches up.
-    function initialComposerState(): { key: number; value: string } {
-        if (isDemoSession || !initialSharedText) return { key: 0, value: '' };
-        const existing = getPendingDraft();
-        return { key: 0, value: existing.trim().length > 0 ? existing : initialSharedText };
-    }
-    function initialSharePrompt(): { incoming: string; existing: string } | null {
-        if (isDemoSession || !initialSharedText) return null;
-        const existing = getPendingDraft();
-        return existing.trim().length > 0 ? { incoming: initialSharedText, existing } : null;
-    }
-
-    // Forces the composer to pick up a new starting value (share arrivals,
-    // prompt resolutions) — bumping `key` remounts it fresh, since its
-    // internal text state is otherwise self-owned and won't pick up a
-    // changed `initialValue` prop after the first mount.
-    const [composerSeed, setComposerSeed] = useState(initialComposerState);
-    const seedComposer = (value: string) => setComposerSeed(s => ({ key: s.key + 1, value }));
-    // Set only when a second share arrives while pendingDraft already has
-    // something in it.
-    const [sharePrompt, setSharePrompt] = useState(initialSharePrompt);
-
     const hasInitialized = useRef(false);
     const greetedSessionIds = useRef(new Set<string>());
     const demoStarted = useRef(false);
-    const sharedTextConsumed = useRef(false);
 
     const addDemoMessage = useCallback<AddMessageFn>((msg) => {
         const id = crypto.randomUUID();
@@ -295,10 +264,6 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
     // it, then walk the user through what stood out before offering to build
     // the actual summary.
     const handleSend = useCallback(async (text: string) => {
-        // Whatever was pending is now confirmed — nothing left to reconcile
-        // a future share against.
-        clearPendingDraft();
-
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
 
@@ -374,42 +339,11 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
         }
     }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, recheckBadges, addMessage]);
 
-    // Incoming Android share-target text populates the composer for review —
-    // it does NOT auto-submit, so the user can see/edit what came in (and so
-    // a second share while this is still sitting there has something to
-    // reconcile against — see initialComposerState/initialSharePrompt above,
-    // which already decided the no-conflict-vs-prompt outcome for this
-    // render). Never applies during a demo.
-    //
-    // A repeat share is a real browser navigation (manifest.json's
-    // share_target is GET, not an in-page event), which reloads the whole
-    // app — so this only needs to persist the no-conflict case's resolved
-    // text to sessionStorage (an external-system write, not React state) so
-    // THAT reload has something to detect a conflict against next time.
-    useEffect(() => {
-        if (isDemoSession || !initialSharedText || sharedTextConsumed.current) return;
-        sharedTextConsumed.current = true;
-        if (getPendingDraft().trim().length === 0) {
-            setPendingDraft(initialSharedText);
-        }
-    }, [isDemoSession, initialSharedText]);
-
-    const resolveSharePrompt = (choice: 'add' | 'fresh') => {
-        if (!sharePrompt) return;
-        const resolved = choice === 'add'
-            ? `${sharePrompt.existing}\n\n${sharePrompt.incoming}`
-            : sharePrompt.incoming;
-        setPendingDraft(resolved);
-        seedComposer(resolved);
-        setSharePrompt(null);
-    };
-
     const messages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
     const title = isDemoSession ? 'Sample data' : (activeSession?.title ?? 'New Receipt');
     const canCompose = isDemoSession || !!activeSession;
 
     return (
-        <>
         <ChatShell
             sidebarOpen={sidebarOpen}
             onCloseSidebar={() => setSidebarOpen(false)}
@@ -438,55 +372,7 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
 
             <ChatMessageList messages={messages} onLabelChange={handleLabelChange} />
 
-            <ChatComposer
-                key={composerSeed.key}
-                initialValue={composerSeed.value}
-                onChange={value => (value.trim() ? setPendingDraft(value) : clearPendingDraft())}
-                onSend={handleSend}
-                disabled={!canCompose || isProcessing}
-            />
+            <ChatComposer onSend={handleSend} disabled={!canCompose || isProcessing} />
         </ChatShell>
-
-        <AnimatePresence>
-            {sharePrompt && (
-                <>
-                    <motion.div
-                        className="fixed inset-0 z-scrim"
-                        style={{ background: 'var(--scrim)' }}
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setSharePrompt(null)}
-                    />
-                    <motion.div
-                        className="glass-panel fixed inset-x-0 bottom-0 z-modal rounded-t-3xl max-w-md mx-auto p-5"
-                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                        transition={{ type: 'spring', stiffness: 400, damping: 34 }}
-                    >
-                        <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">
-                            You've already got something pending
-                        </p>
-                        <p className="text-xs text-[var(--text-muted)] mb-4">
-                            Add this to what you already have, or start fresh?
-                        </p>
-                        <div className="flex flex-col gap-2">
-                            <motion.button
-                                onClick={() => resolveSharePrompt('add')}
-                                className="btn-primary min-h-[40px] rounded-xl text-sm font-medium"
-                                whileTap={{ scale: 0.97 }}
-                            >
-                                Add to what I have
-                            </motion.button>
-                            <motion.button
-                                onClick={() => resolveSharePrompt('fresh')}
-                                className="btn-secondary min-h-[40px] rounded-xl text-sm font-medium"
-                                whileTap={{ scale: 0.97 }}
-                            >
-                                Start fresh
-                            </motion.button>
-                        </div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
-        </>
     );
 }
