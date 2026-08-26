@@ -44,6 +44,10 @@ const BADGE_LEAD_INS = [
     'You just earned something.',
 ];
 
+// A parsed-transaction count at or below this counts as "small" — worth
+// saying so plainly rather than promising a rich summary.
+const SMALL_RESULT_THRESHOLD = 3;
+
 // Safety net for anything unexpected in the parse/insight/save pipeline —
 // never leave the "thinking" bubble (and the composer, disabled while
 // isProcessing) stuck forever. Deliberately generic: no raw error.message,
@@ -86,12 +90,12 @@ async function deliverInsights(
         // at all, which the guard below would otherwise silently skip.
         updateMsg(thinkingId, {
             kind: 'text',
-            text: 'Nothing left to include — every transaction was filtered or excluded.',
+            text: "I couldn't find any transactions in that. Try copying the full message from your SMS app, starting from the MPESA confirmation.",
         });
-    } else if (scoped.length < 3) {
+    } else if (scoped.length <= SMALL_RESULT_THRESHOLD) {
         updateMsg(thinkingId, {
             kind: 'text',
-            text: `Not much to go on with ${scoped.length} transaction${scoped.length === 1 ? '' : 's'} — but here's your summary.`,
+            text: `Only ${scoped.length} transaction${scoped.length === 1 ? '' : 's'} in there, but here's what I found.`,
         });
     } else {
         const dayCount = computeDaySpan(scoped);
@@ -105,7 +109,7 @@ async function deliverInsights(
         const insights = generateInsights(scoped, context);
 
         if (insights.length === 0) {
-            updateMsg(thinkingId, { kind: 'text', text: "Nothing jumped out, but here's your summary." });
+            updateMsg(thinkingId, { kind: 'text', text: "All sorted. Nothing unusual this time, but here's your summary." });
         } else {
             updateMsg(thinkingId, { kind: 'text', text: pickRandom(LEAD_INS) });
 
