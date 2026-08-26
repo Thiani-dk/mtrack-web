@@ -29,17 +29,3 @@ self.addEventListener('fetch', e => {
     })
   );
 });
-
-// Handle share target — POST from Android share sheet
-self.addEventListener('fetch', e => {
-  const url = new URL(e.request.url);
-  if (url.pathname === '/share-target' && e.request.method === 'POST') {
-    e.respondWith(
-      e.request.formData().then(data => {
-        const text = data.get('text') ?? data.get('title') ?? '';
-        const redirectUrl = `/?text=${encodeURIComponent(text.toString())}`;
-        return Response.redirect(redirectUrl, 303);
-      })
-    );
-  }
-});
