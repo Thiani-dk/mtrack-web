@@ -6,14 +6,22 @@ interface ChatComposerProps {
     onSend: (text: string) => void;
     disabled?: boolean;
     placeholder?: string;
+    // Seeds the composer's starting text — e.g. shared-in text populating it
+    // for review. Only read once, at mount: the caller forces a re-seed by
+    // remounting (a changed `key`), same as any other "reset from outside" case.
+    initialValue?: string;
+    // Fired on every keystroke, not debounced — lets the caller track
+    // unconfirmed draft text (e.g. to persist it across a reload) without
+    // owning the composer's value itself.
+    onChange?: (value: string) => void;
 }
 
 const LINE_HEIGHT_PX = 20;
 const MAX_LINES = 5;
 const MAX_HEIGHT_PX = LINE_HEIGHT_PX * MAX_LINES;
 
-export function ChatComposer({ onSend, disabled = false, placeholder = 'Message M-Track...' }: ChatComposerProps) {
-    const [value, setValue] = useState('');
+export function ChatComposer({ onSend, disabled = false, placeholder = 'Message M-Track...', initialValue = '', onChange }: ChatComposerProps) {
+    const [value, setValue] = useState(initialValue);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
@@ -30,6 +38,12 @@ export function ChatComposer({ onSend, disabled = false, placeholder = 'Message 
         if (!trimmed || disabled) return;
         onSend(trimmed);
         setValue('');
+        onChange?.('');
+    };
+
+    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setValue(e.target.value);
+        onChange?.(e.target.value);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -57,7 +71,7 @@ export function ChatComposer({ onSend, disabled = false, placeholder = 'Message 
                 <textarea
                     ref={textareaRef}
                     value={value}
-                    onChange={(e) => setValue(e.target.value)}
+                    onChange={handleChange}
                     onKeyDown={handleKeyDown}
                     disabled={disabled}
                     placeholder={placeholder}
