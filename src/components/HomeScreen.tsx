@@ -33,7 +33,7 @@ const CARDS: {
     {
         icon: FileText,
         title: 'Generate Receipt',
-        desc: 'Organise your M-PESA transactions into a professional, KRA-ready receipt',
+        desc: 'Organise your M-PESA, Airtel Money, or bank transactions into a professional, KRA-ready receipt',
     },
 ];
 
@@ -163,7 +163,7 @@ export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeCli
                     </h1>
                     <p className="text-[var(--text-secondary)] text-base">What would you like to do?</p>
                     <p className="text-[var(--text-muted)] text-sm max-w-xs mx-auto leading-relaxed">
-                        Paste your M-PESA messages, label your transactions, download a KRA-ready receipt.
+                        Paste your M-PESA, Airtel Money, or bank messages, label your transactions, download a KRA-ready receipt.
                     </p>
                 </motion.div>
 
@@ -201,9 +201,9 @@ export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeCli
                         </div>
                         <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
                             <span className="font-semibold text-[var(--text-primary)]">Tip — </span>
-                            In your SMS app, select your M-PESA messages, tap{' '}
+                            In your SMS app, select your M-PESA, Airtel Money, or bank messages, tap{' '}
                             <span className="font-semibold text-[var(--text-primary)]">Share</span>, then choose{' '}
-                            <span className="font-semibold text-[var(--text-primary)]">M-Track</span> to import them instantly.
+                            <span className="font-semibold text-[var(--text-primary)]">M-Track</span> to bring them straight into the chat.
                         </p>
                     </div>
                 </motion.div>

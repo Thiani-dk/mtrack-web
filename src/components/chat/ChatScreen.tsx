@@ -22,7 +22,7 @@ interface ChatScreenProps {
     onBack: () => void;
 }
 
-const GREETING = "Hi! I'm M-Track. I'll help you turn your M-PESA messages into an organised expense summary. Paste them in whenever you're ready.";
+const GREETING = "Hi! I'm M-Track. Paste in your M-PESA, Airtel Money, or bank alert messages and I'll turn them into an organised expense summary. If you use SMS Backup & Restore, you can select more than one conversation when exporting — I'll sort out what came from where.";
 
 const DEMO_INTRO = "This is a demo run with made-up transactions, so you can see how it works before using your own.";
 const DEMO_NEXT_STEP = 'Want to do this with your real messages? Start a new summary.';
