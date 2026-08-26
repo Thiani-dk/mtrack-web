@@ -46,6 +46,23 @@ export function useAllTimeStats() {
         }
     }, []);
 
+    // Live re-check after a label edit (see allTimeStore.recheckBadges for
+    // why this is deliberately narrower than recordSession). Demo sessions
+    // never touch the aggregate, same guard as recordSession.
+    const recheckBadges = useCallback(async (transactions: ParsedTransaction[], isDemo: boolean): Promise<string[]> => {
+        if (isDemo) return [];
+        try {
+            const result = await store.recheckBadges(transactions);
+            if (!result) return [];
+            setStats(result.stats);
+            setIsAvailable(true);
+            return result.newlyEarnedBadges;
+        } catch {
+            setIsAvailable(false);
+            return [];
+        }
+    }, []);
+
     const resetAll = useCallback(async () => {
         try {
             await store.resetAllTime();
@@ -55,5 +72,5 @@ export function useAllTimeStats() {
         }
     }, [refresh]);
 
-    return { stats, isLoading, isAvailable, recordSession, resetAll };
+    return { stats, isLoading, isAvailable, recordSession, recheckBadges, resetAll };
 }

@@ -41,11 +41,14 @@ export function initDB(): Promise<IDBDatabase> {
     });
 }
 
+// put(), not add() — callers (saveIfNew) intentionally reuse an existing
+// receipt's id to update it in place (e.g. after a label change), which
+// add() would reject with a ConstraintError on the duplicate key.
 export async function saveReceipt(receipt: StoredReceipt): Promise<void> {
     const db = await initDB();
     return new Promise((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).add(receipt);
+        tx.objectStore(STORE_NAME).put(receipt);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
     });

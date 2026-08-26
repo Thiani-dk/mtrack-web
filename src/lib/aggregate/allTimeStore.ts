@@ -118,7 +118,7 @@ export async function getAllTimeStats(): Promise<AllTimeStats | undefined> {
     return stats;
 }
 
-async function saveAllTimeStats(stats: AllTimeStats): Promise<void> {
+export async function saveAllTimeStats(stats: AllTimeStats): Promise<void> {
     const db = await initDB();
     return new Promise((resolve, reject) => {
         const tx = db.transaction(AGGREGATE_STORE, 'readwrite');
@@ -292,13 +292,23 @@ export function mergeSessionIntoStats(
     // Badges check last, against the fully-updated cumulative stats, using
     // this session's own characteristics (not the dedup-filtered subset —
     // "labelled every transaction" etc. is about the session as pasted).
+    const summary = buildSessionSummary(inScope, now);
+    const newlyEarnedBadges = applyNewlyEarnedBadges(stats, summary, now);
+
+    return { stats, seenCodes: nextSeenCodes, newlyEarnedBadges };
+}
+
+// Shared by the initial merge above and recheckBadges below — builds the
+// session-characteristics half of a badge check from an in-scope transaction
+// set, independent of the cumulative AllTimeStats side.
+function buildSessionSummary(inScope: ParsedTransaction[], now: number): SessionSummary {
     const sessionFees = inScope.reduce((s, t) => s + (t.transactionCost ?? 0), 0);
     const sessionSubscriptionMerchants = new Set(
         inScope
             .filter(t => t.merchantCategory === 'Streaming & Subscriptions' || t.merchantCategory === 'Gaming')
             .map(t => t.merchant ?? t.recipient)
     );
-    const summary: SessionSummary = {
+    return {
         transactionCount: inScope.length,
         labelledCount: inScope.filter(t => t.receiptLabel != null).length,
         subscriptionCount: sessionSubscriptionMerchants.size,
@@ -307,9 +317,32 @@ export function mergeSessionIntoStats(
         recurringPatterns: detectRecurring(inScope),
         transactions: inScope,
     };
+}
+
+// Re-checks badges for a session whose transactions changed after the
+// initial recordSession() call — specifically, labels added through the
+// interactive receipt's tap-to-label UI, which happens after the receipt
+// (and the original badge check) already exists. Deliberately narrower than
+// recordSession: it does NOT touch sessionCount, totals, monthly buckets, or
+// seenCodes — those already reflect this session from the original call, and
+// re-merging them here would double-count. It only re-evaluates badges
+// (e.g. "Sorter": labelled every transaction) against the session's current
+// label state, so a badge earned only after labeling can still fire live.
+export async function recheckBadges(
+    transactions: ParsedTransaction[],
+    now: number = Date.now()
+): Promise<{ stats: AllTimeStats; newlyEarnedBadges: string[] } | null> {
+    const stats = await getAllTimeStats();
+    if (!stats) return null;
+
+    const inScope = transactions.filter(t => !t.excludedFromReceipt);
+    const summary = buildSessionSummary(inScope, now);
     const newlyEarnedBadges = applyNewlyEarnedBadges(stats, summary, now);
 
-    return { stats, seenCodes: nextSeenCodes, newlyEarnedBadges };
+    if (newlyEarnedBadges.length > 0) {
+        await saveAllTimeStats(stats);
+    }
+    return { stats, newlyEarnedBadges };
 }
 
 // ── Orchestration ────────────────────────────────────────────────────────────

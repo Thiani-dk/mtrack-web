@@ -160,7 +160,7 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
         updateMessage,
     } = useChatSession();
     const { receipts, saveIfNew, isAvailable: isReceiptStoreAvailable } = useReceiptStore();
-    const { recordSession } = useAllTimeStats();
+    const { recordSession, recheckBadges } = useAllTimeStats();
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -313,6 +313,34 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
         }
     }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, recordSession, saveIfNew]);
 
+    // Fired from the interactive receipt's tap-to-label UI. Updates the
+    // message's own transactions in place (persisted through the normal
+    // updateMessage/updateDemoMessage debounce, same as any other message
+    // edit) and — for real sessions only — re-checks badges against the new
+    // label state, since the original badge check ran before the receipt
+    // (and any chance to label) even existed. Deliberately does NOT call
+    // recordSession again: that would double-count this session's totals.
+    const handleLabelChange = useCallback(async (messageId: string, transactionCode: string, label: string | null) => {
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const msg = currentMessages.find(m => m.id === messageId);
+        if (!msg?.transactions) return;
+
+        const updatedTransactions = msg.transactions.map(t =>
+            t.transactionCode === transactionCode ? { ...t, receiptLabel: label } : t
+        );
+
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        updateMsg(messageId, { transactions: updatedTransactions });
+
+        if (isDemoSession) return; // demo sessions never touch badges/aggregate
+
+        const newlyEarnedBadges = await recheckBadges(updatedTransactions, false);
+        for (const badgeId of newlyEarnedBadges) {
+            await sleep(600);
+            addMessage({ role: 'bot', kind: 'badge', badgeId, badgeLeadIn: pickRandom(BADGE_LEAD_INS) });
+        }
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, recheckBadges, addMessage]);
+
     // Incoming Android share-target text lands directly in the chat flow's
     // parse step — auto-submitted the moment a real session exists, exactly
     // as if the user had pasted it themselves. Never applies during a demo.
@@ -356,7 +384,7 @@ export function ChatScreen({ demoMode, initialSharedText, onBack }: ChatScreenPr
                 </p>
             )}
 
-            <ChatMessageList messages={messages} />
+            <ChatMessageList messages={messages} onLabelChange={handleLabelChange} />
 
             <ChatComposer onSend={handleSend} disabled={!canCompose || isProcessing} />
         </ChatShell>

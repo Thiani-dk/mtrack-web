@@ -67,15 +67,26 @@ export function useReceiptStore() {
         }
     }, [refresh]);
 
-    // Saves a summary to history, skipping it if a receipt with the same
-    // transaction fingerprint is already there — safe to call more than
-    // once for the same summary (e.g. the user hits Save/Share a few times).
+    // Saves a summary to history — or, if a receipt with the same
+    // transaction-set fingerprint is already there, updates that entry in
+    // place instead of skipping. The fingerprint is keyed on transaction
+    // codes/amounts/dates only (see getReceiptFingerprint), not labels, so
+    // labeling transactions after the first save doesn't change the
+    // fingerprint — re-saving (e.g. pressing Save/Share again after
+    // labeling) refreshes the existing history entry's content rather than
+    // silently leaving it stale or creating a duplicate.
     const saveIfNew = useCallback(async (transactions: ParsedTransaction[], dateRangeLabel: string): Promise<void> => {
         try {
             const fingerprint = await getReceiptFingerprint(transactions);
             const current = await receiptStore.getAllReceipts();
+            let existingId: string | null = null;
+            let existingCreatedAt = Date.now();
             for (const existing of current) {
-                if ((await getReceiptFingerprint(existing.transactions)) === fingerprint) return;
+                if ((await getReceiptFingerprint(existing.transactions)) === fingerprint) {
+                    existingId = existing.id;
+                    existingCreatedAt = existing.createdAt;
+                    break;
+                }
             }
 
             const activeTxns = transactions.filter(t => !t.excludedFromReceipt);
@@ -88,8 +99,8 @@ export function useReceiptStore() {
                 .reduce((s, t) => s + t.amount, 0);
 
             const receipt: StoredReceipt = {
-                id: crypto.randomUUID(),
-                createdAt: Date.now(),
+                id: existingId ?? crypto.randomUUID(),
+                createdAt: existingCreatedAt,
                 dateRange: dateRangeLabel,
                 transactionCount: activeTxns.length,
                 totalSpent,

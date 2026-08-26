@@ -6,6 +6,7 @@ import { computeReceiptData, generateReceiptHTML, generateReceiptPDF, summariseR
 import { downloadHTML, downloadPDF, getReceiptFilenames } from '../../lib/downloadUtils';
 import { share } from '../../lib/shareUtils';
 import { useEntranceOnce } from '../../lib/useEntranceOnce';
+import { useReceiptStore } from '../../lib/useReceiptStore';
 import { ChatReceiptVisual } from './ChatReceiptVisual';
 
 interface ChatReceiptProps {
@@ -13,18 +14,29 @@ interface ChatReceiptProps {
     transactions: ParsedTransaction[];
     dateRange: string;
     isDemo?: boolean;
+    onLabelChange?: (transactionCode: string, label: string | null) => void;
 }
 
 type Busy = 'pdf' | 'html' | 'share' | null;
 
-export function ChatReceipt({ messageId, transactions, dateRange, isDemo = false }: ChatReceiptProps) {
+export function ChatReceipt({ messageId, transactions, dateRange, isDemo = false, onLabelChange }: ChatReceiptProps) {
     const [busy, setBusy] = useState<Busy>(null);
     const [notice, setNotice] = useState<string | null>(null);
+    const { saveIfNew } = useReceiptStore();
 
     // Same computed source Part A's PDF/HTML generation reads from — the
     // interactive view never forks its own tally/category math.
     const data = useMemo(() => computeReceiptData(transactions), [transactions]);
     const playEntrance = useEntranceOnce(messageId);
+
+    // Re-synced at the moment of each save/share (not eagerly on every label
+    // edit) — if this session was already saved to history before a label
+    // change, this refreshes that entry in place rather than leaving it
+    // stale. No-op (besides the refresh) for a demo session's fake receipts.
+    const syncHistory = async () => {
+        if (isDemo) return;
+        await saveIfNew(transactions, dateRange);
+    };
 
     const flash = (text: string) => {
         setNotice(text);
@@ -37,6 +49,7 @@ export function ChatReceipt({ messageId, transactions, dateRange, isDemo = false
             const [blob, filenames] = await Promise.all([
                 generateReceiptPDF(transactions, dateRange, isDemo),
                 getReceiptFilenames(transactions),
+                syncHistory(),
             ]);
             downloadPDF(blob, filenames.pdf);
         } catch (err) {
@@ -53,6 +66,7 @@ export function ChatReceipt({ messageId, transactions, dateRange, isDemo = false
             const [html, filenames] = await Promise.all([
                 generateReceiptHTML(transactions, dateRange, isDemo),
                 getReceiptFilenames(transactions),
+                syncHistory(),
             ]);
             downloadHTML(html, filenames.html);
         } catch (err) {
@@ -70,6 +84,7 @@ export function ChatReceipt({ messageId, transactions, dateRange, isDemo = false
             const [blob, filenames] = await Promise.all([
                 generateReceiptPDF(transactions, dateRange, isDemo),
                 getReceiptFilenames(transactions),
+                syncHistory(),
             ]);
             const result = await share({
                 file: { blob, filename: filenames.pdf, mimeType: 'application/pdf' },
@@ -95,7 +110,7 @@ export function ChatReceipt({ messageId, transactions, dateRange, isDemo = false
         >
             <div className="glass-card max-w-[85%] w-full px-4 py-4">
                 <div className="mb-3">
-                    <ChatReceiptVisual data={data} dateRange={dateRange} playEntrance={playEntrance} />
+                    <ChatReceiptVisual data={data} dateRange={dateRange} playEntrance={playEntrance} onLabelChange={onLabelChange} />
                 </div>
 
                 <div className="flex flex-col gap-2">

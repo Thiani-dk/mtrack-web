@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
 import type { ParsedTransaction } from '../../types';
@@ -11,7 +11,11 @@ interface ChatReceiptVisualProps {
     data: ReceiptData;
     dateRange: string;
     playEntrance: boolean;
+    onLabelChange?: (transactionCode: string, label: string | null) => void;
 }
+
+// Preset set carried over from the deleted ReviewScreen.tsx.
+const LABEL_PRESETS = ['Transport', 'Accommodation', 'Fuel', 'Medical Aid'];
 
 // ── Reveal timing — fixed anchors (not chained sums) so the sequence stays
 // bounded regardless of transaction/category count. Seconds. ──────────────
@@ -44,10 +48,76 @@ function fmtCount(n: number): string {
     return String(Math.round(n));
 }
 
+// ── Label picker — inline within the row's existing .glass-panel, never a
+// second glass surface stacked on top of it. ──────────────────────────────
+
+function LabelPicker({ current, onSelect }: { current: string | null; onSelect: (label: string | null) => void }) {
+    const [showOther, setShowOther] = useState(false);
+    const [otherText, setOtherText] = useState('');
+
+    const commitOther = () => {
+        const trimmed = otherText.trim();
+        if (trimmed) onSelect(trimmed);
+        setShowOther(false);
+        setOtherText('');
+    };
+
+    return (
+        <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
+            {LABEL_PRESETS.map(preset => (
+                <button
+                    key={preset}
+                    onClick={() => onSelect(preset)}
+                    className="text-[10px] font-medium px-2 py-1 rounded-full"
+                    style={current === preset
+                        ? { background: 'var(--accent)', color: '#ffffff' }
+                        : { background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+                >
+                    {preset}
+                </button>
+            ))}
+            {!showOther ? (
+                <button
+                    onClick={() => setShowOther(true)}
+                    className="text-[10px] font-medium px-2 py-1 rounded-full"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+                >
+                    Other
+                </button>
+            ) : (
+                <input
+                    autoFocus
+                    value={otherText}
+                    onChange={e => setOtherText(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') commitOther(); }}
+                    onBlur={commitOther}
+                    placeholder="Custom label…"
+                    className="text-[10px] px-2 py-1 rounded-full flex-1 min-w-[96px] outline-none"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                />
+            )}
+            {current != null && (
+                <button
+                    onClick={() => onSelect(null)}
+                    className="text-[10px] font-medium px-2 py-1 text-[var(--text-muted)]"
+                >
+                    Clear
+                </button>
+            )}
+        </div>
+    );
+}
+
 // ── Transaction row ─────────────────────────────────────────────────────────
 
-function TransactionRow({ t, delay, animateEntrance }: { t: ParsedTransaction; delay: number; animateEntrance: boolean }) {
+function TransactionRow({
+    t, delay, animateEntrance, onLabelChange,
+}: {
+    t: ParsedTransaction; delay: number; animateEntrance: boolean;
+    onLabelChange?: (label: string | null) => void;
+}) {
     const [expanded, setExpanded] = useState(false);
+    const [pickerOpen, setPickerOpen] = useState(false);
     const sign = t.type === 'sent' ? '-' : '+';
     const providerTag = getProviderSuffix(t);
 
@@ -89,6 +159,34 @@ function TransactionRow({ t, delay, animateEntrance }: { t: ParsedTransaction; d
                         className="overflow-hidden"
                     >
                         <div className="glass-panel rounded-lg p-2 mb-2 space-y-1 text-[11px]">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-[var(--text-muted)]">Label</span>
+                                <button
+                                    onClick={() => setPickerOpen(o => !o)}
+                                    className="font-medium text-right"
+                                    style={{ color: t.receiptLabel ? 'var(--text-primary)' : 'var(--accent)' }}
+                                >
+                                    {t.receiptLabel ?? 'Add label'}
+                                </button>
+                            </div>
+                            <AnimatePresence initial={false}>
+                                {pickerOpen && (
+                                    <motion.div
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: 'auto' }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        className="overflow-hidden"
+                                    >
+                                        <LabelPicker
+                                            current={t.receiptLabel}
+                                            onSelect={label => {
+                                                onLabelChange?.(label);
+                                                setPickerOpen(false);
+                                            }}
+                                        />
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                             {t.merchant && (
                                 <div className="flex justify-between gap-2">
                                     <span className="text-[var(--text-muted)]">Merchant</span>
@@ -126,12 +224,25 @@ function TransactionRow({ t, delay, animateEntrance }: { t: ParsedTransaction; d
 // ── Category bar ────────────────────────────────────────────────────────────
 
 function CategoryBar({
-    label, total, count, pct, delay, animateEntrance, transactions,
+    label, total, count, pct, delay, animateEntrance, hasSettled, transactions,
 }: {
     label: string; total: number; count: number; pct: number; delay: number; animateEntrance: boolean;
+    hasSettled: boolean;
     transactions: ParsedTransaction[];
 }) {
     const [expanded, setExpanded] = useState(false);
+    const reducedMotion = useReducedMotion();
+
+    // Once the entrance sequence has settled, a bar's width still animates
+    // when its total changes (e.g. a transaction gets relabelled into or out
+    // of this category) — but as a quick, undelayed "update in place", not
+    // a replay of the original staggered entrance timing. Reduced motion
+    // disables this too, same as the entrance itself.
+    const widthTransition = reducedMotion
+        ? { duration: 0 }
+        : animateEntrance && !hasSettled
+            ? { duration: CAT_BAR_DURATION, delay, ease: 'easeOut' as const }
+            : { duration: 0.3, ease: 'easeOut' as const };
 
     return (
         <div>
@@ -146,7 +257,7 @@ function CategoryBar({
                         style={{ background: 'var(--accent)' }}
                         initial={animateEntrance ? { width: '0%' } : false}
                         animate={{ width: `${pct}%` }}
-                        transition={animateEntrance ? { duration: CAT_BAR_DURATION, delay, ease: 'easeOut' } : undefined}
+                        transition={widthTransition}
                     />
                 </div>
             </button>
@@ -181,11 +292,23 @@ function CategoryBar({
 
 // ── Main visual ──────────────────────────────────────────────────────────────
 
-export function ChatReceiptVisual({ data, dateRange, playEntrance }: ChatReceiptVisualProps) {
+export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange }: ChatReceiptVisualProps) {
     const reducedMotion = useReducedMotion();
     const animateEntrance = playEntrance && !reducedMotion;
     const [grandReplay, setGrandReplay] = useState(0);
     const [restExpanded, setRestExpanded] = useState(false);
+
+    // Flips once the entrance sequence has visually finished — after that,
+    // data-driven changes (e.g. a label edit reshaping the category bars)
+    // update in place with a quick tween instead of the anchored entrance
+    // delays. Starts settled if there was no entrance to play in the first
+    // place (reduced motion, or a message loaded from history).
+    const [hasSettled, setHasSettled] = useState(!animateEntrance);
+    useEffect(() => {
+        if (!animateEntrance) return;
+        const timer = setTimeout(() => setHasSettled(true), (GRAND_TOTAL_DELAY + GLOW_DURATION) * 1000);
+        return () => clearTimeout(timer);
+    }, [animateEntrance]);
 
     const txs = data.activeTransactions;
     const groupRemainder = txs.length > TX_GROUP_THRESHOLD;
@@ -233,7 +356,13 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance }: ChatReceipt
                 {/* Transaction rows */}
                 <div className="mb-2">
                     {capped.map((t, i) => (
-                        <TransactionRow key={t.transactionCode} t={t} delay={TX_START + i * rowStagger} animateEntrance={animateEntrance} />
+                        <TransactionRow
+                            key={t.transactionCode}
+                            t={t}
+                            delay={TX_START + i * rowStagger}
+                            animateEntrance={animateEntrance}
+                            onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
+                        />
                     ))}
                     {rest.length > 0 && (
                         <motion.div
@@ -257,7 +386,13 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance }: ChatReceipt
                                         className="overflow-hidden"
                                     >
                                         {rest.map(t => (
-                                            <TransactionRow key={t.transactionCode} t={t} delay={0} animateEntrance={false} />
+                                            <TransactionRow
+                                                key={t.transactionCode}
+                                                t={t}
+                                                delay={0}
+                                                animateEntrance={false}
+                                                onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
+                                            />
                                         ))}
                                     </motion.div>
                                 )}
@@ -278,6 +413,7 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance }: ChatReceipt
                                 pct={(total / maxCatTotal) * 100}
                                 delay={CAT_START + i * catStagger}
                                 animateEntrance={animateEntrance}
+                                hasSettled={hasSettled}
                                 transactions={txs.filter(t => categoryKeyFor(t) === label)}
                             />
                         ))}

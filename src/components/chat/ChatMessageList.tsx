@@ -10,6 +10,7 @@ import { ChatReceipt } from './ChatReceipt';
 
 interface ChatMessageListProps {
     messages: ChatMessage[];
+    onLabelChange?: (messageId: string, transactionCode: string, label: string | null) => void;
 }
 
 // How close to the bottom (px) counts as "already there" — below this we
@@ -17,7 +18,12 @@ interface ChatMessageListProps {
 // reading history and leave their scroll position alone.
 const NEAR_BOTTOM_THRESHOLD = 120;
 
-function ChatMessageItem({ message }: { message: ChatMessage }) {
+function ChatMessageItem({
+    message, onLabelChange,
+}: {
+    message: ChatMessage;
+    onLabelChange?: (messageId: string, transactionCode: string, label: string | null) => void;
+}) {
     switch (message.kind) {
         case 'text':
             return <ChatBubble message={message} />;
@@ -35,7 +41,15 @@ function ChatMessageItem({ message }: { message: ChatMessage }) {
                 : null;
         case 'receipt':
             return message.transactions && message.dateRange
-                ? <ChatReceipt messageId={message.id} transactions={message.transactions} dateRange={message.dateRange} isDemo={message.isDemo} />
+                ? (
+                    <ChatReceipt
+                        messageId={message.id}
+                        transactions={message.transactions}
+                        dateRange={message.dateRange}
+                        isDemo={message.isDemo}
+                        onLabelChange={onLabelChange && ((code, label) => onLabelChange(message.id, code, label))}
+                    />
+                )
                 : null;
         default:
             // Still placeholders: options, dropzone, transactions (Phase 5B)
@@ -47,7 +61,7 @@ function ChatMessageItem({ message }: { message: ChatMessage }) {
     }
 }
 
-export function ChatMessageList({ messages }: ChatMessageListProps) {
+export function ChatMessageList({ messages, onLabelChange }: ChatMessageListProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const nearBottomRef = useRef(true);
@@ -78,7 +92,7 @@ export function ChatMessageList({ messages }: ChatMessageListProps) {
             ) : (
                 <AnimatePresence initial={false}>
                     {messages.map(message => (
-                        <ChatMessageItem key={message.id} message={message} />
+                        <ChatMessageItem key={message.id} message={message} onLabelChange={onLabelChange} />
                     ))}
                 </AnimatePresence>
             )}
