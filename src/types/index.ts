@@ -142,6 +142,13 @@ export interface ChatMessage {
     answeredValue?: string;
 }
 
+// 'awaiting_input' — session exists, composer still empty, no message sent yet.
+// 'active' — the user has sent at least one message. Optional (not `?`-free)
+// because sessions persisted before this field existed have no value here;
+// treat a missing sessionStatus the same as 'active' (never auto-resume into
+// a pre-existing session that predates this feature).
+export type ChatSessionStatus = 'awaiting_input' | 'active';
+
 export interface ChatSession {
     id: string;
     createdAt: number;
@@ -152,4 +159,5 @@ export interface ChatSession {
     transactionCount: number;
     totalSpent: number;
     isComplete: boolean;        // true once a receipt was generated
+    sessionStatus?: ChatSessionStatus;
 }

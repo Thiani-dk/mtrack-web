@@ -51,6 +51,7 @@ function makeSession(): ChatSession {
         transactionCount: 0,
         totalSpent: 0,
         isComplete: false,
+        sessionStatus: 'awaiting_input',
     };
 }
 
@@ -186,6 +187,18 @@ export function useChatSession() {
         });
     }, [persistDebounced, upsertSessionList]);
 
+    // Session-level (not per-message) status update — e.g. flipping out of
+    // 'awaiting_input' once the user sends their first message.
+    const updateSessionStatus = useCallback((id: string, status: ChatSession['sessionStatus']) => {
+        setActiveSession(prev => {
+            if (!prev || prev.id !== id) return prev;
+            const updated: ChatSession = { ...prev, sessionStatus: status, updatedAt: Date.now() };
+            upsertSessionList(updated);
+            persistDebounced(updated);
+            return updated;
+        });
+    }, [persistDebounced, upsertSessionList]);
+
     return {
         sessions,
         activeSession,
@@ -196,5 +209,6 @@ export function useChatSession() {
         deleteSession,
         addMessage,
         updateMessage,
+        updateSessionStatus,
     };
 }

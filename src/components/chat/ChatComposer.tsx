@@ -6,15 +6,22 @@ interface ChatComposerProps {
     onSend: (text: string) => void;
     disabled?: boolean;
     placeholder?: string;
+    // Focuses the textarea once it's actually usable (not disabled) — for
+    // dropping the user straight into a resumed conversation. A plain HTML
+    // `autofocus` attribute would fire (and fail silently) on the first
+    // render, which is frequently `disabled` while the session is still
+    // loading, so this is handled imperatively and only once.
+    autoFocus?: boolean;
 }
 
 const LINE_HEIGHT_PX = 20;
 const MAX_LINES = 5;
 const MAX_HEIGHT_PX = LINE_HEIGHT_PX * MAX_LINES;
 
-export function ChatComposer({ onSend, disabled = false, placeholder = 'Drop your messages here...' }: ChatComposerProps) {
+export function ChatComposer({ onSend, disabled = false, placeholder = 'Drop your messages here...', autoFocus = false }: ChatComposerProps) {
     const [value, setValue] = useState('');
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const hasAutoFocused = useRef(false);
 
     useEffect(() => {
         const el = textareaRef.current;
@@ -24,6 +31,12 @@ export function ChatComposer({ onSend, disabled = false, placeholder = 'Drop you
         el.style.height = `${next}px`;
         el.style.overflowY = el.scrollHeight > MAX_HEIGHT_PX ? 'auto' : 'hidden';
     }, [value]);
+
+    useEffect(() => {
+        if (!autoFocus || disabled || hasAutoFocused.current) return;
+        hasAutoFocused.current = true;
+        textareaRef.current?.focus();
+    }, [autoFocus, disabled]);
 
     const handleSend = () => {
         const trimmed = value.trim();

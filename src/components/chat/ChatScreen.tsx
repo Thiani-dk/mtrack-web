@@ -16,10 +16,17 @@ import { ChatComposer } from './ChatComposer';
 
 interface ChatScreenProps {
     demoMode: boolean;
+    // A session id to resume into directly on mount, in place of the normal
+    // "create a fresh session" behavior — set by App.tsx when it finds a
+    // session still 'awaiting_input' at app load. Only ever meaningful once,
+    // right after mount; not re-checked on later re-renders.
+    resumeSessionId?: string | null;
     onBack: () => void;
 }
 
 const GREETING = "I'm M-Track. Copy your M-Pesa, Airtel Money, or any transaction confirmation messages and send them here. I'll break down what you spent, spot patterns, and put together a receipt you can download.";
+
+const RESUME_BUBBLE = "Still here. Copy your messages whenever you're ready.";
 
 const DEMO_INTRO = "This is a demo run with made-up transactions, so you can see how it works before using your own.";
 const DEMO_NEXT_STEP = 'Want to do this with your real messages? Start a new summary.';
@@ -146,7 +153,7 @@ async function deliverInsights(
     }
 }
 
-export function ChatScreen({ demoMode, onBack }: ChatScreenProps) {
+export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProps) {
     const {
         sessions,
         activeSession,
@@ -157,6 +164,7 @@ export function ChatScreen({ demoMode, onBack }: ChatScreenProps) {
         deleteSession,
         addMessage,
         updateMessage,
+        updateSessionStatus,
     } = useChatSession();
     const { receipts, saveIfNew, isAvailable: isReceiptStoreAvailable } = useReceiptStore();
     const { recordSession, recheckBadges } = useAllTimeStats();
@@ -172,6 +180,7 @@ export function ChatScreen({ demoMode, onBack }: ChatScreenProps) {
 
     const hasInitialized = useRef(false);
     const greetedSessionIds = useRef(new Set<string>());
+    const resumeGreetedSessionIds = useRef(new Set<string>());
     const demoStarted = useRef(false);
 
     const addDemoMessage = useCallback<AddMessageFn>((msg) => {
@@ -185,18 +194,22 @@ export function ChatScreen({ demoMode, onBack }: ChatScreenProps) {
         setDemoMessages(prev => prev.map(m => (m.id === id ? { ...m, ...patch } : m)));
     }, []);
 
-    // Create a real session on first mount if none is active yet — skipped
-    // entirely while a demo is running.
+    // On first mount, either resume the session App.tsx found still
+    // 'awaiting_input' (see resumeSessionId), or create a fresh one if there
+    // isn't one to resume into. Skipped entirely while a demo is running.
     useEffect(() => {
         if (isDemoSession) return;
         if (isLoading || hasInitialized.current) return;
-        if (!activeSession) {
+        if (resumeSessionId) {
+            hasInitialized.current = true;
+            loadSession(resumeSessionId);
+        } else if (!activeSession) {
             hasInitialized.current = true;
             newSession();
         } else {
             hasInitialized.current = true;
         }
-    }, [isDemoSession, isLoading, activeSession, newSession]);
+    }, [isDemoSession, isLoading, activeSession, newSession, resumeSessionId, loadSession]);
 
     // Phase 5A placeholder: a single hardcoded greeting for real sessions.
     useEffect(() => {
@@ -207,6 +220,19 @@ export function ChatScreen({ demoMode, onBack }: ChatScreenProps) {
         greetedSessionIds.current.add(activeSession.id);
         addMessage({ role: 'bot', kind: 'text', text: GREETING });
     }, [isDemoSession, activeSession, addMessage]);
+
+    // Resuming into a session that already has the greeting (and maybe more)
+    // gets a short continuation line instead — never the full greeting again.
+    // Gated on resumeSessionId specifically so this never fires for an
+    // ordinary manual session switch from the sidebar, only the one-time
+    // app-mount resume.
+    useEffect(() => {
+        if (isDemoSession || !resumeSessionId) return;
+        if (!activeSession || activeSession.id !== resumeSessionId) return;
+        if (resumeGreetedSessionIds.current.has(activeSession.id)) return;
+        resumeGreetedSessionIds.current.add(activeSession.id);
+        addMessage({ role: 'bot', kind: 'text', text: RESUME_BUBBLE });
+    }, [isDemoSession, resumeSessionId, activeSession, addMessage]);
 
     // Demo bootstrap: intro line, a beat of "thinking", then the demo data
     // auto-parses and flows through the exact same insights pipeline as a
@@ -264,6 +290,11 @@ export function ChatScreen({ demoMode, onBack }: ChatScreenProps) {
     // it, then walk the user through what stood out before offering to build
     // the actual summary.
     const handleSend = useCallback(async (text: string) => {
+        // The user's first message ends the "awaiting input" window.
+        if (!isDemoSession && activeSession && activeSession.sessionStatus === 'awaiting_input') {
+            updateSessionStatus(activeSession.id, 'active');
+        }
+
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
 
@@ -309,7 +340,7 @@ export function ChatScreen({ demoMode, onBack }: ChatScreenProps) {
         } finally {
             setIsProcessing(false);
         }
-    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, recordSession, saveIfNew]);
+    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, recordSession, saveIfNew]);
 
     // Fired from the interactive receipt's tap-to-label UI. Updates the
     // message's own transactions in place (persisted through the normal
@@ -372,7 +403,11 @@ export function ChatScreen({ demoMode, onBack }: ChatScreenProps) {
 
             <ChatMessageList messages={messages} onLabelChange={handleLabelChange} />
 
-            <ChatComposer onSend={handleSend} disabled={!canCompose || isProcessing} />
+            <ChatComposer
+                onSend={handleSend}
+                disabled={!canCompose || isProcessing}
+                autoFocus={!isDemoSession && !!resumeSessionId}
+            />
         </ChatShell>
     );
 }
