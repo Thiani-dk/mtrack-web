@@ -19,7 +19,7 @@ interface ChatScreenProps {
     onBack: () => void;
 }
 
-const GREETING = "Hi! I'm M-Track. Paste in your M-PESA, Airtel Money, or bank alert messages and I'll turn them into an organised expense summary. If you use SMS Backup & Restore, you can select more than one conversation when exporting — I'll sort out what came from where.";
+const GREETING = "I'm M-Track. Copy your M-Pesa, Airtel Money, or any transaction confirmation messages and send them here. I'll break down what you spent, spot patterns, and put together a receipt you can download.";
 
 const DEMO_INTRO = "This is a demo run with made-up transactions, so you can see how it works before using your own.";
 const DEMO_NEXT_STEP = 'Want to do this with your real messages? Start a new summary.';

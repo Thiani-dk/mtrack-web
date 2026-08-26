@@ -12,7 +12,7 @@ const LINE_HEIGHT_PX = 20;
 const MAX_LINES = 5;
 const MAX_HEIGHT_PX = LINE_HEIGHT_PX * MAX_LINES;
 
-export function ChatComposer({ onSend, disabled = false, placeholder = 'Message M-Track...' }: ChatComposerProps) {
+export function ChatComposer({ onSend, disabled = false, placeholder = 'Drop your messages here...' }: ChatComposerProps) {
     const [value, setValue] = useState('');
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 

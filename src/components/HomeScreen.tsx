@@ -32,8 +32,8 @@ const CARDS: {
 }[] = [
     {
         icon: FileText,
-        title: 'Generate Receipt',
-        desc: 'Organise your M-PESA, Airtel Money, or bank transactions into a professional, KRA-ready receipt',
+        title: 'Start a summary',
+        desc: 'Copy your messages, bring them here, and M-Track will sort, total, and categorise everything into a receipt.',
     },
 ];
 
@@ -161,9 +161,9 @@ export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeCli
                     <h1 className="text-4xl font-bold tracking-tight text-[var(--text-primary)]">
                         M<span className="text-[var(--accent)]">-</span>Track
                     </h1>
-                    <p className="text-[var(--text-secondary)] text-base">What would you like to do?</p>
+                    <p className="text-[var(--text-secondary)] text-base">See where your money went</p>
                     <p className="text-[var(--text-muted)] text-sm max-w-xs mx-auto leading-relaxed">
-                        Paste your M-PESA, Airtel Money, or bank messages, label your transactions, download a KRA-ready receipt.
+                        Copy your M-Pesa, Airtel Money, or any transaction confirmation messages and M-Track breaks them down, spots patterns, and gives you a receipt you can keep.
                     </p>
                 </motion.div>
 
@@ -200,10 +200,7 @@ export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeCli
                             <Share2 className="w-3.5 h-3.5 text-[var(--accent)]" />
                         </div>
                         <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                            <span className="font-semibold text-[var(--text-primary)]">Tip — </span>
-                            In your SMS app, select your M-PESA, Airtel Money, or bank messages, tap{' '}
-                            <span className="font-semibold text-[var(--text-primary)]">Share</span>, then choose{' '}
-                            <span className="font-semibold text-[var(--text-primary)]">M-Track</span> to bring them straight into the chat.
+                            Tip: In your SMS app, hold a message to start selecting, pick the ones you want, then tap copy. Come back here and drop them in the chat.
                         </p>
                     </div>
                 </motion.div>
@@ -299,7 +296,7 @@ export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeCli
                         onClick={onDemoClick}
                         className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline underline-offset-2 decoration-[var(--border-glass)] transition-colors"
                     >
-                        Just curious? See it with sample data
+                        Try it with sample data first
                     </button>
                 </motion.div>
 
