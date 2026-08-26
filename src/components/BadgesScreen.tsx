@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Lock, X } from 'lucide-react';
 import { useAllTimeStats } from '../lib/aggregate/useAllTimeStats';
 import { BADGES, getBadge, type EvidenceTransaction } from '../lib/badges/definitions';
 import { fmtProse, shortProviderName } from '../lib/transactionDisplay';
 import { ThemeToggle } from './ThemeToggle';
+import { StackedPanel } from './chat/OverlayStack';
 
 interface BadgesScreenProps {
     onBack: () => void;
@@ -49,18 +51,19 @@ function BadgeEvidenceSheet({ badgeId, unlockedAt, evidence, onClose }: BadgeShe
     const badge = getBadge(badgeId);
     if (!badge) return null;
 
-    return (
-        <>
+    // Portaled to document.body — position:fixed only stays viewport-relative
+    // as long as no ancestor has an active transform, and a StackedPanel
+    // ancestor gains exactly that (scale/y/filter) the moment something else
+    // opens above it. The shared scrim itself lives in OverlayStackProvider;
+    // this sheet only contributes its own sliding content.
+    return createPortal(
+        <StackedPanel
+            id="badge-evidence"
+            onClose={onClose}
+            className="fixed inset-x-0 bottom-0 z-modal max-w-md mx-auto"
+        >
             <motion.div
-                className="fixed inset-0 z-scrim"
-                style={{ background: 'var(--scrim)' }}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={onClose}
-            />
-            <motion.div
-                className="glass-panel fixed inset-x-0 bottom-0 z-modal rounded-t-3xl max-h-[80vh] flex flex-col max-w-md mx-auto"
+                className="glass-panel rounded-t-3xl max-h-[80vh] flex flex-col"
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
@@ -91,7 +94,8 @@ function BadgeEvidenceSheet({ badgeId, unlockedAt, evidence, onClose }: BadgeShe
                     )}
                 </div>
             </motion.div>
-        </>
+        </StackedPanel>,
+        document.body,
     );
 }
 

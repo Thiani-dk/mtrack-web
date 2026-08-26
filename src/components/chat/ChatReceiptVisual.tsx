@@ -7,6 +7,7 @@ import { fmt, getRecipientShort, getProviderSuffix, categoryKeyFor } from '../..
 import { providerChipLabel } from '../../lib/transactionDisplay';
 import { CountUp } from '../CountUp';
 import { TransactionSkeleton } from './TransactionSkeleton';
+import { StackedPanel } from './OverlayStack';
 
 interface ChatReceiptVisualProps {
     data: ReceiptData;
@@ -192,13 +193,19 @@ function TransactionRow({
                                         exit={{ opacity: 0, height: 0 }}
                                         className="overflow-hidden"
                                     >
-                                        <LabelPicker
-                                            current={t.receiptLabel}
-                                            onSelect={label => {
-                                                onLabelChange?.(label);
-                                                setPickerOpen(false);
-                                            }}
-                                        />
+                                        {/* No scrim of its own — it's already inline inside this
+                                            row's open detail panel. It still joins the shared stack
+                                            purely so it recedes correctly if anything scrimmed ever
+                                            opens above it. */}
+                                        <StackedPanel id={`label-picker-${t.transactionCode}`} onClose={() => setPickerOpen(false)} scrim={false}>
+                                            <LabelPicker
+                                                current={t.receiptLabel}
+                                                onSelect={label => {
+                                                    onLabelChange?.(label);
+                                                    setPickerOpen(false);
+                                                }}
+                                            />
+                                        </StackedPanel>
                                     </motion.div>
                                 )}
                             </AnimatePresence>

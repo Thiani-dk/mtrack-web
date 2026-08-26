@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
 import type { ParsedTransaction, SkippedMessage } from '../../types';
 import { extractRawBlock, finalizeTransaction, deriveSubType } from '../../lib/parsers';
 import { extractCode } from '../../lib/parsers/extractors/code';
 import { getExclusionReason } from '../../lib/transactionDisplay';
 import { TransactionSkeleton } from './TransactionSkeleton';
+import { StackedPanel } from './OverlayStack';
 
 interface ChatSkippedReviewProps {
     messageId: string;
@@ -69,10 +71,11 @@ function ManualEntryForm({
         onSubmit(parseFloat(amount), recipient.trim(), parseDateInputValue(date));
     };
 
-    // Already nested inside the review list's own .glass-panel — no second
-    // opaque surface here, just a subtly-elevated inline block.
+    // Floats above the skipped-review panel now (a StackedPanel, not an
+    // inline reveal), so it needs its own opaque surface — the established
+    // .glass-panel rule, same as every other floating panel in the app.
     return (
-        <div className="rounded-lg p-2.5 mt-1.5 space-y-2" style={{ background: 'var(--bg-elevated)' }}>
+        <div className="glass-panel rounded-2xl p-4 space-y-2.5 w-full max-w-sm mx-auto">
             <p className="text-[11px] text-[var(--text-muted)]">
                 Couldn't read this one automatically. Fill in what you know.
             </p>
@@ -138,6 +141,7 @@ function SkippedRow({
     onUnexclude: (transactionCode: string) => void;
 }) {
     const [showManualEntry, setShowManualEntry] = useState(false);
+    const reducedMotion = useReducedMotion();
     // Set the instant Include is tapped (any path) — swaps this row's
     // content for a skeleton for one short beat before the actual merge
     // callback fires, so recovering a transaction gets the same
@@ -233,49 +237,69 @@ function SkippedRow({
     // sequential) between the row's normal content and the skeleton — the
     // same "resolves into place" language as the main reveal, not a swap.
     return (
-        <AnimatePresence initial={false}>
-            {including ? (
-                <motion.div key="skeleton" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-                    <TransactionSkeleton />
-                </motion.div>
-            ) : (
-                <motion.div
-                    key="content"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="py-2 border-b border-[var(--border-glass)] last:border-0"
-                >
-                    <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                            <p className="text-[11px] text-[var(--text-secondary)] truncate">{truncateRaw(entry.rawText)}</p>
-                            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">{reasonLabel}</span>
+        <>
+            <AnimatePresence initial={false}>
+                {including ? (
+                    <motion.div key="skeleton" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+                        <TransactionSkeleton />
+                    </motion.div>
+                ) : (
+                    <motion.div
+                        key="content"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="py-2 border-b border-[var(--border-glass)] last:border-0"
+                    >
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                                <p className="text-[11px] text-[var(--text-secondary)] truncate">{truncateRaw(entry.rawText)}</p>
+                                <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">{reasonLabel}</span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleIncludeTap}
+                                className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full"
+                                style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
+                            >
+                                Include
+                            </button>
                         </div>
-                        <button
-                            type="button"
-                            onClick={handleIncludeTap}
-                            className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full"
-                            style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Portaled: this row can sit arbitrarily deep inside the already-open
+                skipped-review panel, and that ancestor panel itself recedes
+                (gains a transform) the moment this opens — a plain nested fixed
+                div would then be scoped to that transformed ancestor instead of
+                the viewport. Rendering at document.body sidesteps that, while
+                AnimatePresence around the conditional (rather than around the
+                portal call) still lets the exit animation play before unmount. */}
+            {createPortal(
+                <AnimatePresence>
+                    {showManualEntry && (
+                        <StackedPanel
+                            id={`skipped-manual-entry-${entry.transactionCode ?? entry.rawText}`}
+                            onClose={() => setShowManualEntry(false)}
+                            className="fixed inset-0 z-modal flex items-end justify-center p-4"
                         >
-                            Include
-                        </button>
-                    </div>
-                    <AnimatePresence initial={false}>
-                        {showManualEntry && (
                             <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="overflow-hidden"
+                                initial={reducedMotion ? false : { opacity: 0, y: 24 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={reducedMotion ? undefined : { opacity: 0, y: 24 }}
+                                transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 34 }}
+                                className="w-full max-w-sm"
                             >
                                 <ManualEntryForm onSubmit={handleManualSubmit} onCancel={() => setShowManualEntry(false)} />
                             </motion.div>
-                        )}
-                    </AnimatePresence>
-                </motion.div>
+                        </StackedPanel>
+                    )}
+                </AnimatePresence>,
+                document.body,
             )}
-        </AnimatePresence>
+        </>
     );
 }
 
@@ -326,17 +350,23 @@ export function ChatSkippedReview({
                             exit={{ opacity: 0, height: 0 }}
                             className="overflow-hidden"
                         >
-                            <div className="glass-panel rounded-lg mt-2 px-2.5">
-                                {skippedMessages.map((entry, i) => (
-                                    <SkippedRow
-                                        key={`${entry.reason}-${entry.transactionCode ?? entry.rawText}-${i}`}
-                                        entry={entry}
-                                        transactions={transactions}
-                                        onInclude={tx => onInclude(messageId, entry, tx)}
-                                        onUnexclude={code => onUnexclude(messageId, code)}
-                                    />
-                                ))}
-                            </div>
+                            {/* No scrim of its own — this panel is inline within the
+                                chat, not a floating modal. It still joins the shared
+                                stack so it visibly recedes once a row's manual-entry
+                                form opens above it, and closing that form restores it. */}
+                            <StackedPanel id={`skipped-review-${messageId}`} onClose={() => setExpanded(false)} scrim={false}>
+                                <div className="glass-panel rounded-lg mt-2 px-2.5">
+                                    {skippedMessages.map((entry, i) => (
+                                        <SkippedRow
+                                            key={`${entry.reason}-${entry.transactionCode ?? entry.rawText}-${i}`}
+                                            entry={entry}
+                                            transactions={transactions}
+                                            onInclude={tx => onInclude(messageId, entry, tx)}
+                                            onUnexclude={code => onUnexclude(messageId, code)}
+                                        />
+                                    ))}
+                                </div>
+                            </StackedPanel>
                         </motion.div>
                     )}
                 </AnimatePresence>
