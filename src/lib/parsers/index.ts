@@ -1,4 +1,4 @@
-import type { ParsedTransaction, TransactionSubType, ParseStats } from './types';
+import type { ParsedTransaction, TransactionSubType, ParseStats, SkippedMessage } from './types';
 import { preprocessToBlocks, dedupeTransactions } from './preprocess';
 import { extractAmount, extractFee, extractBalance } from './extractors/amount';
 import { extractDate } from './extractors/date';
@@ -13,7 +13,7 @@ import { classifyMessage } from './classify';
 import { linkTransactions, type RawBlockResult } from './linkTransactions';
 import { applyVerificationChargeDetection } from './verificationCharge';
 
-export type { ParseStats };
+export type { ParseStats, SkippedMessage };
 
 function fallbackNameForMethod(method: string): string | null {
     switch (method) {
@@ -27,8 +27,9 @@ function fallbackNameForMethod(method: string): string | null {
 
 // Bridges the rich `method` field back onto the legacy, fixed TransactionSubType
 // enum the rest of the app (receiptGenerator, chat) already switches on —
-// nothing downstream needs to change.
-function deriveSubType(
+// nothing downstream needs to change. Exported for the manual-entry recovery
+// path (Part 6) so it derives subType the same way the main pipeline does.
+export function deriveSubType(
     method: string,
     type: 'sent' | 'received',
     isBusiness: boolean,
@@ -67,8 +68,11 @@ function deriveSubType(
 // Runs every extractor over one block without judging the result — amount
 // and date may both come back null. Rejection only happens after linking,
 // once a block has had the chance to inherit fields from a sibling sharing
-// its transaction code (see linkTransactions.ts).
-function extractRawBlock(rawBlock: string, index: number): RawBlockResult {
+// its transaction code (see linkTransactions.ts). Exported for Part 6's
+// single-block recovery retry, which skips the cross-block linking step
+// entirely (linking is a batch operation over multiple blocks — retrying
+// one already-skipped block in isolation has nothing to link against).
+export function extractRawBlock(rawBlock: string, index: number): RawBlockResult {
     const amount = extractAmount(rawBlock);
     const fee = extractFee(rawBlock);
     const balance = extractBalance(rawBlock);
@@ -95,7 +99,10 @@ function extractRawBlock(rawBlock: string, index: number): RawBlockResult {
 // Applies the amount/date requirement and confidence threshold to a
 // (possibly already-merged) block result, and derives the full transaction
 // record. Returns null if the record still isn't trustworthy enough to keep.
-function finalizeTransaction(r: RawBlockResult): ParsedTransaction | null {
+// minScore defaults to the normal pipeline's threshold (40); Part 6's
+// recovery retry calls this directly with a temporarily loosened threshold
+// (25) for one explicit, human-vouched-for block — never applied globally.
+export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTransaction | null {
     const { amount, dateResult, direction, parties, channel, merchant, codeResult } = r;
 
     // Amount and date are structurally required — nothing else can substitute.
@@ -130,7 +137,7 @@ function finalizeTransaction(r: RawBlockResult): ParsedTransaction | null {
     const level: 'high' | 'medium' | 'low' = score >= 80 ? 'high' : score >= 75 ? 'medium' : 'low';
 
     // Below this, the extracted fields aren't trustworthy enough to keep.
-    if (score < 40) return null;
+    if (score < minScore) return null;
 
     const isHold = amount.amount === 0;
 
@@ -172,7 +179,9 @@ function finalizeTransaction(r: RawBlockResult): ParsedTransaction | null {
     };
 }
 
-export function parseAllMessages(raw: string): { transactions: ParsedTransaction[]; stats: ParseStats } {
+export function parseAllMessages(
+    raw: string
+): { transactions: ParsedTransaction[]; stats: ParseStats; skippedMessages: SkippedMessage[] } {
     const blocks = preprocessToBlocks(raw);
 
     let serviceNoticeCount = 0;
@@ -180,6 +189,10 @@ export function parseAllMessages(raw: string): { transactions: ParsedTransaction
     const serviceNoticeSamples: string[] = [];
     const noiseSamples: string[] = [];
     const transactionBlocks: { block: string; index: number }[] = [];
+    // Full (untruncated) text of every block that wasn't even classified as
+    // a transaction — recoverable via Part 6's review UI, unlike the
+    // 120-char *Samples above, which only exist for the stats summary.
+    const notTransactionBlocks: string[] = [];
 
     blocks.forEach((block, index) => {
         const cls = classifyMessage(block);
@@ -190,28 +203,40 @@ export function parseAllMessages(raw: string): { transactions: ParsedTransaction
         if (cls === 'service_notice') {
             serviceNoticeCount++;
             if (serviceNoticeSamples.length < 3) serviceNoticeSamples.push(block.slice(0, 120));
+            notTransactionBlocks.push(block);
             return;
         }
         if (cls === 'security_alert') {
             securityAlertCount++;
             if (noiseSamples.length < 3) noiseSamples.push(block.slice(0, 120));
+            notTransactionBlocks.push(block);
             return;
         }
         // 'promotional' and 'unknown' — set aside silently, same as before.
         if (noiseSamples.length < 3) noiseSamples.push(block.slice(0, 120));
+        notTransactionBlocks.push(block);
     });
 
     const rawResults = transactionBlocks.map(({ block, index }) => extractRawBlock(block, index));
     const linked = linkTransactions(rawResults);
 
-    const finalized = linked.map(finalizeTransaction);
+    const finalized = linked.map(r => finalizeTransaction(r));
     const successfulTransactions = finalized.filter((t): t is ParsedTransaction => t !== null);
     const failedToFinalize = linked.length - successfulTransactions.length;
+    const unreadableBlocks = linked
+        .filter((_r, i) => finalized[i] === null)
+        .map(r => r.rawBlock);
 
     const withVerificationCharges = applyVerificationChargeDetection(successfulTransactions);
 
-    const { unique, duplicatesRemoved } = dedupeTransactions(withVerificationCharges);
+    const { unique, duplicatesRemoved, removed: duplicateTransactions } = dedupeTransactions(withVerificationCharges);
     unique.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const skippedMessages: SkippedMessage[] = [
+        ...notTransactionBlocks.map((rawText): SkippedMessage => ({ rawText, reason: 'not-a-transaction' })),
+        ...unreadableBlocks.map((rawText): SkippedMessage => ({ rawText, reason: 'unreadable' })),
+        ...duplicateTransactions.map((t): SkippedMessage => ({ rawText: t.rawLine, reason: 'duplicate' })),
+    ];
 
     const stats: ParseStats = {
         totalBlocks: blocks.length,
@@ -241,7 +266,7 @@ export function parseAllMessages(raw: string): { transactions: ParsedTransaction
         if (t.failed) stats.failed++;
     }
 
-    return { transactions: unique, stats };
+    return { transactions: unique, stats, skippedMessages };
 }
 
 export function parseAllSMS(raw: string): ParsedTransaction[] {

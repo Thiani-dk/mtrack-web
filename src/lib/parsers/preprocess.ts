@@ -168,21 +168,21 @@ export function preprocessToBlocks(raw: string): string[] {
 
 export function dedupeTransactions<T extends { transactionCode: string; amount: number; date: Date }>(
     items: T[]
-): { unique: T[]; duplicatesRemoved: number } {
+): { unique: T[]; duplicatesRemoved: number; removed: T[] } {
     const seen = new Set<string>();
     const unique: T[] = [];
-    let duplicatesRemoved = 0;
+    const removed: T[] = [];
 
     for (const item of items) {
         const minuteKey = Math.floor(item.date.getTime() / 60000);
         const key = `${item.transactionCode}|${item.amount}|${minuteKey}`;
         if (seen.has(key)) {
-            duplicatesRemoved++;
+            removed.push(item);
             continue;
         }
         seen.add(key);
         unique.push(item);
     }
 
-    return { unique, duplicatesRemoved };
+    return { unique, duplicatesRemoved: removed.length, removed };
 }

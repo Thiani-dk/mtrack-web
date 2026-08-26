@@ -1,6 +1,6 @@
-import type { ParsedTransaction, TransactionSubType } from '../../types';
+import type { ParsedTransaction, TransactionSubType, SkippedMessage } from '../../types';
 
-export type { ParsedTransaction, TransactionSubType };
+export type { ParsedTransaction, TransactionSubType, SkippedMessage };
 
 export interface AmountResult {
     amount: number;

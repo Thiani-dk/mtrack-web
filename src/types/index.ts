@@ -99,6 +99,28 @@ export interface StoredReceipt {
 }
 
 // ---------------------------------------------------------------------------
+// Skipped-message recovery (Part 6)
+// ---------------------------------------------------------------------------
+
+// 'not-a-transaction' — classified as something other than a transaction
+// (service notice, security alert, promotional, unknown noise).
+// 'duplicate' — a successfully-parsed transaction removed by dedup.
+// 'unreadable' — classified as a transaction but extraction couldn't
+// produce a trustworthy record (missing amount/date, or score too low).
+// 'excluded' — parsed fine, but auto-excluded from the receipt (hold,
+// failed payment, verification charge) — see getExclusionReason().
+export interface SkippedMessage {
+    rawText: string;
+    reason: 'not-a-transaction' | 'duplicate' | 'unreadable' | 'excluded';
+    // Set only for 'excluded' entries — identifies the already-parsed
+    // transaction (already present in the receipt message's own
+    // `transactions` array, just flagged excludedFromReceipt) that this
+    // entry is standing in for, so "Include" can find and un-exclude it
+    // without re-parsing or asking for manual entry.
+    transactionCode?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Conversational receipt builder (chat)
 // ---------------------------------------------------------------------------
 
@@ -113,6 +135,7 @@ export type ChatMessageKind =
     | 'insight'           // a single generated observation
     | 'recurring'         // detected recurring payment patterns
     | 'badge'             // a newly-unlocked badge
+    | 'skipped-review'    // recoverable messages the parser set aside
     | 'thinking';         // animated typing indicator
 
 export interface ChatOption {
@@ -137,9 +160,11 @@ export interface ChatMessage {
     badgeId?: string;                   // for 'badge' kind
     badgeLeadIn?: string;                // for 'badge' kind — varied unlock copy
     // for 'text' kind — set on the 'partial' parse notice so it can render a
-    // tappable "View skipped ->" affordance. Handler is stubbed until Part 6
-    // wires it to the skipped-messages review panel.
+    // tappable "View skipped ->" affordance, wired to open the paired
+    // 'skipped-review' message identified by skippedReviewId.
     skippedCount?: number;
+    skippedReviewId?: string;           // for 'text' kind (the 'partial' notice)
+    skippedMessages?: SkippedMessage[]; // for 'skipped-review' kind
     timestamp: number;
     // Once the user has answered an options message, lock it
     answered?: boolean;

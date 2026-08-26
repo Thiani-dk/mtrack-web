@@ -3,9 +3,10 @@ import type { ChatMessage } from '../../types';
 
 interface ChatBubbleProps {
     message: ChatMessage;
+    onViewSkipped?: (skippedReviewId: string) => void;
 }
 
-export function ChatBubble({ message }: ChatBubbleProps) {
+export function ChatBubble({ message, onViewSkipped }: ChatBubbleProps) {
     if (message.role === 'system') {
         return (
             <motion.div
@@ -45,12 +46,10 @@ export function ChatBubble({ message }: ChatBubbleProps) {
                     }}
             >
                 {message.text}
-                {message.skippedCount != null && message.skippedCount > 0 && (
+                {message.skippedCount != null && message.skippedCount > 0 && message.skippedReviewId && (
                     <button
                         type="button"
-                        onClick={() => {
-                            // Stub — Part 6 wires this to open the skipped-messages review panel.
-                        }}
+                        onClick={() => onViewSkipped?.(message.skippedReviewId!)}
                         className="block mt-1.5 text-xs font-medium underline underline-offset-2"
                         style={{ color: 'var(--accent)' }}
                     >

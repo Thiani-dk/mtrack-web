@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessage, ParsedTransaction } from '../../types';
+import type { ChatMessage, ParsedTransaction, SkippedMessage } from '../../types';
 import { useChatSession } from '../../lib/useChatSession';
 import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
@@ -80,9 +80,17 @@ type UpdateMessageFn = (id: string, patch: Partial<ChatMessage>) => void;
 // last-resort fallbacks for whatever notices don't cover — a fully clean
 // parse still needs something to say about the result, and "nothing left to
 // summarize" still needs saying even when notices already explained why.
+//
+// fullTransactions carries every parsed transaction, including ones flagged
+// excludedFromReceipt — the receipt message stores this full set (not a
+// pre-filtered one) so Part 6's skipped-review "Include" action has an
+// actual transaction to flip back on; computeReceiptData (and every screen
+// that reads a receipt message) already does its own !excludedFromReceipt
+// filtering downstream, so this doesn't change what's displayed or totaled.
 async function deliverInsights(
-    scoped: ParsedTransaction[],
+    fullTransactions: ParsedTransaction[],
     stats: ParseStats,
+    skippedMessages: SkippedMessage[],
     thinkingId: string,
     addMsg: AddMessageFn,
     updateMsg: UpdateMessageFn,
@@ -92,6 +100,8 @@ async function deliverInsights(
     previousStats: AllTimeStats | undefined,
     newlyEarnedBadges: string[]
 ): Promise<void> {
+    const scoped = fullTransactions.filter(t => !t.excludedFromReceipt);
+
     // No date-range question exists yet, so nothing is ever "out of range" —
     // passing 0 here means the 'all-out-of-range' and 'out-of-range' notices
     // can never fire.
@@ -108,20 +118,38 @@ async function deliverInsights(
     // The first notice (if any) converts the "thinking" bubble in place,
     // same as every other first-reply below; every notice after that, and
     // everything that follows once notices run out, is a new staggered
-    // message rather than a further patch to the same bubble.
+    // message rather than a further patch to the same bubble. Returns the
+    // id of whichever message actually carried this text, so the 'partial'
+    // notice can be linked to the skipped-review card below it.
     let thinkingUsed = false;
-    const emitBotText = async (text: string, extra: Partial<ChatMessage> = {}) => {
+    const emitBotText = async (text: string, extra: Partial<ChatMessage> = {}): Promise<string> => {
         if (!thinkingUsed) {
             thinkingUsed = true;
             updateMsg(thinkingId, { kind: 'text', text, ...extra });
+            return thinkingId;
         } else {
             await sleep(400);
-            addMsg({ role: 'bot', kind: 'text', text, ...extra });
+            return addMsg({ role: 'bot', kind: 'text', text, ...extra });
         }
     };
 
+    let partialNoticeId: string | null = null;
     for (const notice of notices) {
-        await emitBotText(notice.text, notice.id === 'partial' ? { skippedCount: stats.rejected } : {});
+        const id = await emitBotText(notice.text, notice.id === 'partial' ? { skippedCount: stats.rejected } : {});
+        if (notice.id === 'partial') partialNoticeId = id;
+    }
+
+    // Anything set aside — parser-rejected or auto-excluded — gets its own
+    // review card: collapsed by default, expandable on its own tap or via
+    // the partial notice's "View skipped" link when one exists. Can fire
+    // even with zero notices above (e.g. a lone verification-charge
+    // exclusion, which no notice currently narrates).
+    if (skippedMessages.length > 0) {
+        await sleep(400);
+        const skippedReviewId = addMsg({ role: 'bot', kind: 'skipped-review', skippedMessages });
+        if (partialNoticeId) {
+            updateMsg(partialNoticeId, { skippedReviewId });
+        }
     }
 
     if (scoped.length === 0) {
@@ -184,7 +212,7 @@ async function deliverInsights(
         await sleep(400);
         const dayCount = computeDaySpan(scoped);
         const receiptRangeLabel = dayCount <= 1 ? 'today' : `past ${dayCount} days`;
-        addMsg({ role: 'bot', kind: 'receipt', transactions: scoped, dateRange: receiptRangeLabel, isDemo });
+        addMsg({ role: 'bot', kind: 'receipt', transactions: fullTransactions, dateRange: receiptRangeLabel, isDemo });
     }
 
     if (isDemo) {
@@ -294,17 +322,22 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 const cutoff = new Date();
                 cutoff.setDate(cutoff.getDate() - 15);
 
-                const { transactions, stats } = parseAllMessages(generateDemoMessages());
+                const { transactions, stats, skippedMessages: parserSkipped } = parseAllMessages(generateDemoMessages());
                 const withDefaults = transactions.map(t =>
                     t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
                 );
                 const inRange = withDefaults.filter(t => t.date >= cutoff);
-                const scoped = inRange.filter(t => !t.excludedFromReceipt);
+                const excludedSkipped: SkippedMessage[] = inRange
+                    .filter(t => t.excludedFromReceipt)
+                    .map(t => ({ rawText: t.rawLine, reason: 'excluded', transactionCode: t.transactionCode }));
 
                 // Demo history is fake and never persisted, so the "run a longer
                 // range" hint (which reads real past sessions) never applies here,
                 // and there's no aggregate/badges to consult or update.
-                await deliverInsights(scoped, stats, thinkingId, addDemoMessage, updateDemoMessage, true, false, null, undefined, []);
+                await deliverInsights(
+                    inRange, stats, [...parserSkipped, ...excludedSkipped], thinkingId,
+                    addDemoMessage, updateDemoMessage, true, false, null, undefined, []
+                );
             } catch (err) {
                 console.error('Demo bootstrap failed:', err);
                 updateDemoMessage(thinkingId, { kind: 'text', text: PROCESSING_ERROR_TEXT });
@@ -344,7 +377,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const thinkingId = addMsg({ role: 'bot', kind: 'thinking' });
 
         try {
-            const { transactions, stats: parseStats } = parseAllMessages(text);
+            const { transactions, stats: parseStats, skippedMessages: parserSkipped } = parseAllMessages(text);
             const withDefaults = transactions.map(t =>
                 t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
             );
@@ -360,18 +393,29 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             // also what lets comparison/fee-trend/milestone insights and badges
             // reflect this session, not just history as of the last visit. Demo
             // sessions are excluded entirely from both history and the aggregate.
+            // Passed the full (not pre-filtered) set — recordSession/saveIfNew
+            // both already filter !excludedFromReceipt internally, and saveIfNew's
+            // dedup fingerprint needs to hash the same shape every time it's
+            // called (this call, and later re-saves from the receipt card's own
+            // Save/Share buttons, which read the receipt message's full set —
+            // see deliverInsights) or a later save would look like a different
+            // receipt and create a duplicate history entry instead of updating it.
             let recordResult = null;
             if (!isDemoSession) {
                 const dayCount = computeDaySpan(scoped);
                 const receiptRangeLabel = dayCount <= 1 ? 'today' : `past ${dayCount} days`;
                 [recordResult] = await Promise.all([
-                    recordSession(scoped, false),
-                    saveIfNew(scoped, receiptRangeLabel),
+                    recordSession(withDefaults, false),
+                    saveIfNew(withDefaults, receiptRangeLabel),
                 ]);
             }
 
+            const excludedSkipped: SkippedMessage[] = withDefaults
+                .filter(t => t.excludedFromReceipt)
+                .map(t => ({ rawText: t.rawLine, reason: 'excluded', transactionCode: t.transactionCode }));
+
             await deliverInsights(
-                scoped, parseStats, thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
+                withDefaults, parseStats, [...parserSkipped, ...excludedSkipped], thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
                 recordResult?.stats ?? null, recordResult?.previousStats, recordResult?.newlyEarnedBadges ?? []
             );
         } catch (err) {
@@ -402,6 +446,79 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         updateMsg(messageId, { transactions: updatedTransactions });
 
         if (isDemoSession) return; // demo sessions never touch badges/aggregate
+
+        const newlyEarnedBadges = await recheckBadges(updatedTransactions, false);
+        for (const badgeId of newlyEarnedBadges) {
+            await sleep(600);
+            addMessage({ role: 'bot', kind: 'badge', badgeId, badgeLeadIn: pickRandom(BADGE_LEAD_INS) });
+        }
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, recheckBadges, addMessage]);
+
+    // A one-shot "please expand" signal for a skipped-review card, fired by
+    // the partial notice's "View skipped" link (see ChatBubble/ChatSkippedReview).
+    // Bumping epoch — rather than a plain boolean — lets the same target id
+    // be re-signalled later without needing to first reset to a falsy value.
+    const [skippedReviewSignal, setSkippedReviewSignal] = useState<{ id: string; epoch: number }>({ id: '', epoch: 0 });
+    const handleViewSkipped = useCallback((skippedReviewId: string) => {
+        setSkippedReviewSignal(s => ({ id: skippedReviewId, epoch: s.epoch + 1 }));
+    }, []);
+
+    function skippedEntryMatches(a: SkippedMessage, b: SkippedMessage): boolean {
+        return a.rawText === b.rawText && a.reason === b.reason && a.transactionCode === b.transactionCode;
+    }
+
+    // Fired once a skipped-review row has a transaction ready to merge in —
+    // either the loosened-threshold retry succeeded, or the manual-entry
+    // form was submitted. Live-updates the receipt (same pattern as
+    // handleLabelChange: patch the receipt message's own transactions, which
+    // computeReceiptData picks up on its own) and re-checks badges, since a
+    // newly-included transaction counts toward them like any other.
+    const handleIncludeSkipped = useCallback(async (
+        skippedReviewMessageId: string, entry: SkippedMessage, transaction: ParsedTransaction
+    ) => {
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        const reviewMsg = currentMessages.find(m => m.id === skippedReviewMessageId);
+        if (!receiptMsg?.transactions || !reviewMsg?.skippedMessages) return;
+
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+
+        const updatedTransactions = [...receiptMsg.transactions, transaction];
+        updateMsg(receiptMsg.id, { transactions: updatedTransactions });
+
+        const updatedSkipped = reviewMsg.skippedMessages.filter(m => !skippedEntryMatches(m, entry));
+        updateMsg(skippedReviewMessageId, { skippedMessages: updatedSkipped });
+
+        if (isDemoSession) return;
+
+        const newlyEarnedBadges = await recheckBadges(updatedTransactions, false);
+        for (const badgeId of newlyEarnedBadges) {
+            await sleep(600);
+            addMessage({ role: 'bot', kind: 'badge', badgeId, badgeLeadIn: pickRandom(BADGE_LEAD_INS) });
+        }
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, recheckBadges, addMessage]);
+
+    // The simpler §6.4 path — the transaction already exists in full (a
+    // hold/failed/verification-charge that parsed fine but was auto-excluded),
+    // so this just flips excludedFromReceipt back off rather than re-parsing
+    // or asking for manual entry.
+    const handleUnexcludeSkipped = useCallback(async (skippedReviewMessageId: string, transactionCode: string) => {
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        const reviewMsg = currentMessages.find(m => m.id === skippedReviewMessageId);
+        if (!receiptMsg?.transactions || !reviewMsg?.skippedMessages) return;
+
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+
+        const updatedTransactions = receiptMsg.transactions.map(t =>
+            t.transactionCode === transactionCode ? { ...t, excludedFromReceipt: false } : t
+        );
+        updateMsg(receiptMsg.id, { transactions: updatedTransactions });
+
+        const updatedSkipped = reviewMsg.skippedMessages.filter(m => m.transactionCode !== transactionCode);
+        updateMsg(skippedReviewMessageId, { skippedMessages: updatedSkipped });
+
+        if (isDemoSession) return;
 
         const newlyEarnedBadges = await recheckBadges(updatedTransactions, false);
         for (const badgeId of newlyEarnedBadges) {
@@ -441,7 +558,14 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 </p>
             )}
 
-            <ChatMessageList messages={messages} onLabelChange={handleLabelChange} />
+            <ChatMessageList
+                messages={messages}
+                onLabelChange={handleLabelChange}
+                onViewSkipped={handleViewSkipped}
+                skippedReviewExpandSignal={skippedReviewSignal}
+                onIncludeSkipped={handleIncludeSkipped}
+                onUnexcludeSkipped={handleUnexcludeSkipped}
+            />
 
             <ChatComposer
                 onSend={handleSend}
