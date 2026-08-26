@@ -1,31 +1,30 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, FileText, Share2, Check } from 'lucide-react';
+import { Download, Share2, Check } from 'lucide-react';
 import type { ParsedTransaction } from '../../types';
-import { generateReceiptHTML, generateReceiptPDF, summariseReceiptForShare } from '../../lib/receiptGenerator';
+import { computeReceiptData, generateReceiptHTML, generateReceiptPDF, summariseReceiptForShare } from '../../lib/receiptGenerator';
 import { downloadHTML, downloadPDF, getReceiptFilenames } from '../../lib/downloadUtils';
 import { share } from '../../lib/shareUtils';
+import { useEntranceOnce } from '../../lib/useEntranceOnce';
+import { ChatReceiptVisual } from './ChatReceiptVisual';
 
 interface ChatReceiptProps {
+    messageId: string;
     transactions: ParsedTransaction[];
     dateRange: string;
     isDemo?: boolean;
 }
 
-function fmt(n: number): string {
-    return `Ksh ${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
-}
-
 type Busy = 'pdf' | 'html' | 'share' | null;
 
-export function ChatReceipt({ transactions, dateRange, isDemo = false }: ChatReceiptProps) {
+export function ChatReceipt({ messageId, transactions, dateRange, isDemo = false }: ChatReceiptProps) {
     const [busy, setBusy] = useState<Busy>(null);
     const [notice, setNotice] = useState<string | null>(null);
 
-    const active = transactions.filter(t => !t.excludedFromReceipt);
-    const spent = active
-        .filter(t => t.type === 'sent' && t.subType !== 'mshwari' && t.subType !== 'investment')
-        .reduce((s, t) => s + t.amount, 0);
+    // Same computed source Part A's PDF/HTML generation reads from — the
+    // interactive view never forks its own tally/category math.
+    const data = useMemo(() => computeReceiptData(transactions), [transactions]);
+    const playEntrance = useEntranceOnce(messageId);
 
     const flash = (text: string) => {
         setNotice(text);
@@ -95,13 +94,9 @@ export function ChatReceipt({ transactions, dateRange, isDemo = false }: ChatRec
             className="flex justify-start"
         >
             <div className="glass-card max-w-[85%] w-full px-4 py-4">
-                <div className="flex items-center gap-2 mb-1">
-                    <FileText className="w-4 h-4" style={{ color: 'var(--accent)' }} />
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">Your summary is ready</p>
+                <div className="mb-3">
+                    <ChatReceiptVisual data={data} dateRange={dateRange} playEntrance={playEntrance} />
                 </div>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
-                    {active.length} transaction{active.length !== 1 ? 's' : ''} · {dateRange} · {fmt(spent)} out
-                </p>
 
                 <div className="flex flex-col gap-2">
                     <motion.button

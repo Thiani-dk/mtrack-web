@@ -63,6 +63,18 @@ export function getRecipientShort(t: ParsedTransaction): string {
     }
 }
 
+// Category grouping key — receiptLabel first, falling back to the parser's
+// own merchantCategory, then "Unlabelled". Shared by computeReceiptData's
+// category summary and the interactive chat receipt's category drilldown so
+// both agree on which transactions belong to which category.
+export function categoryKeyFor(t: ParsedTransaction): string {
+    return t.receiptLabel
+        ? t.receiptLabel.toUpperCase()
+        : t.merchantCategory
+        ? t.merchantCategory.toUpperCase()
+        : 'Unlabelled';
+}
+
 // Short provider tag shown next to the name when the channel isn't M-PESA —
 // e.g. "NETFLIX  ·  Card" for a Co-op card alert.
 export function getProviderSuffix(t: ParsedTransaction): string | null {
@@ -163,11 +175,7 @@ export function computeReceiptData(transactions: ParsedTransaction[]): ReceiptDa
     const labelTotals: Record<string, number> = {};
     const labelCounts: Record<string, number> = {};
     activeTransactions.forEach(t => {
-        const key = t.receiptLabel
-            ? t.receiptLabel.toUpperCase()
-            : t.merchantCategory
-            ? t.merchantCategory.toUpperCase()
-            : 'Unlabelled';
+        const key = categoryKeyFor(t);
         labelTotals[key] = (labelTotals[key] ?? 0) + t.amount;
         labelCounts[key] = (labelCounts[key] ?? 0) + 1;
     });

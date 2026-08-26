@@ -35,7 +35,7 @@ function ChatMessageItem({ message }: { message: ChatMessage }) {
                 : null;
         case 'receipt':
             return message.transactions && message.dateRange
-                ? <ChatReceipt transactions={message.transactions} dateRange={message.dateRange} isDemo={message.isDemo} />
+                ? <ChatReceipt messageId={message.id} transactions={message.transactions} dateRange={message.dateRange} isDemo={message.isDemo} />
                 : null;
         default:
             // Still placeholders: options, dropzone, transactions (Phase 5B)

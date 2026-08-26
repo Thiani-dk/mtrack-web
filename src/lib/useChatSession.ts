@@ -4,6 +4,25 @@ import * as chatSessionStore from './chatSessionStore';
 
 const DEBOUNCE_MS = 500;
 
+// Message ids created live via addMessage during this app run — lets a
+// message component (e.g. ChatReceipt) tell "just created, play the entrance
+// animation" apart from "loaded from IndexedDB history, show final state".
+// Deliberately in-memory only (never persisted): ids from loadSession were
+// never added here, so reopening an old session never replays anything.
+const newlyCreatedMessageIds = new Set<string>();
+
+// Pure read — safe to call from a render-phase state initializer.
+export function wasNewlyCreatedMessage(id: string): boolean {
+    return newlyCreatedMessageIds.has(id);
+}
+
+// Idempotent — safe to call more than once (e.g. StrictMode's mount/cleanup/
+// mount dance). Clears the flag so a later remount of the same message id
+// (switching sessions and back, without a page reload) never replays.
+export function clearNewlyCreatedMessage(id: string): void {
+    newlyCreatedMessageIds.delete(id);
+}
+
 function rehydrate(session: ChatSession): ChatSession {
     return {
         ...session,
@@ -137,6 +156,7 @@ export function useChatSession() {
     const addMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>): string => {
         const id = crypto.randomUUID();
         const timestamp = Date.now();
+        newlyCreatedMessageIds.add(id);
         setActiveSession(prev => {
             if (!prev) return prev;
             const message: ChatMessage = { ...msg, id, timestamp };
