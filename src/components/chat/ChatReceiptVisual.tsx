@@ -6,6 +6,7 @@ import type { ReceiptData } from '../../lib/receiptGenerator';
 import { fmt, getRecipientShort, getProviderSuffix, categoryKeyFor } from '../../lib/receiptGenerator';
 import { providerChipLabel } from '../../lib/transactionDisplay';
 import { CountUp } from '../CountUp';
+import { TransactionSkeleton } from './TransactionSkeleton';
 
 interface ChatReceiptVisualProps {
     data: ReceiptData;
@@ -123,10 +124,10 @@ function TransactionRow({
 
     return (
         <motion.div
-            initial={animateEntrance ? { opacity: 0, x: -16 } : false}
-            animate={{ opacity: 1, x: 0 }}
+            initial={animateEntrance ? { opacity: 0 } : false}
+            animate={{ opacity: 1 }}
             transition={animateEntrance ? { type: 'spring', stiffness: 400, damping: 28, delay } : undefined}
-            className="border-b border-[var(--border-glass)] last:border-0"
+            className="relative border-b border-[var(--border-glass)] last:border-0"
         >
             <button
                 onClick={() => setExpanded(e => !e)}
@@ -149,6 +150,20 @@ function TransactionRow({
                     <ChevronDown className={`w-3 h-3 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
                 </div>
             </button>
+
+            {/* Skeleton crossfades out over the real row above, on the same
+                stagger delay — a placeholder resolving into content, not a
+                slide-in from nothing. */}
+            {animateEntrance && (
+                <motion.div
+                    className="absolute inset-0 pointer-events-none"
+                    initial={{ opacity: 1 }}
+                    animate={{ opacity: 0 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 28, delay }}
+                >
+                    <TransactionSkeleton />
+                </motion.div>
+            )}
 
             <AnimatePresence initial={false}>
                 {expanded && (

@@ -5,6 +5,7 @@ import type { ParsedTransaction, SkippedMessage } from '../../types';
 import { extractRawBlock, finalizeTransaction, deriveSubType } from '../../lib/parsers';
 import { extractCode } from '../../lib/parsers/extractors/code';
 import { getExclusionReason } from '../../lib/transactionDisplay';
+import { TransactionSkeleton } from './TransactionSkeleton';
 
 interface ChatSkippedReviewProps {
     messageId: string;
@@ -121,6 +122,13 @@ function ManualEntryForm({
     );
 }
 
+// Purely for visual consistency with the main entrance sequence — the merge
+// itself is local state, effectively instant, but a jarring pop would read
+// as a different (lesser) treatment than everywhere else transaction data
+// appears. Named so it's the one place that duration lives, not a scattered
+// magic number.
+const INCLUDE_SKELETON_MS = 300;
+
 function SkippedRow({
     entry, transactions, onInclude, onUnexclude,
 }: {
@@ -130,6 +138,12 @@ function SkippedRow({
     onUnexclude: (transactionCode: string) => void;
 }) {
     const [showManualEntry, setShowManualEntry] = useState(false);
+    // Set the instant Include is tapped (any path) — swaps this row's
+    // content for a skeleton for one short beat before the actual merge
+    // callback fires, so recovering a transaction gets the same
+    // skeleton-to-real treatment as everywhere else transaction data lands,
+    // never a straight pop.
+    const [including, setIncluding] = useState(false);
 
     const excludedTx = entry.reason === 'excluded'
         ? transactions.find(t => t.transactionCode === entry.transactionCode)
@@ -138,9 +152,19 @@ function SkippedRow({
         ? (excludedTx ? getExclusionReason(excludedTx) ?? 'excluded' : 'excluded')
         : REASON_LABELS[entry.reason];
 
+    const commitUnexclude = (transactionCode: string) => {
+        setIncluding(true);
+        setTimeout(() => onUnexclude(transactionCode), INCLUDE_SKELETON_MS);
+    };
+
+    const commitInclude = (transaction: ParsedTransaction) => {
+        setIncluding(true);
+        setTimeout(() => onInclude(transaction), INCLUDE_SKELETON_MS);
+    };
+
     const handleIncludeTap = () => {
         if (entry.reason === 'excluded') {
-            if (entry.transactionCode) onUnexclude(entry.transactionCode);
+            if (entry.transactionCode) commitUnexclude(entry.transactionCode);
             return;
         }
         // First attempt: re-run just this block through the normal per-block
@@ -150,7 +174,7 @@ function SkippedRow({
         const raw = extractRawBlock(entry.rawText, 0);
         const retried = finalizeTransaction(raw, RETRY_MIN_SCORE);
         if (retried) {
-            onInclude(retried);
+            commitInclude(retried);
         } else {
             setShowManualEntry(true);
         }
@@ -201,39 +225,57 @@ function SkippedRow({
             isVerificationCharge: false,
             cardLast4: null,
         };
-        onInclude(transaction);
         setShowManualEntry(false);
+        commitInclude(transaction);
     };
 
+    // A genuine crossfade (both transitions running together, not
+    // sequential) between the row's normal content and the skeleton — the
+    // same "resolves into place" language as the main reveal, not a swap.
     return (
-        <div className="py-2 border-b border-[var(--border-glass)] last:border-0">
-            <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                    <p className="text-[11px] text-[var(--text-secondary)] truncate">{truncateRaw(entry.rawText)}</p>
-                    <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">{reasonLabel}</span>
-                </div>
-                <button
-                    type="button"
-                    onClick={handleIncludeTap}
-                    className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full"
-                    style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
+        <AnimatePresence initial={false}>
+            {including ? (
+                <motion.div key="skeleton" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+                    <TransactionSkeleton />
+                </motion.div>
+            ) : (
+                <motion.div
+                    key="content"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="py-2 border-b border-[var(--border-glass)] last:border-0"
                 >
-                    Include
-                </button>
-            </div>
-            <AnimatePresence initial={false}>
-                {showManualEntry && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
-                    >
-                        <ManualEntryForm onSubmit={handleManualSubmit} onCancel={() => setShowManualEntry(false)} />
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </div>
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                            <p className="text-[11px] text-[var(--text-secondary)] truncate">{truncateRaw(entry.rawText)}</p>
+                            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">{reasonLabel}</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleIncludeTap}
+                            className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full"
+                            style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
+                        >
+                            Include
+                        </button>
+                    </div>
+                    <AnimatePresence initial={false}>
+                        {showManualEntry && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="overflow-hidden"
+                            >
+                                <ManualEntryForm onSubmit={handleManualSubmit} onCancel={() => setShowManualEntry(false)} />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </motion.div>
+            )}
+        </AnimatePresence>
     );
 }
 
