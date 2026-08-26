@@ -136,6 +136,10 @@ export interface ChatMessage {
     recurringPatterns?: RecurringPattern[]; // for 'recurring' kind
     badgeId?: string;                   // for 'badge' kind
     badgeLeadIn?: string;                // for 'badge' kind — varied unlock copy
+    // for 'text' kind — set on the 'partial' parse notice so it can render a
+    // tappable "View skipped ->" affordance. Handler is stubbed until Part 6
+    // wires it to the skipped-messages review panel.
+    skippedCount?: number;
     timestamp: number;
     // Once the user has answered an options message, lock it
     answered?: boolean;

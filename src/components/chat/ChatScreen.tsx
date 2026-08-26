@@ -5,9 +5,10 @@ import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
 import type { AllTimeStats } from '../../lib/aggregate/useAllTimeStats';
 import { describeNewRecords } from '../../lib/aggregate/recordMessages';
-import { parseAllMessages } from '../../lib/parsers';
+import { parseAllMessages, type ParseStats } from '../../lib/parsers';
 import { generateDemoMessages } from '../../lib/demoData';
 import { generateInsights, computeDaySpan, detectRecurring, type InsightContext } from '../../lib/insights';
+import { buildParseNotices } from '../../lib/parseNotices';
 import { ChatShell } from './ChatShell';
 import { ChatSidebar } from './ChatSidebar';
 import { ChatHeader } from './ChatHeader';
@@ -72,8 +73,16 @@ type UpdateMessageFn = (id: string, patch: Partial<ChatMessage>) => void;
 // and badge announcements run independently of whether the insight engine
 // itself had anything to say — even a tiny summary can be your first, or
 // quietly set a record.
+//
+// buildParseNotices is the primary path for describing what happened during
+// parsing itself (skipped messages, ambiguous dates, holds/failures left
+// out, duplicates). The zero/small/all-sorted messages below only remain as
+// last-resort fallbacks for whatever notices don't cover — a fully clean
+// parse still needs something to say about the result, and "nothing left to
+// summarize" still needs saying even when notices already explained why.
 async function deliverInsights(
     scoped: ParsedTransaction[],
+    stats: ParseStats,
     thinkingId: string,
     addMsg: AddMessageFn,
     updateMsg: UpdateMessageFn,
@@ -83,20 +92,47 @@ async function deliverInsights(
     previousStats: AllTimeStats | undefined,
     newlyEarnedBadges: string[]
 ): Promise<void> {
+    // No date-range question exists yet, so nothing is ever "out of range" —
+    // passing 0 here means the 'all-out-of-range' and 'out-of-range' notices
+    // can never fire.
+    const notices = buildParseNotices(stats, 0);
+    const nothingNotice = notices.find(n => n.id === 'nothing');
+
+    if (nothingNotice) {
+        // Nothing was parsed at all. There's no receipt, no insights, and
+        // nothing left to add that wouldn't just repeat this.
+        updateMsg(thinkingId, { kind: 'text', text: nothingNotice.text });
+        return;
+    }
+
+    // The first notice (if any) converts the "thinking" bubble in place,
+    // same as every other first-reply below; every notice after that, and
+    // everything that follows once notices run out, is a new staggered
+    // message rather than a further patch to the same bubble.
+    let thinkingUsed = false;
+    const emitBotText = async (text: string, extra: Partial<ChatMessage> = {}) => {
+        if (!thinkingUsed) {
+            thinkingUsed = true;
+            updateMsg(thinkingId, { kind: 'text', text, ...extra });
+        } else {
+            await sleep(400);
+            addMsg({ role: 'bot', kind: 'text', text, ...extra });
+        }
+    };
+
+    for (const notice of notices) {
+        await emitBotText(notice.text, notice.id === 'partial' ? { skippedCount: stats.rejected } : {});
+    }
+
     if (scoped.length === 0) {
         // Every transaction was excluded (holds, failed, verification
-        // charges) or nothing parsed at all — say so plainly instead of
+        // charges) — notices above may already explain why, but there's
+        // still no receipt to build, so say so plainly instead of
         // promising "here's your summary" and then showing no receipt card
         // at all, which the guard below would otherwise silently skip.
-        updateMsg(thinkingId, {
-            kind: 'text',
-            text: "I couldn't find any transactions in that. Try copying the full message from your SMS app, starting from the MPESA confirmation.",
-        });
+        await emitBotText("I couldn't find any transactions in that. Try copying the full message from your SMS app, starting from the MPESA confirmation.");
     } else if (scoped.length <= SMALL_RESULT_THRESHOLD) {
-        updateMsg(thinkingId, {
-            kind: 'text',
-            text: `Only ${scoped.length} transaction${scoped.length === 1 ? '' : 's'} in there, but here's what I found.`,
-        });
+        await emitBotText(`Only ${scoped.length} transaction${scoped.length === 1 ? '' : 's'} in there, but here's what I found.`);
     } else {
         const dayCount = computeDaySpan(scoped);
         const context: InsightContext = {
@@ -109,9 +145,9 @@ async function deliverInsights(
         const insights = generateInsights(scoped, context);
 
         if (insights.length === 0) {
-            updateMsg(thinkingId, { kind: 'text', text: "All sorted. Nothing unusual this time, but here's your summary." });
+            await emitBotText("All sorted. Nothing unusual this time, but here's your summary.");
         } else {
-            updateMsg(thinkingId, { kind: 'text', text: pickRandom(LEAD_INS) });
+            await emitBotText(pickRandom(LEAD_INS));
 
             for (const insight of insights) {
                 await sleep(400);
@@ -258,7 +294,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 const cutoff = new Date();
                 cutoff.setDate(cutoff.getDate() - 15);
 
-                const { transactions } = parseAllMessages(generateDemoMessages());
+                const { transactions, stats } = parseAllMessages(generateDemoMessages());
                 const withDefaults = transactions.map(t =>
                     t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
                 );
@@ -268,7 +304,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 // Demo history is fake and never persisted, so the "run a longer
                 // range" hint (which reads real past sessions) never applies here,
                 // and there's no aggregate/badges to consult or update.
-                await deliverInsights(scoped, thinkingId, addDemoMessage, updateDemoMessage, true, false, null, undefined, []);
+                await deliverInsights(scoped, stats, thinkingId, addDemoMessage, updateDemoMessage, true, false, null, undefined, []);
             } catch (err) {
                 console.error('Demo bootstrap failed:', err);
                 updateDemoMessage(thinkingId, { kind: 'text', text: PROCESSING_ERROR_TEXT });
@@ -308,7 +344,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const thinkingId = addMsg({ role: 'bot', kind: 'thinking' });
 
         try {
-            const { transactions } = parseAllMessages(text);
+            const { transactions, stats: parseStats } = parseAllMessages(text);
             const withDefaults = transactions.map(t =>
                 t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
             );
@@ -335,7 +371,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             }
 
             await deliverInsights(
-                scoped, thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
+                scoped, parseStats, thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
                 recordResult?.stats ?? null, recordResult?.previousStats, recordResult?.newlyEarnedBadges ?? []
             );
         } catch (err) {

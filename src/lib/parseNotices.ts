@@ -14,7 +14,7 @@ export function buildParseNotices(stats: ParseStats, outOfRangeCount = 0): Parse
     if (stats.parsed === 0) {
         return [{
             id: 'nothing',
-            text: "Nothing came through. Those might not be transaction messages — or they got mangled on the way over. Try copying them again straight from your SMS app.",
+            text: "Nothing came through. Those might not be transaction messages, or they got mangled on the way over. Try copying them again straight from your SMS app.",
         }];
     }
 
@@ -30,7 +30,7 @@ export function buildParseNotices(stats: ParseStats, outOfRangeCount = 0): Parse
     if (stats.rejected > 0) {
         notices.push({
             id: 'partial',
-            text: `Got ${stats.parsed} of ${stats.totalBlocks}. ${stats.rejected} didn't look like transactions, so I left them out.`,
+            text: `I found ${stats.parsed} transactions. ${stats.rejected} other messages didn't look like transactions, so I skipped them.`,
         });
     }
 
@@ -45,21 +45,21 @@ export function buildParseNotices(stats: ParseStats, outOfRangeCount = 0): Parse
         const n = stats.ambiguousDates;
         notices.push({
             id: 'ambiguous',
-            text: `Heads up: ${n} date${n === 1 ? '' : 's'} could be read two ways. I've gone day-first, Kenyan style — worth a glance.`,
+            text: `Heads up: ${n} date${n === 1 ? '' : 's'} could be read two ways. I've gone day-first, Kenyan style, worth a glance.`,
         });
     }
 
     if (stats.byConfidence.low > 0) {
         notices.push({
             id: 'lowconf',
-            text: "A few of these I'm less sure about — they're marked so you can double-check before sending this anywhere.",
+            text: "A few of these I'm less sure about. They're marked so you can check them.",
         });
     }
 
     if (stats.holds > 0 || stats.failed > 0) {
         notices.push({
             id: 'holdsfailed',
-            text: `Left out ${stats.holds} authorisation hold${stats.holds === 1 ? '' : 's'} and ${stats.failed} failed payment${stats.failed === 1 ? '' : 's'} — flip them back on if you want them counted.`,
+            text: `I left out ${stats.holds} hold${stats.holds === 1 ? '' : 's'} and ${stats.failed} failed payment${stats.failed === 1 ? '' : 's'}. You can add them back if you want them counted.`,
         });
     }
 
@@ -67,7 +67,7 @@ export function buildParseNotices(stats: ParseStats, outOfRangeCount = 0): Parse
         const n = stats.duplicatesRemoved;
         notices.push({
             id: 'dupes',
-            text: `Cleaned out ${n} duplicate${n === 1 ? '' : 's'} while I was at it.`,
+            text: `Removed ${n} duplicate${n === 1 ? '' : 's'}.`,
         });
     }
 

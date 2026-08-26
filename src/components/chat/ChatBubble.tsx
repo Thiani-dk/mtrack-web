@@ -45,6 +45,18 @@ export function ChatBubble({ message }: ChatBubbleProps) {
                     }}
             >
                 {message.text}
+                {message.skippedCount != null && message.skippedCount > 0 && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            // Stub — Part 6 wires this to open the skipped-messages review panel.
+                        }}
+                        className="block mt-1.5 text-xs font-medium underline underline-offset-2"
+                        style={{ color: 'var(--accent)' }}
+                    >
+                        View skipped →
+                    </button>
+                )}
             </div>
         </motion.div>
     );
