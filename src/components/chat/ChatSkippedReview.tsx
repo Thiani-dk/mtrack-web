@@ -228,6 +228,11 @@ function SkippedRow({
             isHold: false,
             isVerificationCharge: false,
             cardLast4: null,
+
+            // Entered by hand through the recovery form.
+            dataSource: 'self_reported',
+            lineItems: null,
+            purposeLabel: null,
         };
         setShowManualEntry(false);
         commitInclude(transaction);

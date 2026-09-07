@@ -1,6 +1,7 @@
 import type { ParsedTransaction } from '../../types';
 import { detectRecurring } from '../insights/recurring';
 import { applyNewlyEarnedBadges, type SessionSummary, type EvidenceTransaction } from '../badges/definitions';
+import { applyUpgrade } from '../dbUpgrade';
 
 export interface MonthBucket {
     month: string;           // 'YYYY-MM'
@@ -59,11 +60,10 @@ export function migrateEarnedBadges(stats: AllTimeStats): boolean {
 }
 
 const DB_NAME = 'mtrack-db';
-// Shared with receiptStore.ts and chatSessionStore.ts — see the comment on
-// DB_VERSION in receiptStore.ts. All three must stay in sync.
-const DB_VERSION = 3;
-const RECEIPTS_STORE = 'receipts';
-const SESSIONS_STORE = 'sessions';
+// Shared with receiptStore.ts, chatSessionStore.ts and documentStore.ts — see
+// the comment on DB_VERSION in receiptStore.ts. All four must stay in sync.
+// Shared schema: dbUpgrade.ts / applyUpgrade.
+const DB_VERSION = 4;
 const AGGREGATE_STORE = 'aggregate';
 
 const STATS_KEY = 'all-time';
@@ -74,27 +74,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export function initDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-        request.onupgradeneeded = () => {
-            const db = request.result;
-            // Preserve existing stores — only create what's missing,
-            // regardless of which version this database is upgrading from.
-            if (!db.objectStoreNames.contains(RECEIPTS_STORE)) {
-                const store = db.createObjectStore(RECEIPTS_STORE, { keyPath: 'id' });
-                store.createIndex('createdAt', 'createdAt');
-            }
-            if (!db.objectStoreNames.contains(SESSIONS_STORE)) {
-                const store = db.createObjectStore(SESSIONS_STORE, { keyPath: 'id' });
-                store.createIndex('updatedAt', 'updatedAt');
-            }
-            if (!db.objectStoreNames.contains(AGGREGATE_STORE)) {
-                // No keyPath — this store holds a couple of explicitly-keyed
-                // records ('all-time' stats, 'seen-codes' dedup list) rather
-                // than a collection of same-shaped rows.
-                db.createObjectStore(AGGREGATE_STORE);
-            }
-        };
-
+        request.onupgradeneeded = () => applyUpgrade(request.result, request.transaction);
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
     });

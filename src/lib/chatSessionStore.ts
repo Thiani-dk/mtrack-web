@@ -1,34 +1,17 @@
 import type { ChatSession } from '../types';
+import { applyUpgrade } from './dbUpgrade';
 
 const DB_NAME = 'mtrack-db';
-// Shared with receiptStore.ts and aggregate/allTimeStore.ts — see the
-// comment on DB_VERSION in receiptStore.ts. All three must stay in sync.
-const DB_VERSION = 3;
-const RECEIPTS_STORE = 'receipts';
+// Shared with receiptStore.ts, aggregate/allTimeStore.ts and documentStore.ts
+// — see the comment on DB_VERSION in receiptStore.ts. All four must stay in
+// sync. Shared schema: dbUpgrade.ts / applyUpgrade.
+const DB_VERSION = 4;
 const SESSIONS_STORE = 'sessions';
-const AGGREGATE_STORE = 'aggregate';
 
 export function initDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-        request.onupgradeneeded = () => {
-            const db = request.result;
-            // Preserve existing stores — only create what's missing,
-            // regardless of which module happens to run first.
-            if (!db.objectStoreNames.contains(RECEIPTS_STORE)) {
-                const store = db.createObjectStore(RECEIPTS_STORE, { keyPath: 'id' });
-                store.createIndex('createdAt', 'createdAt');
-            }
-            if (!db.objectStoreNames.contains(SESSIONS_STORE)) {
-                const store = db.createObjectStore(SESSIONS_STORE, { keyPath: 'id' });
-                store.createIndex('updatedAt', 'updatedAt');
-            }
-            if (!db.objectStoreNames.contains(AGGREGATE_STORE)) {
-                db.createObjectStore(AGGREGATE_STORE);
-            }
-        };
-
+        request.onupgradeneeded = () => applyUpgrade(request.result, request.transaction);
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
     });

@@ -176,6 +176,10 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
         isHold,
         isVerificationCharge: false,
         cardLast4: r.cardLast4,
+
+        dataSource: 'sms_verified',
+        lineItems: null,
+        purposeLabel: null,
     };
 }
 

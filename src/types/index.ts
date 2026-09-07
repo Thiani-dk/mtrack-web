@@ -36,6 +36,57 @@ export type ExpenseLabel =
     | 'Other Business Expense'
     | null;
 
+// ---------------------------------------------------------------------------
+// Unified document model (see documentStore.ts)
+// ---------------------------------------------------------------------------
+
+export type DocumentType = 'expense_summary' | 'personal_note' | 'point_of_sale' | 'on_behalf_of';
+export type DocumentStatus = 'draft' | 'approved';
+
+// A single transaction's provenance, and — one level up — a whole document's.
+// 'sms_verified': produced by the SMS parsing pipeline.
+// 'self_reported': entered conversationally or through a manual form.
+// 'mixed': document-level only, when its included transactions disagree.
+export type DataSource = 'sms_verified' | 'self_reported' | 'mixed';
+
+export interface LineItem {
+    description: string;
+    quantity: number | null;
+    unitPrice: number | null;
+    amount: number;
+}
+
+export interface MerchantProfile {
+    businessName: string;
+    contact: string | null;
+}
+
+export interface OnBehalfOfContext {
+    preparedBy: string | null;
+    partyName: string;
+    purpose: string | null;
+}
+
+export interface TrackedDocument {
+    id: string;
+    createdAt: number;
+    updatedAt: number;
+    status: DocumentStatus;
+    documentType: DocumentType;
+    // Computed from the included transactions, never stored independently —
+    // always recompute with computeDataSource(). Persisted only as a
+    // denormalised convenience; treat computeDataSource as the source of truth.
+    dataSource: DataSource;
+    transactions: ParsedTransaction[];
+    merchantProfile: MerchantProfile | null;
+    onBehalfOf: OnBehalfOfContext | null;
+    // Min / max transaction date across the INCLUDED transactions, recomputed
+    // whenever that set changes. Both null when no included transaction has a
+    // usable date. Never populated from a relative range selection.
+    coveringFrom: number | null;
+    coveringTo: number | null;
+}
+
 export interface ParsedTransaction {
     // core (existing fields preserved for compatibility)
     date: Date;
@@ -77,6 +128,19 @@ export interface ParsedTransaction {
     isHold: boolean;                 // zero-value authorisation hold
     isVerificationCharge: boolean;   // paired Ksh<=5 sent/received test charge (e.g. GlobalPay card verification)
     cardLast4: string | null;        // last 3-4 digits from "card ****3388", when present
+
+    // ── unified document model (Phase A) ──
+    // 'sms_verified' for anything from the SMS parsing pipeline,
+    // 'self_reported' for anything entered conversationally or by hand.
+    dataSource: 'sms_verified' | 'self_reported';
+    // Itemised breakdown for a point-of-sale line. null when the transaction
+    // is a single undifferentiated amount.
+    lineItems: LineItem[] | null;
+    // Free text a person writes to explain one line to one reader
+    // ("client lunch at Galitos, met the Kisumu team"). Deliberately separate
+    // from receiptLabel, which is a category from a fixed preset — do not
+    // merge them or fall one back to the other.
+    purposeLabel: string | null;
 }
 
 // ---------------------------------------------------------------------------
