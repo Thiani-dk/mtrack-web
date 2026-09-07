@@ -2,6 +2,12 @@ import type { ParsedTransaction } from '../types';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import { detectRecurring, type RecurringPattern } from './insights/recurring';
+import {
+    type DocRenderMeta, formatCovering, issuedDate, baseDisclaimerLines,
+    trustDisclaimerLine, lineShowsSelfReportedTag, claimTotals, lineItemMismatch,
+} from './documentRender';
+
+export type { DocRenderMeta };
 
 const QR_TARGET_URL = 'https://mtrack.vercel.app';
 
@@ -212,7 +218,7 @@ const DISCLAIMER_LINES = [
 
 // A demo receipt must never be mistakable for a real one — this line is
 // non-negotiable whenever isDemo is set.
-const DEMO_LINE = 'SAMPLE — NOT REAL DATA';
+const DEMO_LINE = 'SAMPLE, NOT REAL DATA';
 
 const CADENCE_DISPLAY: Record<RecurringPattern['cadence'], string> = {
     weekly: 'Weekly',
@@ -229,11 +235,237 @@ function recurringRow(name: string, cadence: string, amount: string, W: number):
     return trunc(name, nameW).padEnd(nameW) + cadence.padEnd(cadenceW) + amount.padStart(amountW);
 }
 
+// ── Shared document row model (personal_note / point_of_sale / on_behalf_of) ──
+// One builder feeds both the HTML file and the PDF, so their content and
+// numbers can never drift. expense_summary keeps its own richer renderer below.
+
+type DocRow =
+    | { t: 'center'; text: string; strong?: boolean }
+    | { t: 'lr'; left: string; right: string; strong?: boolean }
+    | { t: 'line'; text: string; muted?: boolean }
+    | { t: 'rule'; ch: string }
+    | { t: 'gap' }
+    | { t: 'total'; left: string; right: string };
+
+function buildDocumentRows(transactions: ParsedTransaction[], meta: DocRenderMeta, isDemo: boolean): DocRow[] {
+    const d = computeReceiptData(transactions);
+    const rows: DocRow[] = [];
+    const covering = formatCovering(meta.coveringFrom, meta.coveringTo);
+    const active = d.activeTransactions;
+    const push = (r: DocRow) => rows.push(r);
+
+    // Header — the business name replaces M-Track on a point-of-sale receipt.
+    if (meta.documentType === 'point_of_sale') {
+        push({ t: 'center', text: (meta.merchantProfile?.businessName || 'Receipt').toUpperCase(), strong: true });
+        push({ t: 'center', text: 'RECEIPT' });
+    } else if (meta.documentType === 'on_behalf_of') {
+        push({ t: 'center', text: 'REIMBURSEMENT CLAIM', strong: true });
+    } else {
+        push({ t: 'center', text: 'M-TRACK', strong: true });
+        push({ t: 'center', text: 'PERSONAL RECORD' });
+    }
+    push({ t: 'gap' });
+
+    for (const l of baseDisclaimerLines(meta.documentType)) push({ t: 'center', text: l });
+    const trust = trustDisclaimerLine(meta.dataSource, meta.documentType);
+    if (trust) push({ t: 'center', text: trust });
+    if (isDemo) push({ t: 'center', text: DEMO_LINE, strong: true });
+    push({ t: 'gap' });
+
+    push({ t: 'line', text: `Ref  ${d.receiptRef}` });
+    push({ t: 'line', text: `Issued  ${issuedDate()}` });
+    if (meta.documentType === 'on_behalf_of' && meta.onBehalfOf) {
+        push({ t: 'line', text: `Prepared by  ${meta.onBehalfOf.preparedBy || '—'}` });
+        push({ t: 'line', text: `Prepared for  ${meta.onBehalfOf.partyName}` });
+        if (meta.onBehalfOf.purpose) push({ t: 'line', text: `Purpose  ${meta.onBehalfOf.purpose}` });
+        push({ t: 'line', text: `Expenses dated  ${covering || '—'}` });
+    } else if (covering) {
+        push({ t: 'line', text: `Covering  ${covering}` });
+    }
+    if (meta.documentType === 'point_of_sale' && meta.merchantProfile?.contact) {
+        push({ t: 'line', text: `Contact  ${meta.merchantProfile.contact}` });
+    }
+    push({ t: 'rule', ch: '=' });
+
+    active.forEach((tx, i) => {
+        const num = String(i + 1).padStart(2, '0');
+        const dateStr = tx.date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+        const name = trunc(getRecipientShort(tx), 20);
+        const sign = tx.type === 'sent' ? '' : '+';
+        push({ t: 'lr', left: `${num}  ${dateStr}  ${name}`, right: `${sign}${fmt(tx.amount)}` });
+
+        if (meta.documentType === 'point_of_sale' && tx.lineItems && tx.lineItems.length > 0) {
+            for (const li of tx.lineItems) {
+                const mid = li.quantity != null && li.unitPrice != null
+                    ? `${li.quantity} x ${fmt(li.unitPrice)}` : '';
+                push({ t: 'lr', left: `    ${trunc(li.description, 20)}${mid ? '  ' + mid : ''}`, right: fmt(li.amount) });
+            }
+            const mm = lineItemMismatch(tx);
+            if (mm) push({ t: 'line', text: `    items add to ${fmt(mm.itemsTotal)}, total given ${fmt(mm.lineTotal)}`, muted: true });
+        }
+        if (tx.transactionCode && !tx.codeIsSynthetic) push({ t: 'line', text: `    Ref ${tx.transactionCode}`, muted: true });
+        if (tx.transactionCost != null && tx.transactionCost > 0) push({ t: 'line', text: `    Fee ${fmt(tx.transactionCost)}`, muted: true });
+        if (tx.purposeLabel) push({ t: 'line', text: `    ${tx.purposeLabel}`, muted: true });
+        if (lineShowsSelfReportedTag(tx, meta.documentType)) push({ t: 'line', text: '    self-reported', muted: true });
+        push({ t: 'gap' });
+    });
+    push({ t: 'rule', ch: '=' });
+
+    if (meta.documentType === 'on_behalf_of') {
+        const ct = claimTotals(d);
+        push({ t: 'gap' });
+        push({ t: 'lr', left: `Subtotal, ${ct.itemCount} item${ct.itemCount === 1 ? '' : 's'}`, right: fmt(ct.subtotal) });
+        push({ t: 'lr', left: 'M-Pesa transaction costs', right: fmt(ct.transactionCosts) });
+        push({ t: 'rule', ch: '-' });
+        push({ t: 'total', left: 'TOTAL DUE', right: fmt(ct.totalDue) });
+        push({ t: 'rule', ch: '=' });
+        push({ t: 'gap' });
+        push({ t: 'gap' });
+        push({ t: 'line', text: 'Approved by  ____________________________' });
+        push({ t: 'gap' });
+        push({ t: 'line', text: 'Date         ____________________________' });
+    } else if (meta.documentType === 'point_of_sale') {
+        push({ t: 'gap' });
+        if (d.totalTransactionCost > 0) push({ t: 'lr', left: 'Transaction costs', right: fmt(d.totalTransactionCost) });
+        push({ t: 'total', left: 'TOTAL', right: fmt(d.grandTotal) });
+        push({ t: 'rule', ch: '=' });
+        push({ t: 'gap' });
+        push({ t: 'center', text: 'Thank you. Keep this for your records.' });
+    } else {
+        push({ t: 'gap' });
+        push({ t: 'total', left: 'TOTAL', right: fmt(d.grandTotal) });
+        push({ t: 'rule', ch: '=' });
+    }
+
+    // M-Track's mark lives in the footer for a customer-facing receipt.
+    push({ t: 'gap' });
+    push({ t: 'center', text: 'Made with M-Track' });
+    push({ t: 'center', text: 'mtrack.vercel.app' });
+
+    return rows;
+}
+
+function renderRowsToText(rows: DocRow[], W: number): { top: string; totalLine: string | null; bottom: string } {
+    const before: string[] = [];
+    const after: string[] = [];
+    let totalLine: string | null = null;
+    let seenTotal = false;
+    for (const r of rows) {
+        const target = seenTotal ? after : before;
+        switch (r.t) {
+            case 'center': target.push(center(r.text, W)); break;
+            case 'lr': target.push(leftRight(r.left, r.right, W)); break;
+            case 'line': target.push(r.text); break;
+            case 'rule': target.push(repeat(r.ch, W)); break;
+            case 'gap': target.push(''); break;
+            case 'total':
+                totalLine = leftRight(r.left, r.right, W);
+                seenTotal = true;
+                break;
+        }
+    }
+    return { top: before.join('\n'), totalLine, bottom: after.join('\n') };
+}
+
+async function generateSimpleDocHTML(transactions: ParsedTransaction[], meta: DocRenderMeta, isDemo: boolean): Promise<string> {
+    const W = 44;
+    const rows = buildDocumentRows(transactions, meta, isDemo);
+    const { top, totalLine, bottom } = renderRowsToText(rows, W);
+    const qrDataUrl = await buildQRDataUrl();
+    const d = computeReceiptData(transactions);
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M-TRACK ${d.receiptRef}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #e8e8e8; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; padding: 32px 16px; font-family: 'Courier New', Courier, monospace; }
+        .receipt { background: white; padding: 24px; width: 380px; box-shadow: 2px 4px 28px rgba(0,0,0,0.15); }
+        pre { font-family: 'Courier New', Courier, monospace; font-size: 11px; line-height: 1.65; color: #1a1a1a; white-space: pre; overflow-x: auto; }
+        .total { font-family: 'Courier New', Courier, monospace; font-size: 13px; font-weight: 700; line-height: 1.65; color: #1a1a1a; white-space: pre; overflow-x: auto; }
+        .qr { text-align: center; padding: 8px 0; }
+    </style>
+</head>
+<body>
+    <div class="receipt">
+        <pre>${top}</pre>
+        ${totalLine ? `<pre class="total">${totalLine}</pre>` : ''}
+        <pre>${bottom}</pre>
+        <div class="qr"><img src="${qrDataUrl}" width="90" height="90" alt="QR code linking to mtrack.vercel.app" /></div>
+    </div>
+</body>
+</html>`;
+}
+
+async function generateSimpleDocPDF(transactions: ParsedTransaction[], meta: DocRenderMeta, isDemo: boolean): Promise<Blob> {
+    const rows = buildDocumentRows(transactions, meta, isDemo);
+    const qrDataUrl = await buildQRDataUrl();
+
+    const pageHeight = Math.max(140, Math.min(60 + rows.length * 5.2 + 40, 5000));
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, pageHeight] });
+    const pageW = 80;
+    const margin = 4;
+    let y = 8;
+    const lh = 3.8;
+    doc.setFont('Courier', 'normal');
+
+    for (const r of rows) {
+        switch (r.t) {
+            case 'center':
+                doc.setFontSize(r.strong ? 12 : 7);
+                doc.setFont('Courier', r.strong ? 'bold' : 'normal');
+                doc.text(r.text, pageW / 2, y, { align: 'center' });
+                y += lh;
+                break;
+            case 'lr':
+                doc.setFontSize(7);
+                doc.setFont('Courier', r.strong ? 'bold' : 'normal');
+                doc.text(r.left, margin, y);
+                doc.text(r.right, pageW - margin, y, { align: 'right' });
+                y += lh;
+                break;
+            case 'line':
+                doc.setFontSize(6.5);
+                doc.setFont('Courier', 'normal');
+                doc.text(r.text, margin, y);
+                y += lh;
+                break;
+            case 'rule':
+                doc.setFontSize(6.5);
+                doc.setFont('Courier', 'normal');
+                doc.text(r.ch.repeat(40), margin, y);
+                y += lh;
+                break;
+            case 'gap':
+                y += lh * 0.5;
+                break;
+            case 'total':
+                doc.setFontSize(9.5);
+                doc.setFont('Courier', 'bold');
+                doc.text(r.left, margin, y);
+                doc.text(r.right, pageW - margin, y, { align: 'right' });
+                y += lh * 1.3;
+                break;
+        }
+    }
+
+    const qrSize = 22;
+    doc.addImage(qrDataUrl, 'PNG', (pageW - qrSize) / 2, y + 2, qrSize, qrSize);
+
+    return doc.output('blob');
+}
+
 // ── HTML Receipt ──────────────────────────────────────────────────────────────
 
-export async function generateReceiptHTML(transactions: ParsedTransaction[], dateRange: string, isDemo = false): Promise<string> {
+export async function generateReceiptHTML(transactions: ParsedTransaction[], meta: DocRenderMeta, isDemo = false): Promise<string> {
+    if (meta.documentType !== 'expense_summary') return generateSimpleDocHTML(transactions, meta, isDemo);
     const d = computeReceiptData(transactions);
     const W = 44;
+    const covering = formatCovering(meta.coveringFrom, meta.coveringTo);
+    const trustLine = trustDisclaimerLine(meta.dataSource, meta.documentType);
 
     const lines: string[] = [
         // Security code top-left, date top-right — Costco pattern
@@ -247,11 +479,13 @@ export async function generateReceiptHTML(transactions: ParsedTransaction[], dat
 
     // ── Disclaimer block ──
     DISCLAIMER_LINES.forEach(l => lines.push(center(l, W)));
+    if (trustLine) lines.push(center(trustLine, W));
     if (isDemo) lines.push(center(DEMO_LINE, W));
     lines.push('');
 
     lines.push(`REF: ${d.receiptRef}`);
-    lines.push(`PERIOD: ${dateRange.toUpperCase()}`);
+    lines.push(`ISSUED: ${issuedDate().toUpperCase()}`);
+    if (covering) lines.push(`COVERING: ${covering.toUpperCase()}`);
     lines.push(repeat('=', W));
     // Item count bold — Costco pattern
     lines.push(leftRight(`${d.activeTransactions.length} ITEMS`, '', W));
@@ -452,9 +686,12 @@ export async function generateReceiptHTML(transactions: ParsedTransaction[], dat
 
 // ── PDF Receipt ───────────────────────────────────────────────────────────────
 
-export async function generateReceiptPDF(transactions: ParsedTransaction[], dateRange: string, isDemo = false): Promise<Blob> {
+export async function generateReceiptPDF(transactions: ParsedTransaction[], meta: DocRenderMeta, isDemo = false): Promise<Blob> {
+    if (meta.documentType !== 'expense_summary') return generateSimpleDocPDF(transactions, meta, isDemo);
     const d = computeReceiptData(transactions);
     const qrDataUrl = await buildQRDataUrl();
+    const covering = formatCovering(meta.coveringFrom, meta.coveringTo);
+    const trustLine = trustDisclaimerLine(meta.dataSource, meta.documentType);
 
     // Dynamic height: base ~80mm + ~14mm per transaction + fee/category extras
     // + ~20mm for the disclaimer block + ~4mm per category in the summary
@@ -521,11 +758,13 @@ export async function generateReceiptPDF(transactions: ParsedTransaction[], date
 
     // ── Disclaimer block — smaller font, still readable ──
     DISCLAIMER_LINES.forEach(l => line(l, 6, false, 'center'));
+    if (trustLine) line(trustLine, 6, false, 'center');
     if (isDemo) line(DEMO_LINE, 6.5, true, 'center');
     sp();
 
     line(`REF: ${d.receiptRef}`, 6.5);
-    line(`PERIOD: ${dateRange.toUpperCase()}`, 6.5);
+    line(`ISSUED: ${issuedDate().toUpperCase()}`, 6.5);
+    if (covering) line(`COVERING: ${covering.toUpperCase()}`, 6.5);
     divider('=');
 
     // Item count
@@ -650,13 +889,29 @@ export async function generateReceiptPDF(transactions: ParsedTransaction[], date
 
 // Plain-text summary for the Web Share API / clipboard fallback — deliberately
 // short, not the full receipt.
-export function summariseReceiptForShare(transactions: ParsedTransaction[], dateRangeLabel: string): string {
+const DOC_NOUN: Record<DocRenderMeta['documentType'], string> = {
+    expense_summary: 'Expense summary',
+    personal_note: 'Personal record',
+    point_of_sale: 'Receipt',
+    on_behalf_of: 'Reimbursement claim',
+};
+
+export function summariseReceiptForShare(transactions: ParsedTransaction[], meta: DocRenderMeta): string {
     const d = computeReceiptData(transactions);
+    const covering = formatCovering(meta.coveringFrom, meta.coveringTo);
+    const noun = DOC_NOUN[meta.documentType];
     const lines = [
-        `Expense summary · ${dateRangeLabel}`,
-        `${d.activeTransactions.length} transaction${d.activeTransactions.length !== 1 ? 's' : ''} · ${fmt(d.trueOutflow)} out`,
+        covering ? `${noun} · ${covering}` : noun,
     ];
-    if (d.totalFees > 0) lines.push(`${fmt(d.totalFees)} in fees`);
+    if (meta.documentType === 'on_behalf_of') {
+        const ct = claimTotals(d);
+        lines.push(`${ct.itemCount} item${ct.itemCount === 1 ? '' : 's'} · ${fmt(ct.totalDue)} due`);
+    } else if (meta.documentType === 'expense_summary') {
+        lines.push(`${d.activeTransactions.length} transaction${d.activeTransactions.length !== 1 ? 's' : ''} · ${fmt(d.trueOutflow)} out`);
+        if (d.totalFees > 0) lines.push(`${fmt(d.totalFees)} in fees`);
+    } else {
+        lines.push(`${d.activeTransactions.length} item${d.activeTransactions.length !== 1 ? 's' : ''} · ${fmt(d.grandTotal)}`);
+    }
     lines.push('');
     lines.push('Made with M-Track');
     lines.push('mtrack.vercel.app');

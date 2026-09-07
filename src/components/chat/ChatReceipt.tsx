@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, Share2, Check } from 'lucide-react';
 import type { DocumentType, MerchantProfile, OnBehalfOfContext, ParsedTransaction } from '../../types';
-import { computeReceiptData, generateReceiptHTML, generateReceiptPDF, summariseReceiptForShare } from '../../lib/receiptGenerator';
+import { computeReceiptData, generateReceiptHTML, generateReceiptPDF, summariseReceiptForShare, type DocRenderMeta } from '../../lib/receiptGenerator';
+import { computeCoveringDates, computeDataSource } from '../../lib/documentModel';
 import { downloadHTML, downloadPDF, getReceiptFilenames } from '../../lib/downloadUtils';
 import { share } from '../../lib/shareUtils';
 import { useEntranceOnce } from '../../lib/useEntranceOnce';
@@ -84,6 +85,20 @@ export function ChatReceipt({
     const data = useMemo(() => computeReceiptData(transactions), [transactions]);
     const playEntrance = useEntranceOnce(messageId);
 
+    // The render meta every surface (chat preview, HTML, PDF) reads from —
+    // covering dates and dataSource are always recomputed from the current
+    // transactions, never a stored or relative range.
+    const meta = useMemo<DocRenderMeta>(() => {
+        const { coveringFrom, coveringTo } = computeCoveringDates(transactions);
+        return {
+            documentType: documentContext?.documentType ?? 'expense_summary',
+            coveringFrom, coveringTo,
+            dataSource: computeDataSource(transactions),
+            merchantProfile: documentContext?.merchantProfile ?? null,
+            onBehalfOf: documentContext?.onBehalfOf ?? null,
+        };
+    }, [transactions, documentContext]);
+
     // Re-synced at the moment of each save/share (not eagerly on every label
     // edit) — if this session was already saved to history before a label
     // change, this refreshes that entry in place rather than leaving it
@@ -102,7 +117,7 @@ export function ChatReceipt({
         setBusy('pdf');
         try {
             const [blob, filenames] = await Promise.all([
-                generateReceiptPDF(transactions, dateRange, isDemo),
+                generateReceiptPDF(transactions, meta, isDemo),
                 getReceiptFilenames(transactions),
                 syncHistory(),
             ]);
@@ -119,7 +134,7 @@ export function ChatReceipt({
         setBusy('html');
         try {
             const [html, filenames] = await Promise.all([
-                generateReceiptHTML(transactions, dateRange, isDemo),
+                generateReceiptHTML(transactions, meta, isDemo),
                 getReceiptFilenames(transactions),
                 syncHistory(),
             ]);
@@ -135,9 +150,9 @@ export function ChatReceipt({
     const handleShare = async () => {
         setBusy('share');
         try {
-            const text = summariseReceiptForShare(transactions, dateRange);
+            const text = summariseReceiptForShare(transactions, meta);
             const [blob, filenames] = await Promise.all([
-                generateReceiptPDF(transactions, dateRange, isDemo),
+                generateReceiptPDF(transactions, meta, isDemo),
                 getReceiptFilenames(transactions),
                 syncHistory(),
             ]);
@@ -195,7 +210,7 @@ export function ChatReceipt({
 
                 <div className="mb-3">
                     <ChatReceiptVisual
-                        data={data} dateRange={dateRange} playEntrance={playEntrance}
+                        data={data} meta={meta} playEntrance={playEntrance}
                         onLabelChange={onLabelChange}
                         onEditTransaction={onEditTransaction}
                     />

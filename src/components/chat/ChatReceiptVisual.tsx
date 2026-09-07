@@ -2,16 +2,17 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
 import type { ParsedTransaction } from '../../types';
-import type { ReceiptData } from '../../lib/receiptGenerator';
+import type { ReceiptData, DocRenderMeta } from '../../lib/receiptGenerator';
 import { fmt, getRecipientShort, getProviderSuffix, categoryKeyFor } from '../../lib/receiptGenerator';
 import { providerChipLabel } from '../../lib/transactionDisplay';
+import { formatCovering, issuedDate, trustDisclaimerLine, lineShowsSelfReportedTag, claimTotals } from '../../lib/documentRender';
 import { CountUp } from '../CountUp';
 import { TransactionSkeleton } from './TransactionSkeleton';
 import { StackedPanel } from './OverlayStack';
 
 interface ChatReceiptVisualProps {
     data: ReceiptData;
-    dateRange: string;
+    meta: DocRenderMeta;
     playEntrance: boolean;
     onLabelChange?: (transactionCode: string, label: string | null) => void;
     onEditTransaction?: (transactionCode: string, patch: Partial<ParsedTransaction>) => void;
@@ -156,11 +157,12 @@ function LabelPicker({ current, onSelect }: { current: string | null; onSelect: 
 // ── Transaction row ─────────────────────────────────────────────────────────
 
 function TransactionRow({
-    t, delay, animateEntrance, onLabelChange, onEditTransaction,
+    t, delay, animateEntrance, onLabelChange, onEditTransaction, documentType,
 }: {
     t: ParsedTransaction; delay: number; animateEntrance: boolean;
     onLabelChange?: (label: string | null) => void;
     onEditTransaction?: (patch: Partial<ParsedTransaction>) => void;
+    documentType: DocRenderMeta['documentType'];
 }) {
     const [expanded, setExpanded] = useState(false);
     const [pickerOpen, setPickerOpen] = useState(false);
@@ -186,7 +188,11 @@ function TransactionRow({
                     <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
                         {t.date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
                         {t.receiptLabel ? ` · ${t.receiptLabel}` : t.merchantCategory ? ` · ${t.merchantCategory}` : ''}
+                        {lineShowsSelfReportedTag(t, documentType) ? ' · self-reported' : ''}
                     </p>
+                    {t.purposeLabel && (
+                        <p className="text-[10px] text-[var(--text-muted)] mt-0.5 italic truncate">{t.purposeLabel}</p>
+                    )}
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
                     <span className="text-xs font-semibold tabular-nums text-[var(--text-primary)]">
@@ -378,7 +384,10 @@ function CategoryBar({
 
 // ── Main visual ──────────────────────────────────────────────────────────────
 
-export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange, onEditTransaction }: ChatReceiptVisualProps) {
+export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onEditTransaction }: ChatReceiptVisualProps) {
+    const covering = formatCovering(meta.coveringFrom, meta.coveringTo);
+    const trustLine = trustDisclaimerLine(meta.dataSource, meta.documentType);
+    const claim = meta.documentType === 'on_behalf_of' ? claimTotals(data) : null;
     const reducedMotion = useReducedMotion();
     const animateEntrance = playEntrance && !reducedMotion;
     const [grandReplay, setGrandReplay] = useState(0);
@@ -435,8 +444,18 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange
                         REF: {data.receiptRef}
                     </motion.div>
                     <motion.div variants={headerItem} className="text-[10px] text-[var(--text-muted)]">
-                        {dateRange.toUpperCase()}
+                        Issued {issuedDate()}
                     </motion.div>
+                    {covering && (
+                        <motion.div variants={headerItem} className="text-[10px] text-[var(--text-muted)]">
+                            {meta.documentType === 'on_behalf_of' ? 'Expenses dated ' : 'Covering '}{covering}
+                        </motion.div>
+                    )}
+                    {trustLine && (
+                        <motion.div variants={headerItem} className="text-[10px] mt-1" style={{ color: 'var(--warn-text, #b45309)' }}>
+                            {trustLine}
+                        </motion.div>
+                    )}
                 </motion.div>
 
                 {/* Transaction rows */}
@@ -449,7 +468,8 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange
                             animateEntrance={animateEntrance}
                             onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
                             onEditTransaction={onEditTransaction && (patch => onEditTransaction(t.transactionCode, patch))}
-                        />
+                            documentType={meta.documentType}
+                                            />
                     ))}
                     {rest.length > 0 && (
                         <motion.div
@@ -480,6 +500,7 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange
                                                 animateEntrance={false}
                                                 onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
                                                 onEditTransaction={onEditTransaction && (patch => onEditTransaction(t.transactionCode, patch))}
+                                                documentType={meta.documentType}
                                             />
                                         ))}
                                     </motion.div>
@@ -508,26 +529,50 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange
                     </div>
                 )}
 
-                {/* Tally — finale */}
+                {/* Tally / claim totals — finale */}
                 <div className="pt-2 border-t border-[var(--border-glass)] space-y-1">
-                    <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
-                        <span>Transactions counted</span>
-                        <span className="tabular-nums">
-                            <CountUp value={data.totalTransactionCount} format={fmtCount} duration={0.4} delay={countDelay} play={animateEntrance} />
-                        </span>
-                    </div>
-                    <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
-                        <span>Total transaction amount</span>
-                        <span className="tabular-nums">
-                            <CountUp value={data.totalTransactionAmount} format={fmt} duration={TALLY_DURATION} delay={amountDelay} play={animateEntrance} />
-                        </span>
-                    </div>
-                    <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
-                        <span>Total transaction cost</span>
-                        <span className="tabular-nums">
-                            <CountUp value={data.totalTransactionCost} format={fmt} duration={TALLY_DURATION} delay={costDelay} play={animateEntrance} />
-                        </span>
-                    </div>
+                    {claim ? (
+                        <>
+                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
+                                <span>Subtotal, {claim.itemCount} item{claim.itemCount === 1 ? '' : 's'}</span>
+                                <span className="tabular-nums">
+                                    <CountUp value={claim.subtotal} format={fmt} duration={TALLY_DURATION} delay={amountDelay} play={animateEntrance} />
+                                </span>
+                            </div>
+                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
+                                <span>M-Pesa transaction costs</span>
+                                <span className="tabular-nums">
+                                    <CountUp value={claim.transactionCosts} format={fmt} duration={TALLY_DURATION} delay={costDelay} play={animateEntrance} />
+                                </span>
+                            </div>
+                        </>
+                    ) : meta.documentType === 'expense_summary' ? (
+                        <>
+                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
+                                <span>Transactions counted</span>
+                                <span className="tabular-nums">
+                                    <CountUp value={data.totalTransactionCount} format={fmtCount} duration={0.4} delay={countDelay} play={animateEntrance} />
+                                </span>
+                            </div>
+                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
+                                <span>Total transaction amount</span>
+                                <span className="tabular-nums">
+                                    <CountUp value={data.totalTransactionAmount} format={fmt} duration={TALLY_DURATION} delay={amountDelay} play={animateEntrance} />
+                                </span>
+                            </div>
+                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
+                                <span>Total transaction cost</span>
+                                <span className="tabular-nums">
+                                    <CountUp value={data.totalTransactionCost} format={fmt} duration={TALLY_DURATION} delay={costDelay} play={animateEntrance} />
+                                </span>
+                            </div>
+                        </>
+                    ) : meta.documentType === 'point_of_sale' && data.totalTransactionCost > 0 ? (
+                        <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
+                            <span>Transaction costs</span>
+                            <span className="tabular-nums">{fmt(data.totalTransactionCost)}</span>
+                        </div>
+                    ) : null}
 
                     <motion.button
                         onClick={() => setGrandReplay(k => k + 1)}
@@ -549,10 +594,12 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange
                                 />
                             )}
                         </AnimatePresence>
-                        <span className="text-sm font-bold relative" style={{ color: 'var(--accent)' }}>GRAND TOTAL</span>
+                        <span className="text-sm font-bold relative" style={{ color: 'var(--accent)' }}>
+                            {claim ? 'TOTAL DUE' : meta.documentType === 'expense_summary' ? 'GRAND TOTAL' : 'TOTAL'}
+                        </span>
                         <span className="text-sm font-bold tabular-nums relative" style={{ color: 'var(--accent)' }}>
                             <CountUp
-                                value={data.grandTotal}
+                                value={claim ? claim.totalDue : data.grandTotal}
                                 format={fmt}
                                 duration={0.5}
                                 delay={grandReplay > 0 ? 0 : GRAND_TOTAL_DELAY}
@@ -561,6 +608,16 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange
                             />
                         </span>
                     </motion.button>
+
+                    {claim && (
+                        <div className="pt-3 mt-1 space-y-2 text-[11px] text-[var(--text-muted)]">
+                            <div className="flex items-end gap-2"><span>Approved by</span><span className="flex-1 border-b border-[var(--text-muted)]" /></div>
+                            <div className="flex items-end gap-2"><span>Date</span><span className="flex-1 border-b border-[var(--text-muted)]" /></div>
+                        </div>
+                    )}
+                    {meta.documentType === 'point_of_sale' && (
+                        <p className="pt-2 text-[10px] text-center text-[var(--text-muted)]">Thank you. Keep this for your records.</p>
+                    )}
                 </div>
             </div>
         </motion.div>

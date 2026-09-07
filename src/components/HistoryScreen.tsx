@@ -49,7 +49,11 @@ function ReceiptCard({
         setDownloading(true);
         try {
             const [blob, filenames] = await Promise.all([
-                generateReceiptPDF(receipt.transactions, receipt.dateRange),
+                generateReceiptPDF(receipt.transactions, {
+                    documentType: 'expense_summary',
+                    coveringFrom: null, coveringTo: null, dataSource: 'sms_verified',
+                    merchantProfile: null, onBehalfOf: null,
+                }),
                 getReceiptFilenames(receipt.transactions),
             ]);
             downloadPDF(blob, filenames.pdf);
