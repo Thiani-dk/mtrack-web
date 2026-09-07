@@ -8,6 +8,7 @@ import { fmtProse } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { getDocument } from '../../lib/documentStore';
 import { buildDraft } from '../../lib/draftDocument';
+import { pipelineEligibility } from '../../lib/documentPipeline';
 import { useChatSession } from '../../lib/useChatSession';
 import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
@@ -234,7 +235,18 @@ async function deliverInsights(
         }
     }
 
-    if (scoped.length === 0) {
+    // Phase F2 — insights, recurring detection, personal records and badges
+    // apply ONLY to the user's own spending. A point-of-sale receipt or a
+    // reimbursement claim is generated, previewed and stored, nothing else.
+    const insightsEligible = pipelineEligibility(documentType).insights;
+
+    if (!insightsEligible) {
+        if (scoped.length === 0) {
+            await emitBotText("I couldn't find any transactions in that. Try copying the full message from your SMS app.");
+        } else {
+            await emitBotText("Here's the document. Check it over, edit anything, then tap Approve.");
+        }
+    } else if (scoped.length === 0) {
         // Every transaction was excluded (holds, failed, verification
         // charges) — notices above may already explain why, but there's
         // still no receipt to build, so say so plainly instead of
@@ -275,8 +287,10 @@ async function deliverInsights(
     }
 
     // Demo sessions never touch the aggregate, so there's nothing to record
-    // or unlock.
-    if (!isDemo && allTimeStats) {
+    // or unlock. Neither do point-of-sale / claim documents (Phase F2), and
+    // nothing is recorded until Approve (Phase D3) — so allTimeStats is null
+    // here in the normal flow and this block stays dormant.
+    if (!isDemo && insightsEligible && allTimeStats) {
         for (const recordText of describeNewRecords(previousStats, allTimeStats)) {
             await sleep(400);
             addMsg({ role: 'bot', kind: 'text', text: recordText });
@@ -636,7 +650,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         setDocFlow(f => (f ? { ...f, draftDoc: approved } : f));
         updateMessage(messageId, { documentStatus: 'approved' });
 
-        if (documentType === 'expense_summary' || documentType === 'personal_note') {
+        if (pipelineEligibility(documentType).aggregation) {
             const result = await recordSession(transactions, false);
             if (result) {
                 for (const recordText of describeNewRecords(result.previousStats, result.stats)) {

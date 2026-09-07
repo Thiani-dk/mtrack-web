@@ -1,9 +1,9 @@
 import { motion } from 'framer-motion';
 import { History } from 'lucide-react';
-import { useReceiptStore } from '../lib/useReceiptStore';
+import { useDocumentStore } from '../lib/useDocumentStore';
 
 export function HistoryButton({ onClick }: { onClick: () => void }) {
-    const { receipts } = useReceiptStore();
+    const { documents } = useDocumentStore();
 
     return (
         <motion.button
@@ -12,7 +12,7 @@ export function HistoryButton({ onClick }: { onClick: () => void }) {
             whileTap={{ scale: 0.97 }}
         >
             <History className="w-4 h-4" />
-            Receipt History ({receipts.length})
+            Your documents ({documents.length})
         </motion.button>
     );
 }

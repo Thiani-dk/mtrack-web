@@ -77,6 +77,11 @@ export default function App() {
                     <HistoryScreen
                         onBack={() => setStep('home')}
                         onDemoClick={handleDemoSelect}
+                        onResumeDraft={(sessionId) => {
+                            setChatDemoMode(false);
+                            setResumeSessionId(sessionId);
+                            setStep('chat');
+                        }}
                     />
                 );
 
