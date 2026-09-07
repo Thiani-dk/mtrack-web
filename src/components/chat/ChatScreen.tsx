@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessage, ParsedTransaction, SkippedMessage } from '../../types';
+import type {
+    ChatMessage, ChatOption, ParsedTransaction, SkippedMessage,
+    DocumentType, MerchantProfile, OnBehalfOfContext,
+} from '../../types';
+import { extractDescription, buildSelfReportedTransaction, parseConversationalDate } from '../../lib/conversationalCapture';
+import { fmtProse } from '../../lib/transactionDisplay';
 import { useChatSession } from '../../lib/useChatSession';
 import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
@@ -28,6 +33,62 @@ interface ChatScreenProps {
 const GREETING = "I'm M-Track. Copy your M-Pesa, Airtel Money, or any transaction confirmation messages and send them here. I'll break down what you spent, spot patterns, and put together a receipt you can download.";
 
 const RESUME_BUBBLE = "Still here. Copy your messages whenever you're ready.";
+
+// ── Mode selection (Phase C) — the front door to the whole feature ──
+const MODE_QUESTION =
+    "What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?";
+const MODE_OPTIONS: ChatOption[] = [
+    { id: 'own', label: 'My own spending', sublabel: 'Copy your messages, or describe what you spent', value: 'own' },
+    { id: 'pos', label: 'A receipt for a customer', sublabel: 'Proof of purchase you hand over', value: 'point_of_sale' },
+    { id: 'obo', label: 'Money I spent for someone else', sublabel: 'So they can pay you back', value: 'on_behalf_of' },
+];
+const OWN_PROMPT =
+    "Copy your M-Pesa, Airtel Money, or bank messages in. If you don't have the message for something, just tell me what you spent and when.";
+const POS_NAME_PROMPT = "What's the business name?";
+const POS_ITEM_PROMPT =
+    "Now tell me what they bought and the amount. You can paste the M-Pesa message instead if you have it.";
+const OBO_PARTY_PROMPT = "Who was this for?";
+const OBO_PURPOSE_PROMPT = "What was it for? Say skip if you'd rather leave that out.";
+const OBO_INPUT_PROMPT =
+    "Copy the M-Pesa messages, or tell me what you spent and when.";
+const DATE_PROMPT =
+    "When was that? A rough date is fine, but I'd rather leave it blank than guess.";
+const OBO_AMBIGUOUS_DATE_PROMPT =
+    "That date could be read two ways, day first or month first. On a claim a wrong date can get the whole thing rejected, so which is it?";
+const EFFICIENCY_NUDGE =
+    "If you've got the M-Pesa messages for these, copy them in. They carry the exact date and reference number, which makes this much harder to argue with.";
+
+type PendingPrompt =
+    | 'mode' | 'business-name' | 'party-name' | 'purpose'
+    | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm' | 'input';
+
+interface CaptureDraft {
+    amount: number | null;
+    currency: string;
+    recipient: string | null;
+    date: Date | null;
+    dateAmbiguous: boolean;
+    purposeLabel: string | null;
+    type: 'sent' | 'received';
+}
+
+interface DocFlow {
+    documentType: DocumentType;
+    merchantProfile: MerchantProfile | null;
+    onBehalfOf: OnBehalfOfContext | null;
+    pending: PendingPrompt;
+    draft: CaptureDraft;
+    describedCount: number;
+    nudgeShown: boolean;
+}
+
+function emptyDraft(): CaptureDraft {
+    return { amount: null, currency: 'KES', recipient: null, date: null, dateAmbiguous: false, purposeLabel: null, type: 'sent' };
+}
+
+function fmtShortDate(d: Date): string {
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 const DEMO_INTRO = "This is a demo run with made-up transactions, so you can see how it works before using your own.";
 const DEMO_NEXT_STEP = 'Want to do this with your real messages? Start a new summary.';
@@ -100,7 +161,8 @@ async function deliverInsights(
     previousStats: AllTimeStats | undefined,
     newlyEarnedBadges: string[],
     linkEnrichments: LinkEnrichment[] = [],
-    nearDuplicates: NearDuplicatePair[] = []
+    nearDuplicates: NearDuplicatePair[] = [],
+    documentType: DocumentType = 'expense_summary'
 ): Promise<void> {
     const scoped = fullTransactions.filter(t => !t.excludedFromReceipt);
 
@@ -224,7 +286,10 @@ async function deliverInsights(
         await sleep(400);
         const dayCount = computeDaySpan(scoped);
         const receiptRangeLabel = dayCount <= 1 ? 'today' : `past ${dayCount} days`;
-        addMsg({ role: 'bot', kind: 'receipt', transactions: fullTransactions, dateRange: receiptRangeLabel, isDemo });
+        addMsg({
+            role: 'bot', kind: 'receipt', transactions: fullTransactions, dateRange: receiptRangeLabel, isDemo,
+            documentType,
+        });
     }
 
     if (isDemo) {
@@ -257,6 +322,18 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     // false locally (e.g. the user starts a real new session mid-demo).
     const [isDemoSession, setIsDemoSession] = useState(demoMode);
     const [demoMessages, setDemoMessages] = useState<ChatMessage[]>([]);
+
+    // The four-way document flow (Phase C). Deliberately ephemeral state, never
+    // written to the persisted session — a page reload drops the business name
+    // / party name entirely, by design. The ref is the source of truth for
+    // async handlers; the state copy drives renders (e.g. the composer hint).
+    const [docFlow, setDocFlowState] = useState<DocFlow | null>(null);
+    const docFlowRef = useRef<DocFlow | null>(null);
+    const setDocFlow = useCallback((next: DocFlow | null | ((prev: DocFlow | null) => DocFlow | null)) => {
+        const resolved = typeof next === 'function' ? (next as (p: DocFlow | null) => DocFlow | null)(docFlowRef.current) : next;
+        docFlowRef.current = resolved;
+        setDocFlowState(resolved);
+    }, []);
 
     const hasInitialized = useRef(false);
     const greetedSessionIds = useRef(new Set<string>());
@@ -299,7 +376,17 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         if (greetedSessionIds.current.has(activeSession.id)) return;
         greetedSessionIds.current.add(activeSession.id);
         addMessage({ role: 'bot', kind: 'text', text: GREETING });
-    }, [isDemoSession, activeSession, addMessage]);
+        addMessage({ role: 'bot', kind: 'options', text: MODE_QUESTION, options: MODE_OPTIONS });
+        setDocFlow({
+            documentType: 'expense_summary',
+            merchantProfile: null,
+            onBehalfOf: null,
+            pending: 'mode',
+            draft: emptyDraft(),
+            describedCount: 0,
+            nudgeShown: false,
+        });
+    }, [isDemoSession, activeSession, addMessage, setDocFlow]);
 
     // Resuming into a session that already has the greeting (and maybe more)
     // gets a short continuation line instead — never the full greeting again.
@@ -372,6 +459,215 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         setSidebarOpen(false);
     };
 
+    // ── Phase C: mode selection + conversational capture ──────────────────
+
+    const handleOptionSelect = useCallback((messageId: string, value: string) => {
+        const addMsg = isDemoSession ? addDemoMessage : addMessage;
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        updateMsg(messageId, { answered: true, answeredValue: value });
+
+        if (!isDemoSession && activeSession?.sessionStatus === 'awaiting_input') {
+            updateSessionStatus(activeSession.id, 'active');
+        }
+
+        const base = { merchantProfile: null, onBehalfOf: null, draft: emptyDraft(), describedCount: 0, nudgeShown: false } as const;
+        if (value === 'own') {
+            setDocFlow({ ...base, documentType: 'expense_summary', pending: 'input' });
+            addMsg({ role: 'bot', kind: 'text', text: OWN_PROMPT });
+        } else if (value === 'point_of_sale') {
+            setDocFlow({ ...base, documentType: 'point_of_sale', pending: 'business-name' });
+            addMsg({ role: 'bot', kind: 'text', text: POS_NAME_PROMPT });
+        } else if (value === 'on_behalf_of') {
+            setDocFlow({ ...base, documentType: 'on_behalf_of', pending: 'party-name' });
+            addMsg({ role: 'bot', kind: 'text', text: OBO_PARTY_PROMPT });
+        }
+    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, activeSession, updateSessionStatus, setDocFlow]);
+
+    const commitDraft = useCallback((flow: DocFlow, draft: CaptureDraft) => {
+        const addMsg = isDemoSession ? addDemoMessage : addMessage;
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        if (draft.amount == null || draft.amount <= 0 || !draft.recipient || !draft.date) return;
+
+        const txn = buildSelfReportedTransaction({
+            amount: draft.amount, currency: draft.currency, recipient: draft.recipient,
+            date: draft.date, dateAmbiguous: draft.dateAmbiguous, purposeLabel: draft.purposeLabel, type: draft.type,
+        });
+
+        // A described transaction under "my own spending" is a personal note,
+        // not an SMS-built expense summary.
+        const resolvedType: DocumentType =
+            flow.documentType === 'expense_summary' ? 'personal_note' : flow.documentType;
+
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        if (receiptMsg?.transactions) {
+            updateMsg(receiptMsg.id, { transactions: [...receiptMsg.transactions, txn] });
+        } else {
+            // documentType rides on the message (it's a category, and History
+            // needs it); the business name / party name never do — they live
+            // only in the ephemeral flow and a page reload drops them, until
+            // Phase D persists them on the draft document itself.
+            addMsg({
+                role: 'bot', kind: 'receipt', transactions: [txn], dateRange: fmtShortDate(draft.date),
+                isDemo: false, documentType: resolvedType,
+            });
+        }
+
+        setDocFlow({ ...flow, documentType: resolvedType, draft: emptyDraft(), pending: 'input' });
+        addMsg({ role: 'bot', kind: 'text', text: "Added. Tell me the next one, or that's everything." });
+    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, setDocFlow]);
+
+    // date first (Phase C3), then amount, then who / what. Emits the next
+    // question and returns which prompt we're now waiting on.
+    const askNextField = useCallback((draft: CaptureDraft, documentType: DocumentType): PendingPrompt => {
+        const addMsg = isDemoSession ? addDemoMessage : addMessage;
+        if (!draft.date) { addMsg({ role: 'bot', kind: 'text', text: DATE_PROMPT }); return 'field-date'; }
+        if (draft.amount == null || draft.amount <= 0) { addMsg({ role: 'bot', kind: 'text', text: 'How much was it?' }); return 'field-amount'; }
+        if (!draft.recipient) {
+            addMsg({ role: 'bot', kind: 'text', text: documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?' });
+            return 'field-recipient';
+        }
+        return 'confirm';
+    }, [isDemoSession, addDemoMessage, addMessage]);
+
+    const confirmText = useCallback((draft: CaptureDraft): string => {
+        const parts = [`${fmtProse(draft.amount ?? 0)} to ${draft.recipient}`];
+        if (draft.purposeLabel) parts.push(`for ${draft.purposeLabel}`);
+        if (draft.date) parts.push(`on ${fmtShortDate(draft.date)}`);
+        return `${parts.join(', ')}. Right?`;
+    }, []);
+
+    const advanceAfterField = useCallback((flow: DocFlow, draft: CaptureDraft) => {
+        const addMsg = isDemoSession ? addDemoMessage : addMessage;
+        const next = askNextField(draft, flow.documentType);
+        setDocFlow({ ...flow, draft, pending: next });
+        if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
+    }, [isDemoSession, addDemoMessage, addMessage, askNextField, confirmText, setDocFlow]);
+
+    // Runs a described transaction through the shared extraction components,
+    // then either confirms in one turn or falls to one-field-at-a-time.
+    const handleDescription = useCallback(async (text: string) => {
+        const addMsg = isDemoSession ? addDemoMessage : addMessage;
+        const flow = docFlowRef.current;
+        if (!flow) return;
+
+        const r = extractDescription(text);
+        const draft: CaptureDraft = {
+            ...flow.draft,
+            amount: r.amount ?? flow.draft.amount,
+            currency: r.currency,
+            recipient: r.recipient ?? flow.draft.recipient,
+            date: r.date ?? flow.draft.date,
+            dateAmbiguous: r.dateAmbiguous,
+            purposeLabel: r.purposeLabel ?? flow.draft.purposeLabel,
+        };
+        const describedCount = flow.describedCount + 1;
+
+        const fireNudge = () => {
+            if (describedCount >= 2 && !docFlowRef.current?.nudgeShown) {
+                addMsg({ role: 'bot', kind: 'text', text: EFFICIENCY_NUDGE });
+                setDocFlow(f => (f ? { ...f, nudgeShown: true } : f));
+            }
+        };
+
+        // Phase C5 — a day/month flip on a reimbursement claim can sink the
+        // whole submission, so escalate it before doing anything else.
+        if (draft.date && draft.dateAmbiguous && flow.documentType === 'on_behalf_of') {
+            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount });
+            addMsg({ role: 'bot', kind: 'text', text: OBO_AMBIGUOUS_DATE_PROMPT });
+            fireNudge();
+            return;
+        }
+
+        if (r.confidence === 'high' && draft.amount && draft.recipient && draft.date) {
+            setDocFlow({ ...flow, draft, pending: 'confirm', describedCount });
+            addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
+        } else {
+            const next = askNextField(draft, flow.documentType);
+            setDocFlow({ ...flow, draft, pending: next, describedCount });
+            if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
+        }
+        fireNudge();
+    }, [isDemoSession, addDemoMessage, addMessage, askNextField, confirmText, setDocFlow]);
+
+    // Handles a message while a specific prompt is pending. Returns true if it
+    // consumed the input; false only when we're in the open 'input' state and
+    // the caller should decide between a paste and a description.
+    const handleDocFlow = useCallback(async (text: string): Promise<boolean> => {
+        const addMsg = isDemoSession ? addDemoMessage : addMessage;
+        const flow = docFlowRef.current;
+        if (!flow) return false;
+        const t = text.trim();
+
+        switch (flow.pending) {
+            case 'mode':
+                addMsg({ role: 'bot', kind: 'text', text: "Tap one of the options above so I know what we're making." });
+                return true;
+            case 'business-name':
+                if (!t) { addMsg({ role: 'bot', kind: 'text', text: POS_NAME_PROMPT }); return true; }
+                setDocFlow({ ...flow, merchantProfile: { businessName: t, contact: null }, pending: 'input' });
+                addMsg({ role: 'bot', kind: 'text', text: POS_ITEM_PROMPT });
+                return true;
+            case 'party-name':
+                if (!t) { addMsg({ role: 'bot', kind: 'text', text: OBO_PARTY_PROMPT }); return true; }
+                setDocFlow({ ...flow, onBehalfOf: { preparedBy: null, partyName: t, purpose: null }, pending: 'purpose' });
+                addMsg({ role: 'bot', kind: 'text', text: OBO_PURPOSE_PROMPT });
+                return true;
+            case 'purpose': {
+                const skip = !t || /^(skip|none|n\/?a|no|nothing)$/i.test(t);
+                setDocFlow({
+                    ...flow,
+                    onBehalfOf: flow.onBehalfOf ? { ...flow.onBehalfOf, purpose: skip ? null : t } : flow.onBehalfOf,
+                    pending: 'input',
+                });
+                addMsg({ role: 'bot', kind: 'text', text: OBO_INPUT_PROMPT });
+                return true;
+            }
+            case 'field-date': {
+                const d = parseConversationalDate(t);
+                if (!d) {
+                    addMsg({ role: 'bot', kind: 'text', text: "I still can't read a date there. A month and day is enough, a year helps too." });
+                    return true;
+                }
+                if (d.ambiguous && flow.documentType === 'on_behalf_of') {
+                    addMsg({ role: 'bot', kind: 'text', text: OBO_AMBIGUOUS_DATE_PROMPT });
+                    return true;
+                }
+                advanceAfterField(flow, { ...flow.draft, date: d.date, dateAmbiguous: d.ambiguous });
+                return true;
+            }
+            case 'field-amount': {
+                const cleaned = t.replace(/[,\s]/g, '');
+                const m = cleaned.match(/(\d+(?:\.\d{1,2})?)/);
+                if (!m) { addMsg({ role: 'bot', kind: 'text', text: 'How much, in Ksh?' }); return true; }
+                advanceAfterField(flow, { ...flow.draft, amount: parseFloat(m[1]) });
+                return true;
+            }
+            case 'field-recipient':
+                if (!t) {
+                    addMsg({ role: 'bot', kind: 'text', text: flow.documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?' });
+                    return true;
+                }
+                advanceAfterField(flow, { ...flow.draft, recipient: t });
+                return true;
+            case 'confirm':
+                if (/^(y\b|yes|yep|yeah|correct|right|ok|okay|sure|that'?s? right|👍)/i.test(t)) {
+                    commitDraft(flow, flow.draft);
+                } else {
+                    setDocFlow({
+                        ...flow,
+                        draft: { ...emptyDraft(), currency: flow.draft.currency, purposeLabel: flow.draft.purposeLabel },
+                        pending: 'field-date',
+                    });
+                    addMsg({ role: 'bot', kind: 'text', text: `No problem, let's go through it. ${DATE_PROMPT}` });
+                }
+                return true;
+            case 'input':
+                return false;
+        }
+        return false;
+    }, [isDemoSession, addDemoMessage, addMessage, advanceAfterField, commitDraft, setDocFlow]);
+
     // A pasted message is treated as a batch of transaction messages: parse
     // it, then walk the user through what stood out before offering to build
     // the actual summary.
@@ -385,6 +681,19 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
 
         addMsg({ role: 'user', kind: 'text', text });
+
+        // Route through the document flow first. A pending prompt consumes the
+        // message outright; the open 'input' state falls through here so we can
+        // tell a pasted message from a typed description.
+        if (!isDemoSession && docFlowRef.current) {
+            const consumed = await handleDocFlow(text);
+            if (consumed) return;
+            if (parseAllMessages(text).transactions.length === 0) {
+                await handleDescription(text);
+                return;
+            }
+        }
+
         setIsProcessing(true);
 
         const thinkingId = addMsg({ role: 'bot', kind: 'thinking' });
@@ -427,10 +736,12 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 .filter(t => t.excludedFromReceipt)
                 .map(t => ({ rawText: t.rawLine, reason: 'excluded', transactionCode: t.transactionCode }));
 
+            const flow = docFlowRef.current;
             await deliverInsights(
                 withDefaults, parseStats, [...parserSkipped, ...excludedSkipped], thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
                 recordResult?.stats ?? null, recordResult?.previousStats, recordResult?.newlyEarnedBadges ?? [],
-                linkEnrichments, nearDuplicates
+                linkEnrichments, nearDuplicates,
+                flow?.documentType ?? 'expense_summary'
             );
         } catch (err) {
             console.error('handleSend failed:', err);
@@ -438,7 +749,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         } finally {
             setIsProcessing(false);
         }
-    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, recordSession, saveIfNew]);
+    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, recordSession, saveIfNew, handleDocFlow, handleDescription]);
 
     // Fired from the interactive receipt's tap-to-label UI. Updates the
     // message's own transactions in place (persisted through the normal
@@ -566,6 +877,22 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
     const messages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
     const title = isDemoSession ? 'Sample data' : (activeSession?.title ?? 'New Receipt');
+
+    // A short hint that tracks where the document flow is, so the composer
+    // always says what to type next.
+    const composerPlaceholder = (() => {
+        switch (docFlow?.pending) {
+            case 'mode': return 'Tap an option above...';
+            case 'business-name': return 'Business name...';
+            case 'party-name': return 'Who it was for...';
+            case 'purpose': return "What it was for, or 'skip'...";
+            case 'field-date': return 'A rough date...';
+            case 'field-amount': return 'Amount in Ksh...';
+            case 'field-recipient': return docFlow.documentType === 'point_of_sale' ? 'What they bought...' : 'Who it was paid to...';
+            case 'confirm': return "'yes' to confirm, or tell me what's off...";
+            default: return 'Copy your messages, or describe what you spent...';
+        }
+    })();
     const canCompose = isDemoSession || !!activeSession;
 
     return (
@@ -604,12 +931,14 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 onUnexcludeSkipped={handleUnexcludeSkipped}
                 onNearDuplicateKeep={handleNearDuplicateKeep}
                 onNearDuplicateDrop={handleNearDuplicateDrop}
+                onOptionSelect={handleOptionSelect}
             />
 
             <ChatComposer
                 onSend={handleSend}
                 disabled={!canCompose || isProcessing}
                 autoFocus={!isDemoSession && !!resumeSessionId}
+                placeholder={composerPlaceholder}
             />
         </ChatShell>
     );

@@ -9,6 +9,7 @@ import { ChatBadge } from './ChatBadge';
 import { ChatReceipt } from './ChatReceipt';
 import { ChatSkippedReview } from './ChatSkippedReview';
 import { ChatNearDuplicate } from './ChatNearDuplicate';
+import { ChatOptions } from './ChatOptions';
 
 interface ChatMessageListProps {
     messages: ChatMessage[];
@@ -19,6 +20,7 @@ interface ChatMessageListProps {
     onUnexcludeSkipped?: (messageId: string, transactionCode: string) => void;
     onNearDuplicateKeep?: (messageId: string) => void;
     onNearDuplicateDrop?: (messageId: string, smallerTransactionCode: string) => void;
+    onOptionSelect?: (messageId: string, value: string) => void;
 }
 
 // How close to the bottom (px) counts as "already there" — below this we
@@ -30,7 +32,7 @@ const NO_SIGNAL = { id: '', epoch: 0 };
 
 function ChatMessageItem({
     message, receiptTransactions, onLabelChange, onViewSkipped, skippedReviewExpandSignal, onIncludeSkipped, onUnexcludeSkipped,
-    onNearDuplicateKeep, onNearDuplicateDrop,
+    onNearDuplicateKeep, onNearDuplicateDrop, onOptionSelect,
 }: {
     message: ChatMessage;
     receiptTransactions: ParsedTransaction[];
@@ -41,10 +43,15 @@ function ChatMessageItem({
     onUnexcludeSkipped?: (messageId: string, transactionCode: string) => void;
     onNearDuplicateKeep?: (messageId: string) => void;
     onNearDuplicateDrop?: (messageId: string, smallerTransactionCode: string) => void;
+    onOptionSelect?: (messageId: string, value: string) => void;
 }) {
     switch (message.kind) {
         case 'text':
             return <ChatBubble message={message} onViewSkipped={onViewSkipped} />;
+        case 'options':
+            return message.options && message.options.length > 0 && onOptionSelect
+                ? <ChatOptions message={message} onSelect={onOptionSelect} />
+                : null;
         case 'thinking':
             return <ChatThinking />;
         case 'insight':
@@ -104,7 +111,7 @@ function ChatMessageItem({
 
 export function ChatMessageList({
     messages, onLabelChange, onViewSkipped, skippedReviewExpandSignal, onIncludeSkipped, onUnexcludeSkipped,
-    onNearDuplicateKeep, onNearDuplicateDrop,
+    onNearDuplicateKeep, onNearDuplicateDrop, onOptionSelect,
 }: ChatMessageListProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -153,6 +160,7 @@ export function ChatMessageList({
                             onUnexcludeSkipped={onUnexcludeSkipped}
                             onNearDuplicateKeep={onNearDuplicateKeep}
                             onNearDuplicateDrop={onNearDuplicateDrop}
+                            onOptionSelect={onOptionSelect}
                         />
                     ))}
                 </AnimatePresence>

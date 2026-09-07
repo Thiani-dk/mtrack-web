@@ -232,6 +232,12 @@ export interface ChatMessage {
     skippedReviewId?: string;           // for 'text' kind (the 'partial' notice)
     skippedMessages?: SkippedMessage[]; // for 'skipped-review' kind
     nearDuplicatePair?: NearDuplicatePair; // for 'near-duplicate' kind
+    // for 'receipt' kind — which of the four documents this builds, plus the
+    // session-scoped context gathered for it. These ride on the message (not
+    // the persisted session) so a resumed draft can rebuild its state.
+    documentType?: DocumentType;
+    merchantProfile?: MerchantProfile | null;
+    onBehalfOf?: OnBehalfOfContext | null;
     timestamp: number;
     // Once the user has answered an options message, lock it
     answered?: boolean;
