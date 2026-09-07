@@ -5,7 +5,7 @@ import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
 import type { AllTimeStats } from '../../lib/aggregate/useAllTimeStats';
 import { describeNewRecords } from '../../lib/aggregate/recordMessages';
-import { parseAllMessages, type ParseStats } from '../../lib/parsers';
+import { parseAllMessages, type ParseStats, type LinkEnrichment, type NearDuplicatePair } from '../../lib/parsers';
 import { generateDemoMessages } from '../../lib/demoData';
 import { generateInsights, computeDaySpan, detectRecurring, type InsightContext } from '../../lib/insights';
 import { buildParseNotices } from '../../lib/parseNotices';
@@ -98,14 +98,16 @@ async function deliverInsights(
     longerRangeAvailable: boolean,
     allTimeStats: AllTimeStats | null,
     previousStats: AllTimeStats | undefined,
-    newlyEarnedBadges: string[]
+    newlyEarnedBadges: string[],
+    linkEnrichments: LinkEnrichment[] = [],
+    nearDuplicates: NearDuplicatePair[] = []
 ): Promise<void> {
     const scoped = fullTransactions.filter(t => !t.excludedFromReceipt);
 
     // No date-range question exists yet, so nothing is ever "out of range" —
     // passing 0 here means the 'all-out-of-range' and 'out-of-range' notices
     // can never fire.
-    const notices = buildParseNotices(stats, 0);
+    const notices = buildParseNotices(stats, { linkEnrichments, nearDuplicates });
     const nothingNotice = notices.find(n => n.id === 'nothing');
 
     if (nothingNotice) {
@@ -135,8 +137,18 @@ async function deliverInsights(
 
     let partialNoticeId: string | null = null;
     for (const notice of notices) {
+        if (notice.kind === 'near-duplicate') continue; // rendered as a question below
         const id = await emitBotText(notice.text, notice.id === 'partial' ? { skippedCount: stats.rejected } : {});
         if (notice.id === 'partial') partialNoticeId = id;
+    }
+
+    // Near-duplicate pairs are a judgement call: surface each as its own
+    // tappable question ("keep both" / "drop the small one"), never as a
+    // statement, and never remove anything on our own.
+    for (const notice of notices) {
+        if (notice.kind !== 'near-duplicate' || !notice.nearDuplicate) continue;
+        await sleep(400);
+        addMsg({ role: 'bot', kind: 'near-duplicate', text: notice.text, nearDuplicatePair: notice.nearDuplicate });
     }
 
     // Anything set aside — parser-rejected or auto-excluded — gets its own
@@ -322,7 +334,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 const cutoff = new Date();
                 cutoff.setDate(cutoff.getDate() - 15);
 
-                const { transactions, stats, skippedMessages: parserSkipped } = parseAllMessages(generateDemoMessages());
+                const { transactions, stats, skippedMessages: parserSkipped, linkEnrichments, nearDuplicates } = parseAllMessages(generateDemoMessages());
                 const withDefaults = transactions.map(t =>
                     t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
                 );
@@ -336,7 +348,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 // and there's no aggregate/badges to consult or update.
                 await deliverInsights(
                     inRange, stats, [...parserSkipped, ...excludedSkipped], thinkingId,
-                    addDemoMessage, updateDemoMessage, true, false, null, undefined, []
+                    addDemoMessage, updateDemoMessage, true, false, null, undefined, [],
+                    linkEnrichments, nearDuplicates
                 );
             } catch (err) {
                 console.error('Demo bootstrap failed:', err);
@@ -377,7 +390,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const thinkingId = addMsg({ role: 'bot', kind: 'thinking' });
 
         try {
-            const { transactions, stats: parseStats, skippedMessages: parserSkipped } = parseAllMessages(text);
+            const { transactions, stats: parseStats, skippedMessages: parserSkipped, linkEnrichments, nearDuplicates } = parseAllMessages(text);
             const withDefaults = transactions.map(t =>
                 t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
             );
@@ -416,7 +429,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
             await deliverInsights(
                 withDefaults, parseStats, [...parserSkipped, ...excludedSkipped], thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
-                recordResult?.stats ?? null, recordResult?.previousStats, recordResult?.newlyEarnedBadges ?? []
+                recordResult?.stats ?? null, recordResult?.previousStats, recordResult?.newlyEarnedBadges ?? [],
+                linkEnrichments, nearDuplicates
             );
         } catch (err) {
             console.error('handleSend failed:', err);
@@ -527,6 +541,29 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         }
     }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, recheckBadges, addMessage]);
 
+    // A near-duplicate question is only ever answered by a tap. "Keep both"
+    // just locks the question. "Drop the small one" additionally flips the
+    // smaller transaction out of the receipt — the same live receipt patch
+    // the skipped-review handlers use, so computeReceiptData picks it up.
+    const handleNearDuplicateKeep = useCallback((messageId: string) => {
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        updateMsg(messageId, { answered: true, answeredValue: 'keep' });
+    }, [isDemoSession, updateDemoMessage, updateMessage]);
+
+    const handleNearDuplicateDrop = useCallback(async (messageId: string, smallerTransactionCode: string) => {
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        updateMsg(messageId, { answered: true, answeredValue: 'drop' });
+
+        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        if (!receiptMsg?.transactions) return;
+
+        const updatedTransactions = receiptMsg.transactions.map(t =>
+            t.transactionCode === smallerTransactionCode ? { ...t, excludedFromReceipt: true } : t
+        );
+        updateMsg(receiptMsg.id, { transactions: updatedTransactions });
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage]);
+
     const messages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
     const title = isDemoSession ? 'Sample data' : (activeSession?.title ?? 'New Receipt');
     const canCompose = isDemoSession || !!activeSession;
@@ -565,6 +602,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 skippedReviewExpandSignal={skippedReviewSignal}
                 onIncludeSkipped={handleIncludeSkipped}
                 onUnexcludeSkipped={handleUnexcludeSkipped}
+                onNearDuplicateKeep={handleNearDuplicateKeep}
+                onNearDuplicateDrop={handleNearDuplicateDrop}
             />
 
             <ChatComposer

@@ -1,5 +1,6 @@
 import type { Insight } from '../lib/insights/types';
 import type { RecurringPattern } from '../lib/insights/recurring';
+import type { NearDuplicatePair } from '../lib/parsers/nearDuplicates';
 
 export type AppStep =
     | 'home'
@@ -200,6 +201,7 @@ export type ChatMessageKind =
     | 'recurring'         // detected recurring payment patterns
     | 'badge'             // a newly-unlocked badge
     | 'skipped-review'    // recoverable messages the parser set aside
+    | 'near-duplicate'    // a tappable "keep both / drop the small one" question
     | 'thinking';         // animated typing indicator
 
 export interface ChatOption {
@@ -229,6 +231,7 @@ export interface ChatMessage {
     skippedCount?: number;
     skippedReviewId?: string;           // for 'text' kind (the 'partial' notice)
     skippedMessages?: SkippedMessage[]; // for 'skipped-review' kind
+    nearDuplicatePair?: NearDuplicatePair; // for 'near-duplicate' kind
     timestamp: number;
     // Once the user has answered an options message, lock it
     answered?: boolean;

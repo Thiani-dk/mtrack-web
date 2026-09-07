@@ -10,10 +10,13 @@ import { extractMerchant } from './extractors/merchant';
 import { scoreTransaction } from './confidence';
 import { applyProviderHint } from './hints/providerHints';
 import { classifyMessage } from './classify';
-import { linkTransactions, type RawBlockResult } from './linkTransactions';
+import { linkTransactions, type RawBlockResult, type LinkEnrichment } from './linkTransactions';
 import { applyVerificationChargeDetection } from './verificationCharge';
+import { detectNearDuplicates, type NearDuplicatePair } from './nearDuplicates';
 
 export type { ParseStats, SkippedMessage };
+export type { LinkEnrichment } from './linkTransactions';
+export type { NearDuplicatePair } from './nearDuplicates';
 
 function fallbackNameForMethod(method: string): string | null {
     switch (method) {
@@ -183,9 +186,19 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
     };
 }
 
-export function parseAllMessages(
-    raw: string
-): { transactions: ParsedTransaction[]; stats: ParseStats; skippedMessages: SkippedMessage[] } {
+export interface ParseResult {
+    transactions: ParsedTransaction[];
+    stats: ParseStats;
+    skippedMessages: SkippedMessage[];
+    // Merged multi-message transactions (an M-PESA debit plus its card
+    // confirmation, say) — so the conversation can say it combined them
+    // rather than mistaking them for a duplicate paste.
+    linkEnrichments: LinkEnrichment[];
+    // Same-party, minutes-apart pairs that need a human judgement call.
+    nearDuplicates: NearDuplicatePair[];
+}
+
+export function parseAllMessages(raw: string): ParseResult {
     const blocks = preprocessToBlocks(raw);
 
     let serviceNoticeCount = 0;
@@ -222,7 +235,7 @@ export function parseAllMessages(
     });
 
     const rawResults = transactionBlocks.map(({ block, index }) => extractRawBlock(block, index));
-    const linked = linkTransactions(rawResults);
+    const { merged: linked, enrichments } = linkTransactions(rawResults);
 
     const finalized = linked.map(r => finalizeTransaction(r));
     const successfulTransactions = finalized.filter((t): t is ParsedTransaction => t !== null);
@@ -235,6 +248,19 @@ export function parseAllMessages(
 
     const { unique, duplicatesRemoved, removed: duplicateTransactions } = dedupeTransactions(withVerificationCharges);
     unique.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    // Keep only enrichments whose merged transaction actually survived to the
+    // final list — a merge that then failed finalisation or got deduped away
+    // has nothing left to narrate.
+    const survivingCodes = new Set(unique.map(t => t.transactionCode));
+    const linkEnrichments = enrichments.filter(e => survivingCodes.has(e.code));
+
+    const nearDuplicates = detectNearDuplicates(unique);
+
+    const verificationSentSide = unique.filter(t => t.isVerificationCharge && t.type === 'sent');
+    const verificationChargesExcluded = verificationSentSide.length;
+    const verificationChargeAmount =
+        verificationSentSide.length === 1 ? verificationSentSide[0].amount : null;
 
     const skippedMessages: SkippedMessage[] = [
         ...notTransactionBlocks.map((rawText): SkippedMessage => ({ rawText, reason: 'not-a-transaction' })),
@@ -254,6 +280,8 @@ export function parseAllMessages(
         syntheticCodes: 0,
         holds: 0,
         failed: 0,
+        verificationChargesExcluded,
+        verificationChargeAmount,
         unparsedSamples: noiseSamples,
         serviceNoticeCount,
         securityAlertCount,
@@ -270,7 +298,7 @@ export function parseAllMessages(
         if (t.failed) stats.failed++;
     }
 
-    return { transactions: unique, stats, skippedMessages };
+    return { transactions: unique, stats, skippedMessages, linkEnrichments, nearDuplicates };
 }
 
 export function parseAllSMS(raw: string): ParsedTransaction[] {

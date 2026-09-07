@@ -24,6 +24,17 @@ export interface RawBlockResult {
 
 const GENERIC_PARTY_RE = /^M-PESA CARD$/i;
 
+// Canonical form of a party/merchant name for equality comparison. The one
+// place this normalisation lives — reused by nearDuplicates.ts rather than
+// duplicated. Lower-cased, business suffixes and punctuation stripped.
+export function normalizeParty(name: string | null | undefined): string {
+    return (name ?? '')
+        .toLowerCase()
+        .replace(/\b(ltd|plc|limited|enterprises?|company|co|inc|t\/a)\b/g, ' ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+}
+
 function moreDescriptive(a: string | null, b: string | null): string | null {
     if (!a) return b;
     if (!b) return a;
@@ -132,9 +143,28 @@ function mergeTwo(a: RawBlockResult, b: RawBlockResult): RawBlockResult {
     };
 }
 
+// One merged record that was assembled from two or more separate messages
+// sharing a transaction code — e.g. an M-PESA debit plus its card-approval
+// confirmation. Surfaced to the conversation layer so it can say "I combined
+// these" rather than mistaking them for a duplicate paste.
+export interface LinkEnrichment {
+    code: string;
+    messageCount: number;
+    merchantName: string | null;
+    // true when the merge is the only reason a merchant name is present — at
+    // least one source block had none on its own (the classic "the card
+    // message carried the name" case).
+    gainedMerchant: boolean;
+}
+
+export interface LinkResult {
+    merged: RawBlockResult[];
+    enrichments: LinkEnrichment[];
+}
+
 // Groups by transaction code and folds every group of 2+ into a single
 // merged record. Groups of 1 pass through untouched.
-export function linkTransactions(results: RawBlockResult[]): RawBlockResult[] {
+export function linkTransactions(results: RawBlockResult[]): LinkResult {
     const groups = new Map<string, RawBlockResult[]>();
     for (const r of results) {
         const key = r.codeResult.code;
@@ -144,6 +174,8 @@ export function linkTransactions(results: RawBlockResult[]): RawBlockResult[] {
     }
 
     const merged: RawBlockResult[] = [];
+    const enrichments: LinkEnrichment[] = [];
+
     for (const bucket of groups.values()) {
         if (bucket.length === 1) {
             merged.push(bucket[0]);
@@ -164,16 +196,30 @@ export function linkTransactions(results: RawBlockResult[]): RawBlockResult[] {
         // start a new cluster if it conflicts with all existing ones —
         // handles both a genuine 3+-way merge and a collision that must
         // stay split, within the same pass.
-        const clusters: RawBlockResult[] = [];
+        const clusters: { record: RawBlockResult; sources: RawBlockResult[] }[] = [];
         for (const r of bucket) {
-            const clusterIndex = clusters.findIndex(c => areCompatible(c, r));
+            const clusterIndex = clusters.findIndex(c => areCompatible(c.record, r));
             if (clusterIndex === -1) {
-                clusters.push(r);
+                clusters.push({ record: r, sources: [r] });
             } else {
-                clusters[clusterIndex] = mergeTwo(clusters[clusterIndex], r);
+                clusters[clusterIndex].record = mergeTwo(clusters[clusterIndex].record, r);
+                clusters[clusterIndex].sources.push(r);
             }
         }
-        merged.push(...clusters);
+        for (const cluster of clusters) {
+            merged.push(cluster.record);
+            if (cluster.sources.length >= 2) {
+                const merchantName = cluster.record.merchant?.name ?? null;
+                const gainedMerchant =
+                    merchantName != null && cluster.sources.some(s => s.merchant?.name == null);
+                enrichments.push({
+                    code: cluster.record.codeResult.code,
+                    messageCount: cluster.sources.length,
+                    merchantName,
+                    gainedMerchant,
+                });
+            }
+        }
     }
-    return merged;
+    return { merged, enrichments };
 }

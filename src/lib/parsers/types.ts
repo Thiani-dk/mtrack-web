@@ -61,6 +61,13 @@ export interface ParseStats {
     syntheticCodes: number;
     holds: number;
     failed: number;
+    // Outgoing verification / card-check charges (the Ksh<=5 test pair) that
+    // were flagged and default-excluded. Counts the sent side only, so a
+    // sent+received pair reads as one card check.
+    verificationChargesExcluded: number;
+    // Face amount of the single verification charge, when there is exactly one
+    // — lets the notice name it ("a Ksh 1 card check").
+    verificationChargeAmount: number | null;
     unparsedSamples: string[];
     serviceNoticeCount: number;
     securityAlertCount: number;

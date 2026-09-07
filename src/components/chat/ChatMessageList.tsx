@@ -8,6 +8,7 @@ import { ChatRecurring } from './ChatRecurring';
 import { ChatBadge } from './ChatBadge';
 import { ChatReceipt } from './ChatReceipt';
 import { ChatSkippedReview } from './ChatSkippedReview';
+import { ChatNearDuplicate } from './ChatNearDuplicate';
 
 interface ChatMessageListProps {
     messages: ChatMessage[];
@@ -16,6 +17,8 @@ interface ChatMessageListProps {
     skippedReviewExpandSignal?: { id: string; epoch: number };
     onIncludeSkipped?: (messageId: string, entry: SkippedMessage, transaction: ParsedTransaction) => void;
     onUnexcludeSkipped?: (messageId: string, transactionCode: string) => void;
+    onNearDuplicateKeep?: (messageId: string) => void;
+    onNearDuplicateDrop?: (messageId: string, smallerTransactionCode: string) => void;
 }
 
 // How close to the bottom (px) counts as "already there" — below this we
@@ -27,6 +30,7 @@ const NO_SIGNAL = { id: '', epoch: 0 };
 
 function ChatMessageItem({
     message, receiptTransactions, onLabelChange, onViewSkipped, skippedReviewExpandSignal, onIncludeSkipped, onUnexcludeSkipped,
+    onNearDuplicateKeep, onNearDuplicateDrop,
 }: {
     message: ChatMessage;
     receiptTransactions: ParsedTransaction[];
@@ -35,6 +39,8 @@ function ChatMessageItem({
     skippedReviewExpandSignal?: { id: string; epoch: number };
     onIncludeSkipped?: (messageId: string, entry: SkippedMessage, transaction: ParsedTransaction) => void;
     onUnexcludeSkipped?: (messageId: string, transactionCode: string) => void;
+    onNearDuplicateKeep?: (messageId: string) => void;
+    onNearDuplicateDrop?: (messageId: string, smallerTransactionCode: string) => void;
 }) {
     switch (message.kind) {
         case 'text':
@@ -76,6 +82,16 @@ function ChatMessageItem({
                     />
                 )
                 : null;
+        case 'near-duplicate':
+            return message.nearDuplicatePair && onNearDuplicateKeep && onNearDuplicateDrop
+                ? (
+                    <ChatNearDuplicate
+                        message={message}
+                        onKeepBoth={onNearDuplicateKeep}
+                        onDropSmall={onNearDuplicateDrop}
+                    />
+                )
+                : null;
         default:
             // Still placeholders: options, dropzone, transactions (Phase 5B)
             return (
@@ -88,6 +104,7 @@ function ChatMessageItem({
 
 export function ChatMessageList({
     messages, onLabelChange, onViewSkipped, skippedReviewExpandSignal, onIncludeSkipped, onUnexcludeSkipped,
+    onNearDuplicateKeep, onNearDuplicateDrop,
 }: ChatMessageListProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -134,6 +151,8 @@ export function ChatMessageList({
                             skippedReviewExpandSignal={skippedReviewExpandSignal}
                             onIncludeSkipped={onIncludeSkipped}
                             onUnexcludeSkipped={onUnexcludeSkipped}
+                            onNearDuplicateKeep={onNearDuplicateKeep}
+                            onNearDuplicateDrop={onNearDuplicateDrop}
                         />
                     ))}
                 </AnimatePresence>
