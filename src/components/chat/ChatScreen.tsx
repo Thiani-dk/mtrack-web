@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
     ChatMessage, ChatOption, ParsedTransaction, SkippedMessage,
-    DocumentType, MerchantProfile, OnBehalfOfContext,
+    DocumentType, MerchantProfile, OnBehalfOfContext, TrackedDocument,
 } from '../../types';
 import { extractDescription, buildSelfReportedTransaction, parseConversationalDate } from '../../lib/conversationalCapture';
 import { fmtProse } from '../../lib/transactionDisplay';
+import { useDocumentStore } from '../../lib/useDocumentStore';
+import { getDocument } from '../../lib/documentStore';
+import { buildDraft } from '../../lib/draftDocument';
 import { useChatSession } from '../../lib/useChatSession';
 import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
@@ -60,7 +63,8 @@ const EFFICIENCY_NUDGE =
 
 type PendingPrompt =
     | 'mode' | 'business-name' | 'party-name' | 'purpose'
-    | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm' | 'input';
+    | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm'
+    | 'purpose-label' | 'input';
 
 interface CaptureDraft {
     amount: number | null;
@@ -80,6 +84,10 @@ interface DocFlow {
     draft: CaptureDraft;
     describedCount: number;
     nudgeShown: boolean;
+    // Transaction codes still awaiting a guided purpose label (on_behalf_of).
+    purposeQueue: string[];
+    // The persisted draft TrackedDocument backing this flow (id === session id).
+    draftDoc: TrackedDocument | null;
 }
 
 function emptyDraft(): CaptureDraft {
@@ -311,8 +319,9 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         updateMessage,
         updateSessionStatus,
     } = useChatSession();
-    const { receipts, saveIfNew, isAvailable: isReceiptStoreAvailable } = useReceiptStore();
+    const { receipts, isAvailable: isReceiptStoreAvailable } = useReceiptStore();
     const { recordSession, recheckBadges } = useAllTimeStats();
+    const { saveDocument: persistDocument } = useDocumentStore();
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -338,6 +347,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     const hasInitialized = useRef(false);
     const greetedSessionIds = useRef(new Set<string>());
     const resumeGreetedSessionIds = useRef(new Set<string>());
+    const restoredDraftSessionIds = useRef(new Set<string>());
     const demoStarted = useRef(false);
 
     const addDemoMessage = useCallback<AddMessageFn>((msg) => {
@@ -385,6 +395,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             draft: emptyDraft(),
             describedCount: 0,
             nudgeShown: false,
+            purposeQueue: [],
+            draftDoc: null,
         });
     }, [isDemoSession, activeSession, addMessage, setDocFlow]);
 
@@ -400,6 +412,37 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         resumeGreetedSessionIds.current.add(activeSession.id);
         addMessage({ role: 'bot', kind: 'text', text: RESUME_BUBBLE });
     }, [isDemoSession, resumeSessionId, activeSession, addMessage]);
+
+    // Phase D4 — resume mid-document-build. If a draft (or approved) document
+    // is stored against this session, rebuild the ephemeral flow so tap-to-edit,
+    // the purpose questions and Approve all keep working after a reload. The
+    // business name / party name come back from the document, not the session.
+    useEffect(() => {
+        if (isDemoSession || !activeSession) return;
+        if (activeSession.messages.length === 0) return;
+        if (restoredDraftSessionIds.current.has(activeSession.id)) return;
+        if (docFlowRef.current) return;
+        restoredDraftSessionIds.current.add(activeSession.id);
+        const sessionId = activeSession.id;
+        (async () => {
+            const doc = await getDocument(sessionId);
+            if (!doc || docFlowRef.current) return;
+            setDocFlow({
+                documentType: doc.documentType,
+                merchantProfile: doc.merchantProfile,
+                onBehalfOf: doc.onBehalfOf,
+                pending: 'input',
+                draft: emptyDraft(),
+                describedCount: 0,
+                nudgeShown: true,
+                purposeQueue: [],
+                draftDoc: doc,
+            });
+            if (doc.status === 'draft') {
+                addMessage({ role: 'bot', kind: 'text', text: "Picking up where we left off. Edit anything on the document, or tap Approve when it looks right." });
+            }
+        })();
+    }, [isDemoSession, activeSession, setDocFlow, addMessage]);
 
     // Demo bootstrap: intro line, a beat of "thinking", then the demo data
     // auto-parses and flows through the exact same insights pipeline as a
@@ -470,7 +513,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             updateSessionStatus(activeSession.id, 'active');
         }
 
-        const base = { merchantProfile: null, onBehalfOf: null, draft: emptyDraft(), describedCount: 0, nudgeShown: false } as const;
+        const base = {
+            merchantProfile: null, onBehalfOf: null, draft: emptyDraft(),
+            describedCount: 0, nudgeShown: false, purposeQueue: [] as string[], draftDoc: null,
+        };
         if (value === 'own') {
             setDocFlow({ ...base, documentType: 'expense_summary', pending: 'input' });
             addMsg({ role: 'bot', kind: 'text', text: OWN_PROMPT });
@@ -483,7 +529,51 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         }
     }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, activeSession, updateSessionStatus, setDocFlow]);
 
-    const commitDraft = useCallback((flow: DocFlow, draft: CaptureDraft) => {
+    // Persists (debounced) the draft TrackedDocument backing this flow. Its id
+    // is the session id — one draft per session — so a resume finds it. Draft
+    // status and covering dates / dataSource are recomputed by buildDraft.
+    const syncDraft = useCallback((transactions: ParsedTransaction[]) => {
+        if (isDemoSession) return;
+        const flow = docFlowRef.current;
+        const sid = activeSession?.id;
+        if (!flow || !sid) return;
+        const doc = buildDraft({
+            sessionId: sid,
+            documentType: flow.documentType,
+            merchantProfile: flow.merchantProfile,
+            onBehalfOf: flow.onBehalfOf,
+            transactions,
+            existing: flow.draftDoc,
+        });
+        setDocFlow(f => (f ? { ...f, draftDoc: doc } : f));
+        persistDocument(doc);
+    }, [isDemoSession, activeSession, persistDocument, setDocFlow]);
+
+    const askPurposeFor = useCallback((code: string, transactions: ParsedTransaction[]) => {
+        const addMsg = isDemoSession ? addDemoMessage : addMessage;
+        const txn = transactions.find(t => t.transactionCode === code);
+        if (!txn) return;
+        addMsg({
+            role: 'bot', kind: 'text',
+            text: `What was the ${fmtProse(txn.amount)} to ${txn.merchant ?? txn.recipient} for? Say skip to leave it out.`,
+        });
+    }, [isDemoSession, addDemoMessage, addMessage]);
+
+    // Phase D1 — in on_behalf_of mode, actively walk every unlabelled line one
+    // at a time. An unexplained line is what gets a reimbursement rejected.
+    const maybeStartPurposeLabelling = useCallback(async (transactions: ParsedTransaction[]) => {
+        const flow = docFlowRef.current;
+        if (!flow || flow.documentType !== 'on_behalf_of') return;
+        const queue = transactions
+            .filter(t => !t.excludedFromReceipt && !t.purposeLabel)
+            .map(t => t.transactionCode);
+        if (queue.length === 0) return;
+        setDocFlow({ ...flow, purposeQueue: queue, pending: 'purpose-label' });
+        await sleep(500);
+        askPurposeFor(queue[0], transactions);
+    }, [setDocFlow, askPurposeFor]);
+
+    const commitDraft = useCallback(async (flow: DocFlow, draft: CaptureDraft) => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
         if (draft.amount == null || draft.amount <= 0 || !draft.recipient || !draft.date) return;
@@ -500,22 +590,69 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
         const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
         const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        const allTxns = receiptMsg?.transactions ? [...receiptMsg.transactions, txn] : [txn];
         if (receiptMsg?.transactions) {
-            updateMsg(receiptMsg.id, { transactions: [...receiptMsg.transactions, txn] });
+            updateMsg(receiptMsg.id, { transactions: allTxns });
         } else {
-            // documentType rides on the message (it's a category, and History
-            // needs it); the business name / party name never do — they live
-            // only in the ephemeral flow and a page reload drops them, until
-            // Phase D persists them on the draft document itself.
             addMsg({
-                role: 'bot', kind: 'receipt', transactions: [txn], dateRange: fmtShortDate(draft.date),
+                role: 'bot', kind: 'receipt', transactions: allTxns, dateRange: fmtShortDate(draft.date),
                 isDemo: false, documentType: resolvedType,
             });
         }
 
         setDocFlow({ ...flow, documentType: resolvedType, draft: emptyDraft(), pending: 'input' });
-        addMsg({ role: 'bot', kind: 'text', text: "Added. Tell me the next one, or that's everything." });
-    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, setDocFlow]);
+        syncDraft(allTxns);
+
+        if (resolvedType === 'on_behalf_of' && !txn.purposeLabel) {
+            setDocFlow(f => (f ? { ...f, purposeQueue: [txn.transactionCode], pending: 'purpose-label' } : f));
+            await sleep(300);
+            askPurposeFor(txn.transactionCode, allTxns);
+        } else {
+            addMsg({ role: 'bot', kind: 'text', text: "Added. Tell me the next one, or tap Approve when the document looks right." });
+        }
+    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, setDocFlow, syncDraft, askPurposeFor]);
+
+    // Phase D3 — the one action that finalises a document. Only after Approve
+    // does an expense_summary / personal_note feed badges, personal records
+    // and all-time totals; point_of_sale / on_behalf_of never do (Phase F).
+    const handleApprove = useCallback(async (messageId: string) => {
+        if (isDemoSession) return;
+        const sid = activeSession?.id;
+        if (!sid) return;
+        const msg = (activeSession?.messages ?? []).find(m => m.id === messageId);
+        const transactions = msg?.transactions ?? [];
+        const flow = docFlowRef.current;
+        const documentType: DocumentType = flow?.documentType ?? msg?.documentType ?? 'expense_summary';
+
+        const doc = buildDraft({
+            sessionId: sid, documentType,
+            merchantProfile: flow?.merchantProfile ?? null,
+            onBehalfOf: flow?.onBehalfOf ?? null,
+            transactions,
+            existing: flow?.draftDoc ?? null,
+        });
+        const approved: TrackedDocument = { ...doc, status: 'approved', updatedAt: Date.now() };
+        await persistDocument(approved);
+        setDocFlow(f => (f ? { ...f, draftDoc: approved } : f));
+        updateMessage(messageId, { documentStatus: 'approved' });
+
+        if (documentType === 'expense_summary' || documentType === 'personal_note') {
+            const result = await recordSession(transactions, false);
+            if (result) {
+                for (const recordText of describeNewRecords(result.previousStats, result.stats)) {
+                    await sleep(400);
+                    addMessage({ role: 'bot', kind: 'text', text: recordText });
+                }
+                for (const badgeId of result.newlyEarnedBadges) {
+                    await sleep(600);
+                    addMessage({ role: 'bot', kind: 'badge', badgeId, badgeLeadIn: pickRandom(BADGE_LEAD_INS) });
+                }
+            }
+        }
+
+        await sleep(300);
+        addMessage({ role: 'bot', kind: 'text', text: 'Approved and saved. It is in your history now.' });
+    }, [isDemoSession, activeSession, persistDocument, setDocFlow, updateMessage, recordSession, addMessage]);
 
     // date first (Phase C3), then amount, then who / what. Emits the next
     // question and returns which prompt we're now waiting on.
@@ -650,9 +787,30 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 }
                 advanceAfterField(flow, { ...flow.draft, recipient: t });
                 return true;
+            case 'purpose-label': {
+                const [code, ...restQueue] = flow.purposeQueue;
+                const skip = !t || /^(skip|none|n\/?a|no)$/i.test(t);
+                const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+                const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+                let updatedTxns = receiptMsg?.transactions ?? [];
+                if (!skip && code && receiptMsg?.transactions) {
+                    updatedTxns = receiptMsg.transactions.map(tx =>
+                        tx.transactionCode === code ? { ...tx, purposeLabel: t } : tx);
+                    (isDemoSession ? updateDemoMessage : updateMessage)(receiptMsg.id, { transactions: updatedTxns });
+                }
+                if (restQueue.length > 0) {
+                    setDocFlow({ ...flow, purposeQueue: restQueue });
+                    askPurposeFor(restQueue[0], updatedTxns);
+                } else {
+                    setDocFlow({ ...flow, purposeQueue: [], pending: 'input' });
+                    addMsg({ role: 'bot', kind: 'text', text: "That's every line explained. Tap Approve when the document looks right." });
+                }
+                syncDraft(updatedTxns);
+                return true;
+            }
             case 'confirm':
                 if (/^(y\b|yes|yep|yeah|correct|right|ok|okay|sure|that'?s? right|👍)/i.test(t)) {
-                    commitDraft(flow, flow.draft);
+                    await commitDraft(flow, flow.draft);
                 } else {
                     setDocFlow({
                         ...flow,
@@ -666,7 +824,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 return false;
         }
         return false;
-    }, [isDemoSession, addDemoMessage, addMessage, advanceAfterField, commitDraft, setDocFlow]);
+    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, advanceAfterField, commitDraft, setDocFlow, syncDraft, askPurposeFor]);
 
     // A pasted message is treated as a batch of transaction messages: parse
     // it, then walk the user through what stood out before offering to build
@@ -711,27 +869,12 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             const longerRangeAvailable = !isDemoSession &&
                 receipts.some(r => computeDaySpan(r.transactions) > computeDaySpan(scoped));
 
-            // Every real summary feeds the running all-time picture — this is
-            // also what lets comparison/fee-trend/milestone insights and badges
-            // reflect this session, not just history as of the last visit. Demo
-            // sessions are excluded entirely from both history and the aggregate.
-            // Passed the full (not pre-filtered) set — recordSession/saveIfNew
-            // both already filter !excludedFromReceipt internally, and saveIfNew's
-            // dedup fingerprint needs to hash the same shape every time it's
-            // called (this call, and later re-saves from the receipt card's own
-            // Save/Share buttons, which read the receipt message's full set —
-            // see deliverInsights) or a later save would look like a different
-            // receipt and create a duplicate history entry instead of updating it.
-            let recordResult = null;
-            if (!isDemoSession) {
-                const dayCount = computeDaySpan(scoped);
-                const receiptRangeLabel = dayCount <= 1 ? 'today' : `past ${dayCount} days`;
-                [recordResult] = await Promise.all([
-                    recordSession(withDefaults, false),
-                    saveIfNew(withDefaults, receiptRangeLabel),
-                ]);
-            }
-
+            // Phase D: nothing is recorded to the running aggregate here any
+            // more. The batch produces a DRAFT document; only an explicit
+            // Approve feeds badges, personal records and all-time totals (and
+            // only for expense_summary / personal_note). So deliverInsights
+            // shows this batch's own insights, but announces no milestones or
+            // badges yet.
             const excludedSkipped: SkippedMessage[] = withDefaults
                 .filter(t => t.excludedFromReceipt)
                 .map(t => ({ rawText: t.rawLine, reason: 'excluded', transactionCode: t.transactionCode }));
@@ -739,17 +882,22 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             const flow = docFlowRef.current;
             await deliverInsights(
                 withDefaults, parseStats, [...parserSkipped, ...excludedSkipped], thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
-                recordResult?.stats ?? null, recordResult?.previousStats, recordResult?.newlyEarnedBadges ?? [],
+                null, undefined, [],
                 linkEnrichments, nearDuplicates,
                 flow?.documentType ?? 'expense_summary'
             );
+
+            if (!isDemoSession) {
+                syncDraft(withDefaults);
+                await maybeStartPurposeLabelling(withDefaults);
+            }
         } catch (err) {
             console.error('handleSend failed:', err);
             updateMsg(thinkingId, { kind: 'text', text: PROCESSING_ERROR_TEXT });
         } finally {
             setIsProcessing(false);
         }
-    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, recordSession, saveIfNew, handleDocFlow, handleDescription]);
+    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
 
     // Fired from the interactive receipt's tap-to-label UI. Updates the
     // message's own transactions in place (persisted through the normal
@@ -875,6 +1023,35 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         updateMsg(receiptMsg.id, { transactions: updatedTransactions });
     }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage]);
 
+    // Phase D2 — tap-to-edit on the preview. Mutates only the message's own
+    // transactions (and the draft document); PDF/HTML blobs are untouched
+    // until Save or Share.
+    const handleEditTransaction = useCallback((messageId: string, transactionCode: string, patch: Partial<ParsedTransaction>) => {
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const msg = currentMessages.find(m => m.id === messageId);
+        if (!msg?.transactions) return;
+        const updated = msg.transactions.map(tx => tx.transactionCode === transactionCode ? { ...tx, ...patch } : tx);
+        (isDemoSession ? updateDemoMessage : updateMessage)(messageId, { transactions: updated });
+        syncDraft(updated);
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, syncDraft]);
+
+    const handleEditContext = useCallback((patch: { merchantProfile?: MerchantProfile | null; onBehalfOf?: OnBehalfOfContext | null }) => {
+        const flow = docFlowRef.current;
+        if (!flow) return;
+        setDocFlow({
+            ...flow,
+            merchantProfile: patch.merchantProfile !== undefined ? patch.merchantProfile : flow.merchantProfile,
+            onBehalfOf: patch.onBehalfOf !== undefined ? patch.onBehalfOf : flow.onBehalfOf,
+        });
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        syncDraft(receiptMsg?.transactions ?? flow.draftDoc?.transactions ?? []);
+    }, [isDemoSession, demoMessages, activeSession, setDocFlow, syncDraft]);
+
+    const documentContext = docFlow
+        ? { documentType: docFlow.documentType, merchantProfile: docFlow.merchantProfile, onBehalfOf: docFlow.onBehalfOf }
+        : null;
+
     const messages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
     const title = isDemoSession ? 'Sample data' : (activeSession?.title ?? 'New Receipt');
 
@@ -932,6 +1109,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 onNearDuplicateKeep={handleNearDuplicateKeep}
                 onNearDuplicateDrop={handleNearDuplicateDrop}
                 onOptionSelect={handleOptionSelect}
+                documentContext={documentContext}
+                onApproveDocument={isDemoSession ? undefined : handleApprove}
+                onEditTransaction={isDemoSession ? undefined : handleEditTransaction}
+                onEditContext={isDemoSession ? undefined : handleEditContext}
             />
 
             <ChatComposer

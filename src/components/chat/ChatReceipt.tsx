@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, Share2, Check } from 'lucide-react';
-import type { ParsedTransaction } from '../../types';
+import type { DocumentType, MerchantProfile, OnBehalfOfContext, ParsedTransaction } from '../../types';
 import { computeReceiptData, generateReceiptHTML, generateReceiptPDF, summariseReceiptForShare } from '../../lib/receiptGenerator';
 import { downloadHTML, downloadPDF, getReceiptFilenames } from '../../lib/downloadUtils';
 import { share } from '../../lib/shareUtils';
@@ -9,17 +9,72 @@ import { useEntranceOnce } from '../../lib/useEntranceOnce';
 import { useReceiptStore } from '../../lib/useReceiptStore';
 import { ChatReceiptVisual } from './ChatReceiptVisual';
 
+export interface DocumentContext {
+    documentType: DocumentType;
+    merchantProfile: MerchantProfile | null;
+    onBehalfOf: OnBehalfOfContext | null;
+}
+
 interface ChatReceiptProps {
     messageId: string;
     transactions: ParsedTransaction[];
     dateRange: string;
     isDemo?: boolean;
     onLabelChange?: (transactionCode: string, label: string | null) => void;
+    documentContext?: DocumentContext | null;
+    approved?: boolean;
+    onApprove?: () => void;
+    onEditTransaction?: (transactionCode: string, patch: Partial<ParsedTransaction>) => void;
+    onEditContext?: (patch: Partial<DocumentContext>) => void;
 }
 
 type Busy = 'pdf' | 'html' | 'share' | null;
 
-export function ChatReceipt({ messageId, transactions, dateRange, isDemo = false, onLabelChange }: ChatReceiptProps) {
+// A single tap-to-edit line: shows text, becomes an input on tap, commits on
+// blur or Enter. Used for the document's context header fields.
+function EditableLine({
+    label, value, placeholder, onCommit,
+}: {
+    label: string; value: string; placeholder: string; onCommit: (next: string) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState(value);
+    const commit = () => {
+        setEditing(false);
+        const trimmed = draft.trim();
+        if (trimmed !== value) onCommit(trimmed);
+    };
+    return (
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-[var(--text-muted)]">{label}</span>
+            {editing ? (
+                <input
+                    autoFocus
+                    value={draft}
+                    onChange={e => setDraft(e.target.value)}
+                    onBlur={commit}
+                    onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false); } }}
+                    className="text-right text-[11px] px-1.5 py-0.5 rounded outline-none min-w-0 flex-1"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                />
+            ) : (
+                <button
+                    type="button"
+                    onClick={() => { setDraft(value); setEditing(true); }}
+                    className="text-right font-medium"
+                    style={{ color: value ? 'var(--text-primary)' : 'var(--accent)' }}
+                >
+                    {value || placeholder}
+                </button>
+            )}
+        </div>
+    );
+}
+
+export function ChatReceipt({
+    messageId, transactions, dateRange, isDemo = false, onLabelChange,
+    documentContext, approved = false, onApprove, onEditTransaction, onEditContext,
+}: ChatReceiptProps) {
     const [busy, setBusy] = useState<Busy>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const { saveIfNew } = useReceiptStore();
@@ -109,9 +164,56 @@ export function ChatReceipt({ messageId, transactions, dateRange, isDemo = false
             className="flex justify-start"
         >
             <div className="glass-card max-w-[85%] w-full px-4 py-4">
+                {documentContext && documentContext.documentType === 'point_of_sale' && (
+                    <div className="mb-3 pb-2 border-b border-[var(--border-glass)] space-y-1">
+                        <EditableLine
+                            label="Business" value={documentContext.merchantProfile?.businessName ?? ''} placeholder="Add business name"
+                            onCommit={next => onEditContext?.({ merchantProfile: { businessName: next, contact: documentContext.merchantProfile?.contact ?? null } })}
+                        />
+                        <EditableLine
+                            label="Contact" value={documentContext.merchantProfile?.contact ?? ''} placeholder="Add contact (optional)"
+                            onCommit={next => onEditContext?.({ merchantProfile: { businessName: documentContext.merchantProfile?.businessName ?? '', contact: next || null } })}
+                        />
+                    </div>
+                )}
+                {documentContext && documentContext.documentType === 'on_behalf_of' && (
+                    <div className="mb-3 pb-2 border-b border-[var(--border-glass)] space-y-1">
+                        <EditableLine
+                            label="Prepared for" value={documentContext.onBehalfOf?.partyName ?? ''} placeholder="Add name"
+                            onCommit={next => onEditContext?.({ onBehalfOf: { partyName: next, preparedBy: documentContext.onBehalfOf?.preparedBy ?? null, purpose: documentContext.onBehalfOf?.purpose ?? null } })}
+                        />
+                        <EditableLine
+                            label="Prepared by" value={documentContext.onBehalfOf?.preparedBy ?? ''} placeholder="Add your name (optional)"
+                            onCommit={next => onEditContext?.({ onBehalfOf: { partyName: documentContext.onBehalfOf?.partyName ?? '', preparedBy: next || null, purpose: documentContext.onBehalfOf?.purpose ?? null } })}
+                        />
+                        <EditableLine
+                            label="Purpose" value={documentContext.onBehalfOf?.purpose ?? ''} placeholder="Add purpose (optional)"
+                            onCommit={next => onEditContext?.({ onBehalfOf: { partyName: documentContext.onBehalfOf?.partyName ?? '', preparedBy: documentContext.onBehalfOf?.preparedBy ?? null, purpose: next || null } })}
+                        />
+                    </div>
+                )}
+
                 <div className="mb-3">
-                    <ChatReceiptVisual data={data} dateRange={dateRange} playEntrance={playEntrance} onLabelChange={onLabelChange} />
+                    <ChatReceiptVisual
+                        data={data} dateRange={dateRange} playEntrance={playEntrance}
+                        onLabelChange={onLabelChange}
+                        onEditTransaction={onEditTransaction}
+                    />
                 </div>
+
+                {onApprove && !isDemo && (
+                    <button
+                        type="button"
+                        onClick={onApprove}
+                        disabled={approved}
+                        className="mb-2 min-h-[40px] rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-60"
+                        style={approved
+                            ? { background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }
+                            : { background: 'var(--accent)', color: '#ffffff' }}
+                    >
+                        {approved ? <><Check className="w-3.5 h-3.5" /> Approved</> : 'Approve'}
+                    </button>
+                )}
 
                 <div className="flex flex-col gap-2">
                     <motion.button

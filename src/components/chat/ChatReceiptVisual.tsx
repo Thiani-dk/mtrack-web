@@ -14,6 +14,49 @@ interface ChatReceiptVisualProps {
     dateRange: string;
     playEntrance: boolean;
     onLabelChange?: (transactionCode: string, label: string | null) => void;
+    onEditTransaction?: (transactionCode: string, patch: Partial<ParsedTransaction>) => void;
+}
+
+// Tap-to-edit line inside a row's detail panel. Commits on blur / Enter, and
+// deliberately does not touch the PDF/HTML blobs — those regenerate only on
+// Save or Share.
+function EditableDetail({
+    label, value, kind, onCommit,
+}: {
+    label: string; value: string; kind: 'text' | 'amount'; onCommit: (next: string) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState(value);
+    const commit = () => {
+        setEditing(false);
+        if (draft.trim() !== value) onCommit(draft.trim());
+    };
+    return (
+        <div className="flex justify-between gap-2">
+            <span className="text-[var(--text-muted)]">{label}</span>
+            {editing ? (
+                <input
+                    autoFocus
+                    inputMode={kind === 'amount' ? 'decimal' : 'text'}
+                    value={draft}
+                    onChange={e => setDraft(e.target.value)}
+                    onBlur={commit}
+                    onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false); } }}
+                    className="text-right text-[11px] px-1.5 py-0.5 rounded outline-none min-w-0 flex-1"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                />
+            ) : (
+                <button
+                    type="button"
+                    onClick={() => { setDraft(value); setEditing(true); }}
+                    className="text-right font-medium"
+                    style={{ color: value ? 'var(--text-primary)' : 'var(--accent)' }}
+                >
+                    {value || 'Add'}
+                </button>
+            )}
+        </div>
+    );
 }
 
 // Preset set carried over from the deleted ReviewScreen.tsx.
@@ -113,10 +156,11 @@ function LabelPicker({ current, onSelect }: { current: string | null; onSelect: 
 // ── Transaction row ─────────────────────────────────────────────────────────
 
 function TransactionRow({
-    t, delay, animateEntrance, onLabelChange,
+    t, delay, animateEntrance, onLabelChange, onEditTransaction,
 }: {
     t: ParsedTransaction; delay: number; animateEntrance: boolean;
     onLabelChange?: (label: string | null) => void;
+    onEditTransaction?: (patch: Partial<ParsedTransaction>) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
     const [pickerOpen, setPickerOpen] = useState(false);
@@ -175,6 +219,26 @@ function TransactionRow({
                         className="overflow-hidden"
                     >
                         <div className="glass-panel rounded-lg p-2 mb-2 space-y-1 text-[11px]">
+                            {onEditTransaction && (
+                                <>
+                                    <EditableDetail
+                                        label="Amount" kind="amount" value={t.amount.toFixed(2)}
+                                        onCommit={next => {
+                                            const n = parseFloat(next.replace(/[,\s]/g, ''));
+                                            if (!Number.isNaN(n) && n >= 0) onEditTransaction({ amount: n });
+                                        }}
+                                    />
+                                    <EditableDetail
+                                        label={t.type === 'received' ? 'From' : 'Payee'} kind="text"
+                                        value={t.merchant ?? t.recipient}
+                                        onCommit={next => { if (next) onEditTransaction(t.merchant ? { merchant: next } : { recipient: next }); }}
+                                    />
+                                    <EditableDetail
+                                        label="Purpose" kind="text" value={t.purposeLabel ?? ''}
+                                        onCommit={next => onEditTransaction({ purposeLabel: next || null })}
+                                    />
+                                </>
+                            )}
                             <div className="flex items-center justify-between gap-2">
                                 <span className="text-[var(--text-muted)]">Label</span>
                                 <button
@@ -314,7 +378,7 @@ function CategoryBar({
 
 // ── Main visual ──────────────────────────────────────────────────────────────
 
-export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange }: ChatReceiptVisualProps) {
+export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange, onEditTransaction }: ChatReceiptVisualProps) {
     const reducedMotion = useReducedMotion();
     const animateEntrance = playEntrance && !reducedMotion;
     const [grandReplay, setGrandReplay] = useState(0);
@@ -384,6 +448,7 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange
                             delay={TX_START + i * rowStagger}
                             animateEntrance={animateEntrance}
                             onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
+                            onEditTransaction={onEditTransaction && (patch => onEditTransaction(t.transactionCode, patch))}
                         />
                     ))}
                     {rest.length > 0 && (
@@ -414,6 +479,7 @@ export function ChatReceiptVisual({ data, dateRange, playEntrance, onLabelChange
                                                 delay={0}
                                                 animateEntrance={false}
                                                 onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
+                                                onEditTransaction={onEditTransaction && (patch => onEditTransaction(t.transactionCode, patch))}
                                             />
                                         ))}
                                     </motion.div>

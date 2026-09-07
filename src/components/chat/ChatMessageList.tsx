@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import type { ChatMessage, ParsedTransaction, SkippedMessage } from '../../types';
+import type { DocumentContext } from './ChatReceipt';
 import { ChatBubble } from './ChatBubble';
 import { ChatThinking } from './ChatThinking';
 import { ChatInsight } from './ChatInsight';
@@ -21,6 +22,10 @@ interface ChatMessageListProps {
     onNearDuplicateKeep?: (messageId: string) => void;
     onNearDuplicateDrop?: (messageId: string, smallerTransactionCode: string) => void;
     onOptionSelect?: (messageId: string, value: string) => void;
+    documentContext?: DocumentContext | null;
+    onApproveDocument?: (messageId: string) => void;
+    onEditTransaction?: (messageId: string, transactionCode: string, patch: Partial<ParsedTransaction>) => void;
+    onEditContext?: (patch: Partial<DocumentContext>) => void;
 }
 
 // How close to the bottom (px) counts as "already there" — below this we
@@ -33,6 +38,7 @@ const NO_SIGNAL = { id: '', epoch: 0 };
 function ChatMessageItem({
     message, receiptTransactions, onLabelChange, onViewSkipped, skippedReviewExpandSignal, onIncludeSkipped, onUnexcludeSkipped,
     onNearDuplicateKeep, onNearDuplicateDrop, onOptionSelect,
+    documentContext, onApproveDocument, onEditTransaction, onEditContext,
 }: {
     message: ChatMessage;
     receiptTransactions: ParsedTransaction[];
@@ -44,6 +50,10 @@ function ChatMessageItem({
     onNearDuplicateKeep?: (messageId: string) => void;
     onNearDuplicateDrop?: (messageId: string, smallerTransactionCode: string) => void;
     onOptionSelect?: (messageId: string, value: string) => void;
+    documentContext?: DocumentContext | null;
+    onApproveDocument?: (messageId: string) => void;
+    onEditTransaction?: (messageId: string, transactionCode: string, patch: Partial<ParsedTransaction>) => void;
+    onEditContext?: (patch: Partial<DocumentContext>) => void;
 }) {
     switch (message.kind) {
         case 'text':
@@ -73,6 +83,11 @@ function ChatMessageItem({
                         dateRange={message.dateRange}
                         isDemo={message.isDemo}
                         onLabelChange={onLabelChange && ((code, label) => onLabelChange(message.id, code, label))}
+                        documentContext={documentContext}
+                        approved={message.documentStatus === 'approved'}
+                        onApprove={onApproveDocument && (() => onApproveDocument(message.id))}
+                        onEditTransaction={onEditTransaction && ((code, patch) => onEditTransaction(message.id, code, patch))}
+                        onEditContext={onEditContext}
                     />
                 )
                 : null;
@@ -112,6 +127,7 @@ function ChatMessageItem({
 export function ChatMessageList({
     messages, onLabelChange, onViewSkipped, skippedReviewExpandSignal, onIncludeSkipped, onUnexcludeSkipped,
     onNearDuplicateKeep, onNearDuplicateDrop, onOptionSelect,
+    documentContext, onApproveDocument, onEditTransaction, onEditContext,
 }: ChatMessageListProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -161,6 +177,10 @@ export function ChatMessageList({
                             onNearDuplicateKeep={onNearDuplicateKeep}
                             onNearDuplicateDrop={onNearDuplicateDrop}
                             onOptionSelect={onOptionSelect}
+                            documentContext={documentContext}
+                            onApproveDocument={onApproveDocument}
+                            onEditTransaction={onEditTransaction}
+                            onEditContext={onEditContext}
                         />
                     ))}
                 </AnimatePresence>

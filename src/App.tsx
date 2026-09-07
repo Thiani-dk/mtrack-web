@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AppStep } from './types';
 import { getAllSessions } from './lib/chatSessionStore';
+import { getDrafts } from './lib/documentStore';
 import { HomeScreen } from './components/HomeScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { AllTimeScreen } from './components/AllTimeScreen';
@@ -21,10 +22,20 @@ export default function App() {
     useEffect(() => {
         (async () => {
             try {
-                const sessions = await getAllSessions();
+                const [sessions, drafts] = await Promise.all([getAllSessions(), getDrafts()]);
                 const awaiting = sessions.find(s => s.sessionStatus === 'awaiting_input');
                 if (awaiting) {
                     setResumeSessionId(awaiting.id);
+                    setStep('chat');
+                    return;
+                }
+                // Phase D4 — a document left mid-build (draft, id === session id)
+                // resumes the same way: straight back into that conversation.
+                const resumableDraft = drafts
+                    .filter(d => sessions.some(s => s.id === d.id))
+                    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+                if (resumableDraft) {
+                    setResumeSessionId(resumableDraft.id);
                     setStep('chat');
                     return;
                 }

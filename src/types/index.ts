@@ -238,6 +238,7 @@ export interface ChatMessage {
     documentType?: DocumentType;
     merchantProfile?: MerchantProfile | null;
     onBehalfOf?: OnBehalfOfContext | null;
+    documentStatus?: DocumentStatus; // for 'receipt' kind — 'approved' once locked in
     timestamp: number;
     // Once the user has answered an options message, lock it
     answered?: boolean;
