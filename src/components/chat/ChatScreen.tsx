@@ -5,6 +5,7 @@ import type {
 } from '../../types';
 import { extractDescription, buildSelfReportedTransaction, parseConversationalDate, type DirectionResult } from '../../lib/conversationalCapture';
 import { DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
+import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
 import { fmtProse, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { getDocument } from '../../lib/documentStore';
@@ -1284,6 +1285,80 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         return false;
     }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, advanceAfterField, commitDraft, setDocFlow, syncDraft, askPurposeFor]);
 
+    // A near-duplicate question is only ever answered by a tap. "Keep both"
+    // just locks the question. "Drop the small one" additionally flips the
+    // smaller transaction out of the receipt — the same live receipt patch
+    // the skipped-review handlers use, so computeReceiptData picks it up.
+    const handleNearDuplicateKeep = useCallback((messageId: string) => {
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        updateMsg(messageId, { answered: true, answeredValue: 'keep' });
+    }, [isDemoSession, updateDemoMessage, updateMessage]);
+
+    const handleNearDuplicateDrop = useCallback(async (messageId: string, smallerTransactionCode: string) => {
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        updateMsg(messageId, { answered: true, answeredValue: 'drop' });
+
+        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        if (!receiptMsg?.transactions) return;
+
+        const updatedTransactions = receiptMsg.transactions.map(t =>
+            t.transactionCode === smallerTransactionCode ? { ...t, excludedFromReceipt: true } : t
+        );
+        updateMsg(receiptMsg.id, { transactions: updatedTransactions });
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage]);
+
+    // The user answers "money in / out" for a transaction the parser could not
+    // place. Sets the direction, re-derives subType, clears the unresolved
+    // flag, and re-scores confidence (direction now counts for full points).
+    const handleDirectionAnswer = useCallback((messageId: string, transactionCode: string, direction: 'sent' | 'received') => {
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        updateMsg(messageId, { answered: true, answeredValue: direction });
+
+        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        if (!receiptMsg?.transactions) return;
+
+        const updated = receiptMsg.transactions.map(t => {
+            if (t.transactionCode !== transactionCode) return t;
+            const next: ParsedTransaction = {
+                ...t,
+                type: direction,
+                subType: deriveSubType(t.method, direction, t.isBusiness, t.merchant ?? t.recipient),
+                directionUnresolved: false,
+                directionSource: 'keyword',
+                sender: direction === 'received' ? (t.sender ?? t.recipient) : null,
+            };
+            const scored = scoreWithContext(next, next.rawLine);
+            next.confidence = scored.score;
+            next.confidenceLevel = scored.level;
+            next.missingFields = scored.missing;
+            return next;
+        });
+        updateMsg(receiptMsg.id, { transactions: updated });
+        if (!isDemoSession) syncDraft(updated);
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, syncDraft]);
+
+    // A typed answer that exactly matches a tappable option's label does the
+    // same thing tapping it does. Generic over the message list, so a question
+    // added later using the 'options' kind supports this with no extra code.
+    const dispatchTypedAnswer = useCallback((choice: TypedChoice) => {
+        switch (choice.kind) {
+            case 'options':
+                handleOptionSelect(choice.messageId, choice.value);
+                break;
+            case 'near-duplicate':
+                if (choice.value === 'keep') handleNearDuplicateKeep(choice.messageId);
+                else if (choice.transactionCode) void handleNearDuplicateDrop(choice.messageId, choice.transactionCode);
+                break;
+            case 'direction-question':
+                if (choice.transactionCode) {
+                    handleDirectionAnswer(choice.messageId, choice.transactionCode, choice.value as 'sent' | 'received');
+                }
+                break;
+        }
+    }, [handleOptionSelect, handleNearDuplicateKeep, handleNearDuplicateDrop, handleDirectionAnswer]);
+
     // A pasted message is treated as a batch of transaction messages: parse
     // it, then walk the user through what stood out before offering to build
     // the actual summary.
@@ -1297,6 +1372,15 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
 
         addMsg({ role: 'user', kind: 'text', text });
+
+        // Typed answers to tappable questions, before anything else looks at
+        // the text — a question that shows "Skip" also accepts "skip" typed.
+        const answerable = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const typedChoice = matchTypedAnswer(answerable, text);
+        if (typedChoice) {
+            dispatchTypedAnswer(typedChoice);
+            return;
+        }
 
         // The guided demo is tap-first. A typed message is either a "Something
         // else" free-text answer or, during the paste lesson, a message to run
@@ -1364,7 +1448,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         } finally {
             setIsProcessing(false);
         }
-    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, allTimeStats, handleDemoText, handleDemoPaste, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
+    }, [isDemoSession, activeSession, demoMessages, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, allTimeStats, dispatchTypedAnswer, handleDemoText, handleDemoPaste, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
 
     // Fired from the interactive receipt's tap-to-label UI. Updates the
     // message's own transactions in place (persisted through the normal
@@ -1437,60 +1521,6 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const updatedSkipped = reviewMsg.skippedMessages.filter(m => m.transactionCode !== transactionCode);
         updateMsg(skippedReviewMessageId, { skippedMessages: updatedSkipped });
     }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage]);
-
-    // A near-duplicate question is only ever answered by a tap. "Keep both"
-    // just locks the question. "Drop the small one" additionally flips the
-    // smaller transaction out of the receipt — the same live receipt patch
-    // the skipped-review handlers use, so computeReceiptData picks it up.
-    const handleNearDuplicateKeep = useCallback((messageId: string) => {
-        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
-        updateMsg(messageId, { answered: true, answeredValue: 'keep' });
-    }, [isDemoSession, updateDemoMessage, updateMessage]);
-
-    const handleNearDuplicateDrop = useCallback(async (messageId: string, smallerTransactionCode: string) => {
-        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
-        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
-        updateMsg(messageId, { answered: true, answeredValue: 'drop' });
-
-        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
-        if (!receiptMsg?.transactions) return;
-
-        const updatedTransactions = receiptMsg.transactions.map(t =>
-            t.transactionCode === smallerTransactionCode ? { ...t, excludedFromReceipt: true } : t
-        );
-        updateMsg(receiptMsg.id, { transactions: updatedTransactions });
-    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage]);
-
-    // The user answers "money in / out" for a transaction the parser could not
-    // place. Sets the direction, re-derives subType, clears the unresolved
-    // flag, and re-scores confidence (direction now counts for full points).
-    const handleDirectionAnswer = useCallback((messageId: string, transactionCode: string, direction: 'sent' | 'received') => {
-        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
-        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
-        updateMsg(messageId, { answered: true, answeredValue: direction });
-
-        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
-        if (!receiptMsg?.transactions) return;
-
-        const updated = receiptMsg.transactions.map(t => {
-            if (t.transactionCode !== transactionCode) return t;
-            const next: ParsedTransaction = {
-                ...t,
-                type: direction,
-                subType: deriveSubType(t.method, direction, t.isBusiness, t.merchant ?? t.recipient),
-                directionUnresolved: false,
-                directionSource: 'keyword',
-                sender: direction === 'received' ? (t.sender ?? t.recipient) : null,
-            };
-            const scored = scoreWithContext(next, next.rawLine);
-            next.confidence = scored.score;
-            next.confidenceLevel = scored.level;
-            next.missingFields = scored.missing;
-            return next;
-        });
-        updateMsg(receiptMsg.id, { transactions: updated });
-        if (!isDemoSession) syncDraft(updated);
-    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, syncDraft]);
 
     // Phase D2 — tap-to-edit on the preview. Mutates only the message's own
     // transactions (and the draft document); PDF/HTML blobs are untouched
