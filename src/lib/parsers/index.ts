@@ -7,8 +7,7 @@ import { extractParties } from './extractors/parties';
 import { extractDirection } from './extractors/direction';
 import { extractChannel, extractCardLast4 } from './extractors/channel';
 import { extractMerchant } from './extractors/merchant';
-import { scoreTransaction } from './confidence';
-import { applyProviderHint } from './hints/providerHints';
+import { scoreWithContext } from './confidence';
 import { classifyMessage } from './classify';
 import { linkTransactions, type RawBlockResult, type LinkEnrichment } from './linkTransactions';
 import { applyVerificationChargeDetection } from './verificationCharge';
@@ -125,10 +124,18 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
     const subType = deriveSubType(channel.method, direction.type, isBusiness, displayName);
     const senderField = direction.type === 'received' ? (parties.sender ?? displayName) : null;
 
+    // Direction resolution: keyword (95) > structural (75) > unresolved (30).
+    // The balance oracle (100) can still override this in a later batch pass.
+    const directionUnresolved = direction.source === 'unresolved';
+
     const partial: Partial<ParsedTransaction> = {
         amount: amount.amount,
         date: dateResult.date,
         type: direction.type,
+        directionSource: direction.source,
+        directionUnresolved,
+        amountVerified: false,
+        balanceMismatch: false,
         sender: senderField,
         recipient: displayName,
         transactionCode: codeResult.code,
@@ -137,20 +144,16 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
         method: channel.method,
     };
 
-    const base = scoreTransaction(partial);
-    const boost = applyProviderHint(r.rawBlock, channel.provider);
-    const score = Math.min(100, base.score + boost);
-    let level: 'high' | 'medium' | 'low' = score >= 80 ? 'high' : score >= 75 ? 'medium' : 'low';
+    // scoreWithContext folds in the provider hint and the truncation /
+    // unresolved-direction level overrides — the same scoring the balance
+    // oracle re-runs if it later revises this transaction.
+    const scored = scoreWithContext(partial, r.rawBlock);
 
     // Below this, the extracted fields aren't trustworthy enough to keep.
-    if (score < minScore) return null;
+    if (scored.score < minScore) return null;
 
-    // A message copied mid-sentence (ends on a bare letter, no terminal
-    // punctuation) still counts if amount and date came through, but it is
-    // never high-confidence — the user should eyeball it.
-    const trimmedBlock = r.rawBlock.trim();
-    const looksTruncated = /[A-Za-z]$/.test(trimmedBlock) && !/[.!?)"']$/.test(trimmedBlock);
-    if (looksTruncated) level = 'low';
+    const score = scored.score;
+    const level = scored.level;
 
     const isHold = amount.amount === 0;
 
@@ -190,7 +193,7 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
 
         confidence: score,
         confidenceLevel: level,
-        missingFields: base.missing,
+        missingFields: scored.missing,
         codeIsSynthetic: codeResult.synthetic,
         dateAmbiguous: dateResult.ambiguous,
         failed: r.failed,
@@ -204,6 +207,8 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
         amountVerified: false,
         balanceMismatch: false,
         directionSource: direction.source,
+        directionDisputed: false,
+        directionUnresolved,
 
         dataSource: 'sms_verified',
         lineItems: null,

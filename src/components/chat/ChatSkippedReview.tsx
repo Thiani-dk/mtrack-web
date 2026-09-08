@@ -234,6 +234,8 @@ function SkippedRow({
             amountVerified: false,
             balanceMismatch: false,
             directionSource: 'keyword',
+            directionDisputed: false,
+            directionUnresolved: false,
 
             // Entered by hand through the recovery form.
             dataSource: 'self_reported',

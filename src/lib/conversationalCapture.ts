@@ -180,6 +180,8 @@ export function buildSelfReportedTransaction(fields: {
         balanceMismatch: false,
         // The user stated the direction explicitly — treat as known.
         directionSource: 'keyword',
+        directionDisputed: false,
+        directionUnresolved: false,
 
         dataSource: 'self_reported',
         lineItems: null,

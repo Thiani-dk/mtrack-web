@@ -154,6 +154,12 @@ export interface ParsedTransaction {
     // possessive), or 'unresolved' (we genuinely could not tell — `type`
     // holds a best guess but directionUnresolved is set).
     directionSource: 'balance' | 'keyword' | 'structural' | 'unresolved';
+    // The balance oracle proved a direction that contradicts what the wording
+    // said. Either the message is worded misleadingly or the amount is wrong.
+    directionDisputed: boolean;
+    // We could not determine direction. `type` is a neutral guess; the app
+    // asks the user rather than acting on it. Forces confidenceLevel 'low'.
+    directionUnresolved: boolean;
 
     // ── unified document model (Phase A) ──
     // 'sms_verified' for anything from the SMS parsing pipeline,

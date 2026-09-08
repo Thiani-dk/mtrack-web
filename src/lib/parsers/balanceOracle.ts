@@ -1,4 +1,5 @@
 import type { ParsedTransaction } from './types';
+import { scoreWithContext } from './confidence';
 
 // ---------------------------------------------------------------------------
 // Balance reconciliation oracle.
@@ -131,8 +132,10 @@ export function reconcileLedgers(transactions: ParsedTransaction[]): OracleVerdi
 
 // Applies the verdict to the transaction list. Where a direction is proven the
 // oracle overrides whatever the keyword/structural layer decided (arithmetic
-// wins) and records directionSource: 'balance'. subType is NOT re-derived here
-// — the caller does that, where deriveSubType is in scope.
+// wins), records directionSource: 'balance', clears directionUnresolved, and
+// sets directionDisputed if the proof contradicts a wording-based verdict.
+// Confidence is re-scored for every transaction the oracle touched. subType is
+// NOT re-derived here — the caller does that, where deriveSubType is in scope.
 export function applyBalanceOracle(transactions: ParsedTransaction[]): ParsedTransaction[] {
     const verdict = reconcileLedgers(transactions);
     if (
@@ -149,12 +152,22 @@ export function applyBalanceOracle(transactions: ParsedTransaction[]): ParsedTra
         const mismatch = verdict.balanceMismatch.has(t.transactionCode);
         if (!proven && !verified && !mismatch) return t;
 
-        return {
+        const wordingBased = t.directionSource === 'keyword' || t.directionSource === 'structural';
+        const next: ParsedTransaction = {
             ...t,
             type: proven ?? t.type,
-            directionSource: proven ? ('balance' as const) : t.directionSource,
+            directionSource: proven ? 'balance' : t.directionSource,
+            directionUnresolved: proven ? false : t.directionUnresolved,
+            directionDisputed:
+                proven && proven !== t.type && wordingBased ? true : t.directionDisputed,
             amountVerified: verified || t.amountVerified,
-            balanceMismatch: mismatch || t.balanceMismatch,
+            balanceMismatch: mismatch && !verified ? true : (verified ? false : t.balanceMismatch),
         };
+
+        const scored = scoreWithContext(next, next.rawLine);
+        next.confidence = scored.score;
+        next.confidenceLevel = scored.level;
+        next.missingFields = scored.missing;
+        return next;
     });
 }

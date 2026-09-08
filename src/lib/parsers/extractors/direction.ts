@@ -54,40 +54,70 @@ const CURRENCY_AMOUNT_RE =
 
 const ACCOUNT_NOUN_RE = /\b(account|a\/?c|wallet|m-?pesa|mpesa|bank|number|balance|till|paybill)\b/i;
 
-// What does the ~60 chars after this amount say?
-function directionFromWindow(after: string): 'sent' | 'received' | null {
+interface WindowVerdict {
+    dir: 'sent' | 'received';
+    // A possessive form ("to your account" / "from your account") is the
+    // single strongest textual signal — it outranks the verb vocabulary,
+    // because "transferred TO YOUR account" is money arriving no matter what
+    // the verb implies.
+    possessive: boolean;
+}
+
+// What do the ~60 chars after this amount say?
+function directionFromWindow(after: string): WindowVerdict | null {
     const hasAccountNoun = ACCOUNT_NOUN_RE.test(after);
 
-    // Possessive forms first — most reliable.
-    if (/\b(?:to|into)\s+your\b/i.test(after) && hasAccountNoun) return 'received';
-    if (/\bfrom\s+your\b/i.test(after) && hasAccountNoun) return 'sent';
+    if (/\b(?:to|into)\s+your\b/i.test(after) && hasAccountNoun) return { dir: 'received', possessive: true };
+    if (/\bfrom\s+your\b/i.test(after) && hasAccountNoun) return { dir: 'sent', possessive: true };
 
     // Bare preposition + a party token (name, number, or code).
     const toOther = /\bto\s+(?!your\b)[A-Za-z0-9]/i.test(after);
     const fromOther = /\bfrom\s+(?!your\b)[A-Za-z0-9]/i.test(after);
-    if (toOther && !fromOther) return 'sent';
-    if (fromOther && !toOther) return 'received';
+    if (toOther && !fromOther) return { dir: 'sent', possessive: false };
+    if (fromOther && !toOther) return { dir: 'received', possessive: false };
 
     return null;
 }
 
-function structuralDirection(msg: string): 'sent' | 'received' | null {
+interface StructuralResult {
+    dir: 'sent' | 'received' | null;
+    possessive: boolean; // the winning vote came from a possessive form
+}
+
+function structuralDirection(msg: string): StructuralResult {
     CURRENCY_AMOUNT_RE.lastIndex = 0;
-    const votes: ('sent' | 'received')[] = [];
+    const votes: WindowVerdict[] = [];
     let m: RegExpExecArray | null;
     while ((m = CURRENCY_AMOUNT_RE.exec(msg)) !== null) {
         const start = m.index + m[0].length;
         const verdict = directionFromWindow(msg.slice(start, start + 62));
         if (verdict) votes.push(verdict);
     }
-    if (votes.length === 0) return null;
-    const sent = votes.filter(v => v === 'sent').length;
+    if (votes.length === 0) return { dir: null, possessive: false };
+
+    // A single possessive vote decides it outright.
+    const poss = votes.filter(v => v.possessive);
+    if (poss.length > 0) {
+        const sent = poss.filter(v => v.dir === 'sent').length;
+        if (sent !== poss.length - sent) {
+            return { dir: sent > poss.length - sent ? 'sent' : 'received', possessive: true };
+        }
+    }
+
+    const sent = votes.filter(v => v.dir === 'sent').length;
     const received = votes.length - sent;
-    if (sent === received) return null; // conflicting signals — stay unresolved
-    return sent > received ? 'sent' : 'received';
+    if (sent === received) return { dir: null, possessive: false }; // conflicting — stay unresolved
+    return { dir: sent > received ? 'sent' : 'received', possessive: false };
 }
 
 export function extractDirection(msg: string): DirectionResult {
+    const structural = structuralDirection(msg);
+
+    // 0 — a possessive "to/from your account" beats the verb vocabulary.
+    if (structural.dir && structural.possessive) {
+        return { type: structural.dir, confidence: 90, source: 'structural' };
+    }
+
     // 1 — keyword vote
     let best: { type: 'sent' | 'received'; score: number; index: number } | null = null;
     for (const kw of KEYWORDS) {
@@ -101,9 +131,8 @@ export function extractDirection(msg: string): DirectionResult {
     }
     if (best) return { type: best.type, confidence: 95, source: 'keyword' };
 
-    // 2 — structural inference from prepositions
-    const structural = structuralDirection(msg);
-    if (structural) return { type: structural, confidence: 75, source: 'structural' };
+    // 2 — structural inference from a bare preposition
+    if (structural.dir) return { type: structural.dir, confidence: 75, source: 'structural' };
 
     // 3 — genuinely unresolved. `type` is a neutral best guess; the caller
     // must treat confidence 30 / source 'unresolved' as "we do not know",

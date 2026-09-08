@@ -31,6 +31,8 @@ function migrateTransaction(t: ParsedTransaction): ParsedTransaction {
         amountVerified: legacy.amountVerified ?? false,
         balanceMismatch: legacy.balanceMismatch ?? false,
         directionSource: legacy.directionSource ?? 'keyword',
+        directionDisputed: legacy.directionDisputed ?? false,
+        directionUnresolved: legacy.directionUnresolved ?? false,
         dataSource: 'sms_verified',
         lineItems: null,
         purposeLabel: null,
