@@ -9,7 +9,7 @@ import { useDocumentStore } from '../../lib/useDocumentStore';
 import { getDocument } from '../../lib/documentStore';
 import { buildDraft } from '../../lib/draftDocument';
 import { pipelineEligibility } from '../../lib/documentPipeline';
-import { useChatSession } from '../../lib/useChatSession';
+import { useChatSession, markNewlyCreatedMessage } from '../../lib/useChatSession';
 import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
 import type { AllTimeStats } from '../../lib/aggregate/useAllTimeStats';
@@ -107,6 +107,7 @@ interface DemoFlow {
     step: DemoStep;
     party: DemoParty;
     partyName: string;
+    preparedBy: string | null;
     errandLabel: string;
     // The category of the line currently being built. null while a custom
     // ("Something else") category is in progress — customCategoryLabel holds
@@ -175,6 +176,19 @@ const demoPasteCallout = (t: ParsedTransaction): string => {
     const list = `${bits.slice(0, -1).join(', ')}, and ${bits[bits.length - 1]}`;
     return `Notice what came across on its own: ${list}. That line is verified straight from the message now. That's why copying beats typing when you have it.`;
 };
+
+// A recap of what the user just did — not a feature list. Only names steps the
+// run actually walked through.
+const demoSummary = (pasteLanded: boolean): string => {
+    const pasteClause = pasteLanded
+        ? ', copied a real message and watched the details come across on their own,'
+        : ',';
+    return `That's it. You just built a claim by tapping through it${pasteClause} labelled what each line was for, and got a document with the fees included in the total.\n\nThe real thing works the same way. Ready to make one?`;
+};
+const DEMO_SUMMARY_OPTIONS: ChatOption[] = [
+    { id: 'real', label: 'Make a real one', value: 'real' },
+    { id: 'back', label: 'Back to start', value: 'back' },
+];
 
 // Shown when the user taps "Something else" on a given question.
 const DEMO_ELSE_PROMPTS: Record<string, string> = {
@@ -459,6 +473,9 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     const addDemoMessage = useCallback<AddMessageFn>((msg) => {
         const id = crypto.randomUUID();
         const timestamp = Date.now();
+        // Same entrance-animation bookkeeping addMessage does for real sessions,
+        // so the demo receipt animates in the same way. Purely in-memory.
+        markNewlyCreatedMessage(id);
         setDemoMessages(prev => [...prev, { ...msg, id, timestamp }]);
         return id;
     }, []);
@@ -560,7 +577,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         (async () => {
             addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_OPENER });
             setDemoFlow({
-                step: 'party', party: 'boss', partyName: '', errandLabel: '',
+                step: 'party', party: 'boss', partyName: '', preparedBy: null, errandLabel: '',
                 draftCategory: null, customCategoryLabel: '', draftPlace: null,
                 txns: [], txnCategory: {}, purposeQueue: [], awaitingText: null,
                 pasteFake: null, pasteSourceCode: null, pastePurpose: null,
@@ -587,8 +604,9 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     // and demoFlow — no useChatSession, no documentStore, no aggregate.
 
     // The claim the user just built, rendered through the normal receipt path
-    // (isDemo flags every surface as sample data).
-    const emitDemoReceipt = useCallback(async (txns: ParsedTransaction[]) => {
+    // (isDemo flags every surface as sample data), then a plain-language recap
+    // of what they did and the two ways out.
+    const emitDemoReceipt = useCallback(async (txns: ParsedTransaction[], pasteLanded: boolean) => {
         await sleep(400);
         addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_PRE_RECEIPT });
         await sleep(500);
@@ -596,7 +614,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             role: 'bot', kind: 'receipt', transactions: txns,
             dateRange: demoCoveringLabel(txns), isDemo: true, documentType: 'on_behalf_of',
         });
-    }, [addDemoMessage]);
+        setDemoFlow(f => (f ? { ...f, step: 'summary' } : f));
+        await sleep(700);
+        addDemoMessage({ role: 'bot', kind: 'options', text: demoSummary(pasteLanded), options: DEMO_SUMMARY_OPTIONS });
+    }, [addDemoMessage, setDemoFlow]);
 
     // Pass 2 — the paste lesson. Build one fake M-Pesa message from the biggest
     // line the user tapped in, show it in a copyable block, and wait for them to
@@ -735,8 +756,20 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             case 'purpose':
                 await applyDemoPurpose(flow, value);
                 break;
+            case 'summary':
+                // Nothing from the demo is carried into either exit — no
+                // document, no session, no aggregate was ever written.
+                if (value === 'real') {
+                    setDemoFlow(null);
+                    setIsDemoSession(false);
+                    newSession();
+                    setSidebarOpen(false);
+                } else {
+                    onBack();
+                }
+                break;
         }
-    }, [updateDemoMessage, addDemoMessage, setDemoFlow, addDemoLine, startDemoPurposes, applyDemoPurpose]);
+    }, [updateDemoMessage, addDemoMessage, setDemoFlow, addDemoLine, startDemoPurposes, applyDemoPurpose, newSession, onBack]);
 
     // The "Something else" free-text path. Tapping is always enough to finish
     // the demo; this only runs when the user chose to type instead.
@@ -807,8 +840,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
         if (!parsed) {
             addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_PASTE_FAILED });
-            setDemoFlow({ ...flow, step: 'done' });
-            await emitDemoReceipt(flow.txns);
+            await emitDemoReceipt(flow.txns, false);
             return;
         }
 
@@ -827,10 +859,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             ? flow.txns.map(t => (t.transactionCode === src.transactionCode ? joined : t))
             : [...flow.txns, joined];
 
-        setDemoFlow({ ...flow, txns: merged, step: 'done' });
+        setDemoFlow({ ...flow, txns: merged });
         await sleep(400);
         addDemoMessage({ role: 'bot', kind: 'text', text: demoPasteCallout(parsed) });
-        await emitDemoReceipt(merged);
+        await emitDemoReceipt(merged, true);
     }, [addDemoMessage, setDemoFlow, emitDemoReceipt]);
 
     // ── Phase C: mode selection + conversational capture ──────────────────
@@ -1372,6 +1404,17 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, syncDraft]);
 
     const handleEditContext = useCallback((patch: { merchantProfile?: MerchantProfile | null; onBehalfOf?: OnBehalfOfContext | null }) => {
+        if (isDemoSession) {
+            const f = demoFlowRef.current;
+            if (!f || !patch.onBehalfOf) return;
+            setDemoFlow({
+                ...f,
+                partyName: patch.onBehalfOf.partyName || 'Someone',
+                preparedBy: patch.onBehalfOf.preparedBy,
+                errandLabel: patch.onBehalfOf.purpose ?? '',
+            });
+            return;
+        }
         const flow = docFlowRef.current;
         if (!flow) return;
         setDocFlow({
@@ -1382,14 +1425,14 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
         const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
         syncDraft(receiptMsg?.transactions ?? flow.draftDoc?.transactions ?? []);
-    }, [isDemoSession, demoMessages, activeSession, setDocFlow, syncDraft]);
+    }, [isDemoSession, demoMessages, activeSession, setDocFlow, setDemoFlow, syncDraft]);
 
     const documentContext = isDemoSession
         ? (demoFlow
             ? {
                 documentType: 'on_behalf_of' as const,
                 merchantProfile: null,
-                onBehalfOf: { preparedBy: null, partyName: demoFlow.partyName || 'Someone', purpose: demoFlow.errandLabel || null },
+                onBehalfOf: { preparedBy: demoFlow.preparedBy, partyName: demoFlow.partyName || 'Someone', purpose: demoFlow.errandLabel || null },
             }
             : null)
         : (docFlow
@@ -1462,8 +1505,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 onOptionSelect={handleOptionSelect}
                 documentContext={documentContext}
                 onApproveDocument={isDemoSession ? undefined : handleApprove}
-                onEditTransaction={isDemoSession ? undefined : handleEditTransaction}
-                onEditContext={isDemoSession ? undefined : handleEditContext}
+                onEditTransaction={handleEditTransaction}
+                onEditContext={handleEditContext}
             />
 
             <ChatComposer

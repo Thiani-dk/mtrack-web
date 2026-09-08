@@ -16,6 +16,13 @@ export function wasNewlyCreatedMessage(id: string): boolean {
     return newlyCreatedMessageIds.has(id);
 }
 
+// Mark a message id as just-created so it plays its entrance animation once.
+// Real sessions do this inside addMessage; the demo (which never touches
+// useChatSession) calls this directly so its receipt animates in the same way.
+export function markNewlyCreatedMessage(id: string): void {
+    newlyCreatedMessageIds.add(id);
+}
+
 // Idempotent — safe to call more than once (e.g. StrictMode's mount/cleanup/
 // mount dance). Clears the flag so a later remount of the same message id
 // (switching sessions and back, without a page reload) never replays.

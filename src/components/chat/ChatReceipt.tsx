@@ -208,6 +208,15 @@ export function ChatReceipt({
                     </div>
                 )}
 
+                {isDemo && (
+                    <div
+                        className="mb-3 rounded-lg px-3 py-2 text-[11px] font-medium text-center"
+                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-glass)', color: 'var(--text-muted)' }}
+                    >
+                        Sample data, nothing here is saved
+                    </div>
+                )}
+
                 <div className="mb-3">
                     <ChatReceiptVisual
                         data={data} meta={meta} playEntrance={playEntrance}
