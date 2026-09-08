@@ -14,7 +14,7 @@ import { computeCoveringDates } from './documentModel';
 // ---------------------------------------------------------------------------
 
 export const MTRACK_DB_NAME = 'mtrack-db';
-export const MTRACK_DB_VERSION = 4;
+export const MTRACK_DB_VERSION = 5;
 
 export const RECEIPTS_STORE = 'receipts';
 export const SESSIONS_STORE = 'sessions';
@@ -69,6 +69,26 @@ export function applyUpgrade(db: IDBDatabase, txn: IDBTransaction | null): void 
         const store = db.createObjectStore(DOCUMENTS_STORE, { keyPath: 'id' });
         store.createIndex('updatedAt', 'updatedAt');
         store.createIndex('documentType', 'documentType');
+    }
+
+    // v5 — badges and personal records were removed. Drop the earnedBadges and
+    // records keys from the stored aggregate record, keeping everything else
+    // (session counts, totals, monthly buckets) untouched.
+    if (txn && db.objectStoreNames.contains(AGGREGATE_STORE)) {
+        const aggStore = txn.objectStore(AGGREGATE_STORE);
+        const statsReq = aggStore.get('all-time');
+        statsReq.onsuccess = () => {
+            const stats = statsReq.result as Record<string, unknown> | undefined;
+            if (stats && ('earnedBadges' in stats || 'records' in stats)) {
+                delete stats.earnedBadges;
+                delete stats.records;
+                try {
+                    aggStore.put(stats, 'all-time');
+                } catch {
+                    // Leave the record as-is rather than abort the upgrade.
+                }
+            }
+        };
     }
 
     // Migrate legacy receipts into documents. The original receipts records

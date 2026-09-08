@@ -6,7 +6,6 @@ import { ChatBubble } from './ChatBubble';
 import { ChatThinking } from './ChatThinking';
 import { ChatInsight } from './ChatInsight';
 import { ChatRecurring } from './ChatRecurring';
-import { ChatBadge } from './ChatBadge';
 import { ChatReceipt } from './ChatReceipt';
 import { ChatSkippedReview } from './ChatSkippedReview';
 import { ChatNearDuplicate } from './ChatNearDuplicate';
@@ -69,10 +68,6 @@ function ChatMessageItem({
         case 'recurring':
             return message.recurringPatterns && message.recurringPatterns.length > 0
                 ? <ChatRecurring patterns={message.recurringPatterns} />
-                : null;
-        case 'badge':
-            return message.badgeId
-                ? <ChatBadge badgeId={message.badgeId} leadIn={message.badgeLeadIn ?? 'Badge unlocked.'} />
                 : null;
         case 'receipt':
             return message.transactions && message.dateRange

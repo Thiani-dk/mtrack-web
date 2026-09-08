@@ -6,8 +6,7 @@ export type AppStep =
     | 'home'
     | 'history'
     | 'chat'
-    | 'allTime'
-    | 'badges';
+    | 'allTime';
 
 export type TransactionSubType =
     | 'person_send'
@@ -199,7 +198,6 @@ export type ChatMessageKind =
     | 'receipt'           // final receipt preview + download buttons
     | 'insight'           // a single generated observation
     | 'recurring'         // detected recurring payment patterns
-    | 'badge'             // a newly-unlocked badge
     | 'skipped-review'    // recoverable messages the parser set aside
     | 'near-duplicate'    // a tappable "keep both / drop the small one" question
     | 'thinking';         // animated typing indicator
@@ -223,8 +221,6 @@ export interface ChatMessage {
     isDemo?: boolean;                   // for 'receipt' kind — watermarks the PDF/HTML
     insight?: Insight;                  // for 'insight' kind
     recurringPatterns?: RecurringPattern[]; // for 'recurring' kind
-    badgeId?: string;                   // for 'badge' kind
-    badgeLeadIn?: string;                // for 'badge' kind — varied unlock copy
     // for 'text' kind — set on the 'partial' parse notice so it can render a
     // tappable "View skipped ->" affordance, wired to open the paired
     // 'skipped-review' message identified by skippedReviewId.

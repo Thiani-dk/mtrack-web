@@ -13,7 +13,6 @@ import { useChatSession } from '../../lib/useChatSession';
 import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
 import type { AllTimeStats } from '../../lib/aggregate/useAllTimeStats';
-import { describeNewRecords } from '../../lib/aggregate/recordMessages';
 import { parseAllMessages, type ParseStats, type LinkEnrichment, type NearDuplicatePair } from '../../lib/parsers';
 import { generateDemoMessages } from '../../lib/demoData';
 import { generateInsights, computeDaySpan, detectRecurring, type InsightContext } from '../../lib/insights';
@@ -109,12 +108,6 @@ const LEAD_INS = [
     'Quick read on this lot:',
 ];
 
-const BADGE_LEAD_INS = [
-    'Badge unlocked.',
-    "That's a new one.",
-    'You just earned something.',
-];
-
 // A parsed-transaction count at or below this counts as "small" — worth
 // saying so plainly rather than promising a rich summary.
 const SMALL_RESULT_THRESHOLD = 3;
@@ -139,10 +132,7 @@ type UpdateMessageFn = (id: string, patch: Partial<ChatMessage>) => void;
 
 // Shared by both a real pasted message and the demo auto-run: turn a parsed,
 // in-scope transaction set into a "thinking" bubble converted to a lead-in,
-// followed by staggered insight bubbles and a closing line. Personal-record
-// and badge announcements run independently of whether the insight engine
-// itself had anything to say — even a tiny summary can be your first, or
-// quietly set a record.
+// followed by staggered insight bubbles and a closing line.
 //
 // buildParseNotices is the primary path for describing what happened during
 // parsing itself (skipped messages, ambiguous dates, holds/failures left
@@ -167,8 +157,6 @@ async function deliverInsights(
     isDemo: boolean,
     longerRangeAvailable: boolean,
     allTimeStats: AllTimeStats | null,
-    previousStats: AllTimeStats | undefined,
-    newlyEarnedBadges: string[],
     linkEnrichments: LinkEnrichment[] = [],
     nearDuplicates: NearDuplicatePair[] = [],
     documentType: DocumentType = 'expense_summary'
@@ -235,9 +223,9 @@ async function deliverInsights(
         }
     }
 
-    // Phase F2 — insights, recurring detection, personal records and badges
-    // apply ONLY to the user's own spending. A point-of-sale receipt or a
-    // reimbursement claim is generated, previewed and stored, nothing else.
+    // Insights and recurring detection apply ONLY to the user's own spending.
+    // A point-of-sale receipt or a reimbursement claim is generated, previewed
+    // and stored, nothing else.
     const insightsEligible = pipelineEligibility(documentType).insights;
 
     if (!insightsEligible) {
@@ -286,22 +274,6 @@ async function deliverInsights(
         }
     }
 
-    // Demo sessions never touch the aggregate, so there's nothing to record
-    // or unlock. Neither do point-of-sale / claim documents (Phase F2), and
-    // nothing is recorded until Approve (Phase D3) — so allTimeStats is null
-    // here in the normal flow and this block stays dormant.
-    if (!isDemo && insightsEligible && allTimeStats) {
-        for (const recordText of describeNewRecords(previousStats, allTimeStats)) {
-            await sleep(400);
-            addMsg({ role: 'bot', kind: 'text', text: recordText });
-        }
-
-        for (const badgeId of newlyEarnedBadges) {
-            await sleep(600);
-            addMsg({ role: 'bot', kind: 'badge', badgeId, badgeLeadIn: pickRandom(BADGE_LEAD_INS) });
-        }
-    }
-
     // The actual summary — Save/Share buttons live on the card itself, so
     // there's nothing left to promise after this.
     if (scoped.length > 0) {
@@ -334,7 +306,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         updateSessionStatus,
     } = useChatSession();
     const { receipts, isAvailable: isReceiptStoreAvailable } = useReceiptStore();
-    const { recordSession, recheckBadges } = useAllTimeStats();
+    const { stats: allTimeStats, recordSession } = useAllTimeStats();
     const { saveDocument: persistDocument } = useDocumentStore();
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -489,10 +461,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
                 // Demo history is fake and never persisted, so the "run a longer
                 // range" hint (which reads real past sessions) never applies here,
-                // and there's no aggregate/badges to consult or update.
+                // and there's no aggregate to consult or update.
                 await deliverInsights(
                     inRange, stats, [...parserSkipped, ...excludedSkipped], thinkingId,
-                    addDemoMessage, updateDemoMessage, true, false, null, undefined, [],
+                    addDemoMessage, updateDemoMessage, true, false, null,
                     linkEnrichments, nearDuplicates
                 );
             } catch (err) {
@@ -626,9 +598,9 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         }
     }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, setDocFlow, syncDraft, askPurposeFor]);
 
-    // Phase D3 — the one action that finalises a document. Only after Approve
-    // does an expense_summary / personal_note feed badges, personal records
-    // and all-time totals; point_of_sale / on_behalf_of never do (Phase F).
+    // The one action that finalises a document. Only after Approve does an
+    // expense_summary / personal_note feed the all-time totals;
+    // point_of_sale / on_behalf_of never do.
     const handleApprove = useCallback(async (messageId: string) => {
         if (isDemoSession) return;
         const sid = activeSession?.id;
@@ -651,17 +623,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         updateMessage(messageId, { documentStatus: 'approved' });
 
         if (pipelineEligibility(documentType).aggregation) {
-            const result = await recordSession(transactions, false);
-            if (result) {
-                for (const recordText of describeNewRecords(result.previousStats, result.stats)) {
-                    await sleep(400);
-                    addMessage({ role: 'bot', kind: 'text', text: recordText });
-                }
-                for (const badgeId of result.newlyEarnedBadges) {
-                    await sleep(600);
-                    addMessage({ role: 'bot', kind: 'badge', badgeId, badgeLeadIn: pickRandom(BADGE_LEAD_INS) });
-                }
-            }
+            await recordSession(transactions, false);
         }
 
         await sleep(300);
@@ -883,12 +845,11 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             const longerRangeAvailable = !isDemoSession &&
                 receipts.some(r => computeDaySpan(r.transactions) > computeDaySpan(scoped));
 
-            // Phase D: nothing is recorded to the running aggregate here any
-            // more. The batch produces a DRAFT document; only an explicit
-            // Approve feeds badges, personal records and all-time totals (and
-            // only for expense_summary / personal_note). So deliverInsights
-            // shows this batch's own insights, but announces no milestones or
-            // badges yet.
+            // Nothing is written to the running aggregate here — the batch
+            // produces a DRAFT document, and only an explicit Approve records
+            // it (and only for expense_summary / personal_note). deliverInsights
+            // still gets the current all-time stats read-only, so the
+            // month-over-month comparison and fee-trend insights can surface.
             const excludedSkipped: SkippedMessage[] = withDefaults
                 .filter(t => t.excludedFromReceipt)
                 .map(t => ({ rawText: t.rawLine, reason: 'excluded', transactionCode: t.transactionCode }));
@@ -896,7 +857,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             const flow = docFlowRef.current;
             await deliverInsights(
                 withDefaults, parseStats, [...parserSkipped, ...excludedSkipped], thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
-                null, undefined, [],
+                allTimeStats,
                 linkEnrichments, nearDuplicates,
                 flow?.documentType ?? 'expense_summary'
             );
@@ -911,16 +872,13 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         } finally {
             setIsProcessing(false);
         }
-    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
+    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, allTimeStats, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
 
     // Fired from the interactive receipt's tap-to-label UI. Updates the
     // message's own transactions in place (persisted through the normal
-    // updateMessage/updateDemoMessage debounce, same as any other message
-    // edit) and — for real sessions only — re-checks badges against the new
-    // label state, since the original badge check ran before the receipt
-    // (and any chance to label) even existed. Deliberately does NOT call
-    // recordSession again: that would double-count this session's totals.
-    const handleLabelChange = useCallback(async (messageId: string, transactionCode: string, label: string | null) => {
+    // updateMessage/updateDemoMessage debounce, same as any other message edit);
+    // computeReceiptData picks the new label up on its own.
+    const handleLabelChange = useCallback((messageId: string, transactionCode: string, label: string | null) => {
         const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
         const msg = currentMessages.find(m => m.id === messageId);
         if (!msg?.transactions) return;
@@ -931,15 +889,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
         updateMsg(messageId, { transactions: updatedTransactions });
-
-        if (isDemoSession) return; // demo sessions never touch badges/aggregate
-
-        const newlyEarnedBadges = await recheckBadges(updatedTransactions, false);
-        for (const badgeId of newlyEarnedBadges) {
-            await sleep(600);
-            addMessage({ role: 'bot', kind: 'badge', badgeId, badgeLeadIn: pickRandom(BADGE_LEAD_INS) });
-        }
-    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, recheckBadges, addMessage]);
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage]);
 
     // A one-shot "please expand" signal for a skipped-review card, fired by
     // the partial notice's "View skipped" link (see ChatBubble/ChatSkippedReview).
@@ -956,11 +906,9 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
     // Fired once a skipped-review row has a transaction ready to merge in —
     // either the loosened-threshold retry succeeded, or the manual-entry
-    // form was submitted. Live-updates the receipt (same pattern as
-    // handleLabelChange: patch the receipt message's own transactions, which
-    // computeReceiptData picks up on its own) and re-checks badges, since a
-    // newly-included transaction counts toward them like any other.
-    const handleIncludeSkipped = useCallback(async (
+    // form was submitted. Live-updates the receipt (patch the receipt
+    // message's own transactions, which computeReceiptData picks up on its own).
+    const handleIncludeSkipped = useCallback((
         skippedReviewMessageId: string, entry: SkippedMessage, transaction: ParsedTransaction
     ) => {
         const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
@@ -975,21 +923,13 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
         const updatedSkipped = reviewMsg.skippedMessages.filter(m => !skippedEntryMatches(m, entry));
         updateMsg(skippedReviewMessageId, { skippedMessages: updatedSkipped });
-
-        if (isDemoSession) return;
-
-        const newlyEarnedBadges = await recheckBadges(updatedTransactions, false);
-        for (const badgeId of newlyEarnedBadges) {
-            await sleep(600);
-            addMessage({ role: 'bot', kind: 'badge', badgeId, badgeLeadIn: pickRandom(BADGE_LEAD_INS) });
-        }
-    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, recheckBadges, addMessage]);
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage]);
 
     // The simpler §6.4 path — the transaction already exists in full (a
     // hold/failed/verification-charge that parsed fine but was auto-excluded),
     // so this just flips excludedFromReceipt back off rather than re-parsing
     // or asking for manual entry.
-    const handleUnexcludeSkipped = useCallback(async (skippedReviewMessageId: string, transactionCode: string) => {
+    const handleUnexcludeSkipped = useCallback((skippedReviewMessageId: string, transactionCode: string) => {
         const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
         const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
         const reviewMsg = currentMessages.find(m => m.id === skippedReviewMessageId);
@@ -1004,15 +944,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
         const updatedSkipped = reviewMsg.skippedMessages.filter(m => m.transactionCode !== transactionCode);
         updateMsg(skippedReviewMessageId, { skippedMessages: updatedSkipped });
-
-        if (isDemoSession) return;
-
-        const newlyEarnedBadges = await recheckBadges(updatedTransactions, false);
-        for (const badgeId of newlyEarnedBadges) {
-            await sleep(600);
-            addMessage({ role: 'bot', kind: 'badge', badgeId, badgeLeadIn: pickRandom(BADGE_LEAD_INS) });
-        }
-    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, recheckBadges, addMessage]);
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage]);
 
     // A near-duplicate question is only ever answered by a tap. "Keep both"
     // just locks the question. "Drop the small one" additionally flips the

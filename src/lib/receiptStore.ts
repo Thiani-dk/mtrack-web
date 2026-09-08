@@ -11,7 +11,7 @@ const DB_NAME = 'mtrack-db';
 // Bump this alongside the other three files' DB_VERSION, never alone. The
 // shared schema now lives in dbUpgrade.ts (applyUpgrade) so all four modules
 // create the identical superset regardless of which opens the database first.
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const STORE_NAME = 'receipts';
 
 export function initDB(): Promise<IDBDatabase> {

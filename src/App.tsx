@@ -5,7 +5,6 @@ import { getDrafts } from './lib/documentStore';
 import { HomeScreen } from './components/HomeScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { AllTimeScreen } from './components/AllTimeScreen';
-import { BadgesScreen } from './components/BadgesScreen';
 import { ChatScreen } from './components/chat/ChatScreen';
 
 export default function App() {
@@ -87,15 +86,7 @@ export default function App() {
 
             case 'allTime':
                 return (
-                    <AllTimeScreen
-                        onBack={() => setStep('home')}
-                        onBadgesClick={() => setStep('badges')}
-                    />
-                );
-
-            case 'badges':
-                return (
-                    <BadgesScreen onBack={() => setStep('allTime')} />
+                    <AllTimeScreen onBack={() => setStep('home')} />
                 );
 
             case 'chat':

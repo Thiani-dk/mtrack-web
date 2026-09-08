@@ -24,8 +24,7 @@ export type InsightKind =
     | 'small_spend_creep'
     | 'recurring'
     | 'comparison'
-    | 'fee_trend'
-    | 'milestone';
+    | 'fee_trend';
 
 export interface InsightContext {
     // Trailing prepositional phrase, ready to append at the end of a
@@ -39,8 +38,8 @@ export interface InsightContext {
     // used to hint at running a longer range to catch monthly patterns.
     // Undefined/false when unknown or not applicable (e.g. demo mode).
     longerRangeAvailable?: boolean;
-    // Cross-session aggregate, if available — powers comparison/trend/
-    // milestone insights. Undefined/null when no aggregate exists yet or
-    // wasn't loaded (e.g. demo mode, IndexedDB unavailable).
+    // Cross-session aggregate, if available — powers the month-over-month
+    // comparison and fee-trend insights. Undefined/null when no aggregate
+    // exists yet or wasn't loaded (e.g. demo mode, IndexedDB unavailable).
     allTimeStats?: AllTimeStats | null;
 }

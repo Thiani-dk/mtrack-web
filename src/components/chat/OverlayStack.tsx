@@ -2,17 +2,17 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 // Shared card-stack depth metaphor for every .glass-panel overlay in the
-// app: skipped-review, the badge evidence sheet, the label picker, and the
-// manual-entry form that can open on top of a skipped-review row. A panel
-// further down the stack recedes (scaled down, dimmed, shifted) rather than
-// being replaced or hidden; closing the top panel reverses that exactly.
+// app: skipped-review, the label picker, and the manual-entry form that can
+// open on top of a skipped-review row. A panel further down the stack recedes
+// (scaled down, dimmed, shifted) rather than being replaced or hidden;
+// closing the top panel reverses that exactly.
 // One shared provider, mounted once at the app root, so every overlay
 // anywhere participates in the same stack regardless of which screen it's on.
 //
 // StackedPanel deliberately does NOT own each panel's own fresh open/close
 // transition — every existing overlay already has its own established
-// entrance (the badge sheet slides up from the bottom, the inline panels
-// height-expand) and duplicating that here would fight it. StackedPanel only
+// entrance (the inline panels height-expand) and duplicating that here would
+// fight it. StackedPanel only
 // ever adds one thing on top: the recede transform for whatever isn't
 // currently at the top of the stack. Callers keep mounting/unmounting their
 // own content exactly as they already do (their own AnimatePresence, their

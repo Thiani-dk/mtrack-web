@@ -1,6 +1,4 @@
 import type { ParsedTransaction } from '../../types';
-import { detectRecurring } from '../insights/recurring';
-import { applyNewlyEarnedBadges, type SessionSummary, type EvidenceTransaction } from '../badges/definitions';
 import { applyUpgrade } from '../dbUpgrade';
 
 export interface MonthBucket {
@@ -12,6 +10,8 @@ export interface MonthBucket {
     categoryTotals: Record<string, number>;
 }
 
+// Factual running history only. No achievement layer — badges, milestones and
+// personal records were removed. Every field here is a plain count or total.
 export interface AllTimeStats {
     firstTrackedAt: number;
     lastTrackedAt: number;
@@ -23,53 +23,22 @@ export interface AllTimeStats {
     totalLabelledTransactions: number;
     // Rolling per-period buckets, keyed 'YYYY-MM'
     monthly: Record<string, MonthBucket>;
-    // Running counts for records and badges
+    // Running totals for the all-time view
     categoryTotals: Record<string, number>;
     merchantCounts: Record<string, number>;
     providerCounts: Record<string, number>;
-    // Personal records
-    records: {
-        lowestFeeMonth: { month: string; amount: number } | null;
-        highestSpendMonth: { month: string; amount: number } | null;
-        mostTransactionsInOneSummary: number;
-        largestSingleTransaction: { amount: number; recipient: string; date: number } | null;
-        longestGapBetweenSummaries: number; // days
-    };
-    // Badge id -> unlock record (evidence: [] for badges not about a
-    // specific transaction, e.g. completionist)
-    earnedBadges: Record<string, { earnedAt: number; evidence: EvidenceTransaction[] }>;
-}
-
-// Pre-Part-C records stored a bare unlock timestamp per badge id
-// (Record<string, number>) instead of { earnedAt, evidence }. IndexedDB
-// doesn't validate shapes on read, so a user who earned badges before this
-// migration would otherwise crash the first time badge code touches
-// `.earnedAt`/`.evidence` on what's still a plain number.
-export function migrateEarnedBadges(stats: AllTimeStats): boolean {
-    let migrated = false;
-    // Cast away the compile-time shape — the whole point here is defending
-    // against data written before that shape existed.
-    const raw = stats.earnedBadges as Record<string, number | { earnedAt: number; evidence: EvidenceTransaction[] }>;
-    for (const [id, value] of Object.entries(raw)) {
-        if (typeof value === 'number') {
-            stats.earnedBadges[id] = { earnedAt: value, evidence: [] };
-            migrated = true;
-        }
-    }
-    return migrated;
 }
 
 const DB_NAME = 'mtrack-db';
 // Shared with receiptStore.ts, chatSessionStore.ts and documentStore.ts — see
 // the comment on DB_VERSION in receiptStore.ts. All four must stay in sync.
 // Shared schema: dbUpgrade.ts / applyUpgrade.
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const AGGREGATE_STORE = 'aggregate';
 
 const STATS_KEY = 'all-time';
 const SEEN_CODES_KEY = 'seen-codes';
 const MAX_SEEN_CODES = 10000;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export function initDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
@@ -84,18 +53,12 @@ export function initDB(): Promise<IDBDatabase> {
 
 export async function getAllTimeStats(): Promise<AllTimeStats | undefined> {
     const db = await initDB();
-    const stats = await new Promise<AllTimeStats | undefined>((resolve, reject) => {
+    return new Promise<AllTimeStats | undefined>((resolve, reject) => {
         const tx = db.transaction(AGGREGATE_STORE, 'readonly');
         const req = tx.objectStore(AGGREGATE_STORE).get(STATS_KEY);
         req.onsuccess = () => resolve(req.result as AllTimeStats | undefined);
         req.onerror = () => reject(req.error);
     });
-
-    if (stats && migrateEarnedBadges(stats)) {
-        await saveAllTimeStats(stats);
-    }
-
-    return stats;
 }
 
 export async function saveAllTimeStats(stats: AllTimeStats): Promise<void> {
@@ -160,14 +123,6 @@ function emptyStats(now: number): AllTimeStats {
         categoryTotals: {},
         merchantCounts: {},
         providerCounts: {},
-        records: {
-            lowestFeeMonth: null,
-            highestSpendMonth: null,
-            mostTransactionsInOneSummary: 0,
-            largestSingleTransaction: null,
-            longestGapBetweenSummaries: 0,
-        },
-        earnedBadges: {},
     };
 }
 
@@ -179,24 +134,14 @@ export function mergeSessionIntoStats(
     seenCodes: Set<string>,
     transactions: ParsedTransaction[],
     now: number = Date.now()
-): { stats: AllTimeStats; seenCodes: Set<string>; newlyEarnedBadges: string[] } {
+): { stats: AllTimeStats; seenCodes: Set<string> } {
     const stats: AllTimeStats = current ? structuredClone(current) : emptyStats(now);
     const nextSeenCodes = new Set(seenCodes);
-
-    if (stats.sessionCount > 0) {
-        const gapDays = Math.round((now - stats.lastTrackedAt) / MS_PER_DAY);
-        if (gapDays > stats.records.longestGapBetweenSummaries) {
-            stats.records.longestGapBetweenSummaries = gapDays;
-        }
-    }
 
     stats.sessionCount += 1;
     stats.lastTrackedAt = now;
 
     const inScope = transactions.filter(t => !t.excludedFromReceipt);
-    if (inScope.length > stats.records.mostTransactionsInOneSummary) {
-        stats.records.mostTransactionsInOneSummary = inScope.length;
-    }
 
     // Deduplicate by transaction code — the same transaction appearing in
     // two overlapping summaries must only count once, ever.
@@ -234,29 +179,7 @@ export function mergeSessionIntoStats(
         }
 
         stats.providerCounts[t.provider] = (stats.providerCounts[t.provider] ?? 0) + 1;
-
-        if (isSpend) {
-            const merchantName = t.merchant ?? t.recipient;
-            if (!stats.records.largestSingleTransaction || t.amount > stats.records.largestSingleTransaction.amount) {
-                stats.records.largestSingleTransaction = { amount: t.amount, recipient: merchantName, date: t.date.getTime() };
-            }
-        }
     }
-
-    // Recompute month-level records from the full bucket set — cheap, and
-    // avoids drift from incremental tracking.
-    let lowestFee: { month: string; amount: number } | null = null;
-    let highestSpend: { month: string; amount: number } | null = null;
-    for (const bucket of Object.values(stats.monthly)) {
-        if (bucket.fees > 0 && (!lowestFee || bucket.fees < lowestFee.amount)) {
-            lowestFee = { month: bucket.month, amount: bucket.fees };
-        }
-        if (!highestSpend || bucket.spent > highestSpend.amount) {
-            highestSpend = { month: bucket.month, amount: bucket.spent };
-        }
-    }
-    stats.records.lowestFeeMonth = lowestFee;
-    stats.records.highestSpendMonth = highestSpend;
 
     // Cap the seen-codes set — evict oldest (insertion order) once over 10k.
     if (nextSeenCodes.size > MAX_SEEN_CODES) {
@@ -269,60 +192,7 @@ export function mergeSessionIntoStats(
         }
     }
 
-    // Badges check last, against the fully-updated cumulative stats, using
-    // this session's own characteristics (not the dedup-filtered subset —
-    // "labelled every transaction" etc. is about the session as pasted).
-    const summary = buildSessionSummary(inScope, now);
-    const newlyEarnedBadges = applyNewlyEarnedBadges(stats, summary, now);
-
-    return { stats, seenCodes: nextSeenCodes, newlyEarnedBadges };
-}
-
-// Shared by the initial merge above and recheckBadges below — builds the
-// session-characteristics half of a badge check from an in-scope transaction
-// set, independent of the cumulative AllTimeStats side.
-function buildSessionSummary(inScope: ParsedTransaction[], now: number): SessionSummary {
-    const sessionFees = inScope.reduce((s, t) => s + (t.transactionCost ?? 0), 0);
-    const sessionSubscriptionMerchants = new Set(
-        inScope
-            .filter(t => t.merchantCategory === 'Streaming & Subscriptions' || t.merchantCategory === 'Gaming')
-            .map(t => t.merchant ?? t.recipient)
-    );
-    return {
-        transactionCount: inScope.length,
-        labelledCount: inScope.filter(t => t.receiptLabel != null).length,
-        subscriptionCount: sessionSubscriptionMerchants.size,
-        fees: sessionFees,
-        generatedAt: now,
-        recurringPatterns: detectRecurring(inScope),
-        transactions: inScope,
-    };
-}
-
-// Re-checks badges for a session whose transactions changed after the
-// initial recordSession() call — specifically, labels added through the
-// interactive receipt's tap-to-label UI, which happens after the receipt
-// (and the original badge check) already exists. Deliberately narrower than
-// recordSession: it does NOT touch sessionCount, totals, monthly buckets, or
-// seenCodes — those already reflect this session from the original call, and
-// re-merging them here would double-count. It only re-evaluates badges
-// (e.g. "Sorter": labelled every transaction) against the session's current
-// label state, so a badge earned only after labeling can still fire live.
-export async function recheckBadges(
-    transactions: ParsedTransaction[],
-    now: number = Date.now()
-): Promise<{ stats: AllTimeStats; newlyEarnedBadges: string[] } | null> {
-    const stats = await getAllTimeStats();
-    if (!stats) return null;
-
-    const inScope = transactions.filter(t => !t.excludedFromReceipt);
-    const summary = buildSessionSummary(inScope, now);
-    const newlyEarnedBadges = applyNewlyEarnedBadges(stats, summary, now);
-
-    if (newlyEarnedBadges.length > 0) {
-        await saveAllTimeStats(stats);
-    }
-    return { stats, newlyEarnedBadges };
+    return { stats, seenCodes: nextSeenCodes };
 }
 
 // ── Orchestration ────────────────────────────────────────────────────────────
@@ -330,12 +200,11 @@ export async function recheckBadges(
 export interface RecordSessionResult {
     stats: AllTimeStats;
     previousStats: AllTimeStats | undefined;
-    newlyEarnedBadges: string[];
 }
 
 export async function recordSession(transactions: ParsedTransaction[]): Promise<RecordSessionResult> {
     const [current, seenArray] = await Promise.all([getAllTimeStats(), getSeenCodes()]);
-    const { stats, seenCodes, newlyEarnedBadges } = mergeSessionIntoStats(current, new Set(seenArray), transactions);
+    const { stats, seenCodes } = mergeSessionIntoStats(current, new Set(seenArray), transactions);
     await Promise.all([saveAllTimeStats(stats), saveSeenCodes([...seenCodes])]);
-    return { stats, previousStats: current, newlyEarnedBadges };
+    return { stats, previousStats: current };
 }

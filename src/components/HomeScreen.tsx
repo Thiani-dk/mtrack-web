@@ -42,7 +42,7 @@ function fmt(n: number): string {
 }
 
 // ── Passive return note ──────────────────────────────────────────────────────
-// Dismissible, and once dismissed, silent for 7 days — no nag, no badge.
+// Dismissible, and once dismissed, silent for 7 days — no nag.
 
 const RETURN_NOTE_DISMISS_KEY = 'mtrack-return-note-dismissed-until';
 const DAY_MS = 24 * 60 * 60 * 1000;

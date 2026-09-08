@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Inbox, Trophy, Trash2, Award, ChevronRight } from 'lucide-react';
-import { BADGES } from '../lib/badges/definitions';
+import { ArrowLeft, Inbox, Trash2 } from 'lucide-react';
 import { useAllTimeStats } from '../lib/aggregate/useAllTimeStats';
 import { shortProviderName } from '../lib/transactionDisplay';
 import { ThemeToggle } from './ThemeToggle';
 
 interface AllTimeScreenProps {
     onBack: () => void;
-    onBadgesClick: () => void;
 }
 
 function fmt(n: number): string {
@@ -28,7 +26,7 @@ function topEntries(record: Record<string, number>, n: number): [string, number]
     return Object.entries(record).sort((a, b) => b[1] - a[1]).slice(0, n);
 }
 
-export function AllTimeScreen({ onBack, onBadgesClick }: AllTimeScreenProps) {
+export function AllTimeScreen({ onBack }: AllTimeScreenProps) {
     const { stats, isLoading, resetAll } = useAllTimeStats();
     const [confirmingClear, setConfirmingClear] = useState(false);
 
@@ -108,24 +106,6 @@ export function AllTimeScreen({ onBack, onBadgesClick }: AllTimeScreenProps) {
                             </p>
                         </div>
 
-                        {/* Badges entry point */}
-                        <motion.button
-                            onClick={onBadgesClick}
-                            className="glass-card glass-card-hover w-full flex items-center gap-3 p-4 text-left"
-                            whileTap={{ scale: 0.98 }}
-                        >
-                            <div className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-lg" style={{ background: 'var(--accent-subtle)' }}>
-                                <Award className="w-4 h-4 text-[var(--accent)]" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-[var(--text-primary)]">Badges</p>
-                                <p className="text-xs text-[var(--text-muted)]">
-                                    {Object.keys(stats.earnedBadges).length} of {BADGES.length} earned
-                                </p>
-                            </div>
-                            <ChevronRight className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" />
-                        </motion.button>
-
                         {/* Month by month */}
                         {months.length > 0 && (
                             <div>
@@ -148,57 +128,6 @@ export function AllTimeScreen({ onBack, onBadgesClick }: AllTimeScreenProps) {
                                 </div>
                             </div>
                         )}
-
-                        {/* Personal records */}
-                        <div>
-                            <div className="flex items-center gap-1.5 mb-2 px-1">
-                                <Trophy className="w-3.5 h-3.5 text-[var(--accent)]" />
-                                <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest">Personal records</p>
-                            </div>
-                            <div className="glass-card overflow-hidden divide-y divide-[var(--border-glass)]">
-                                <div className="flex items-center justify-between px-4 py-3">
-                                    <span className="text-sm text-[var(--text-secondary)]">Busiest summary</span>
-                                    <span className="text-sm font-medium text-[var(--text-primary)] tabular-nums">
-                                        {stats.records.mostTransactionsInOneSummary} transactions
-                                    </span>
-                                </div>
-                                {stats.records.largestSingleTransaction && (
-                                    <div className="flex items-center justify-between px-4 py-3 gap-2">
-                                        <span className="text-sm text-[var(--text-secondary)]">Biggest single payment</span>
-                                        <span className="text-sm font-medium text-[var(--text-primary)] text-right tabular-nums">
-                                            {fmt(stats.records.largestSingleTransaction.amount)}
-                                            <span className="block text-xs text-[var(--text-muted)] font-normal">
-                                                {stats.records.largestSingleTransaction.recipient}
-                                            </span>
-                                        </span>
-                                    </div>
-                                )}
-                                {stats.records.highestSpendMonth && (
-                                    <div className="flex items-center justify-between px-4 py-3">
-                                        <span className="text-sm text-[var(--text-secondary)]">Highest-spend month</span>
-                                        <span className="text-sm font-medium text-[var(--text-primary)] tabular-nums">
-                                            {fmt(stats.records.highestSpendMonth.amount)} · {formatMonthLabel(stats.records.highestSpendMonth.month)}
-                                        </span>
-                                    </div>
-                                )}
-                                {stats.records.lowestFeeMonth && (
-                                    <div className="flex items-center justify-between px-4 py-3">
-                                        <span className="text-sm text-[var(--text-secondary)]">Lowest-fee month</span>
-                                        <span className="text-sm font-medium text-[var(--text-primary)] tabular-nums">
-                                            {fmt(stats.records.lowestFeeMonth.amount)} · {formatMonthLabel(stats.records.lowestFeeMonth.month)}
-                                        </span>
-                                    </div>
-                                )}
-                                {stats.records.longestGapBetweenSummaries > 0 && (
-                                    <div className="flex items-center justify-between px-4 py-3">
-                                        <span className="text-sm text-[var(--text-secondary)]">Longest gap between summaries</span>
-                                        <span className="text-sm font-medium text-[var(--text-primary)] tabular-nums">
-                                            {stats.records.longestGapBetweenSummaries} days
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
 
                         {/* Top categories */}
                         {topCategories.length > 0 && (
@@ -270,7 +199,7 @@ export function AllTimeScreen({ onBack, onBadgesClick }: AllTimeScreenProps) {
                                         exit={{ opacity: 0, height: 0 }}
                                         className="text-xs text-center text-[var(--text-muted)] mt-2"
                                     >
-                                        This wipes your all-time totals and records. Individual saved summaries aren't affected.
+                                        This wipes your all-time totals. Individual saved documents aren't affected.
                                     </motion.p>
                                 )}
                             </AnimatePresence>

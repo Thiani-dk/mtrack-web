@@ -31,8 +31,6 @@ export function useAllTimeStats() {
 
     // Demo sessions are excluded entirely — callers should never invoke this
     // for demo data, but the guard is here too so it's impossible to get wrong.
-    // Returns the full result (including newly-earned badges) so callers can
-    // announce it, or null if skipped/unavailable.
     const recordSession = useCallback(async (transactions: ParsedTransaction[], isDemo: boolean): Promise<RecordSessionResult | null> => {
         if (isDemo) return null;
         try {
@@ -46,23 +44,6 @@ export function useAllTimeStats() {
         }
     }, []);
 
-    // Live re-check after a label edit (see allTimeStore.recheckBadges for
-    // why this is deliberately narrower than recordSession). Demo sessions
-    // never touch the aggregate, same guard as recordSession.
-    const recheckBadges = useCallback(async (transactions: ParsedTransaction[], isDemo: boolean): Promise<string[]> => {
-        if (isDemo) return [];
-        try {
-            const result = await store.recheckBadges(transactions);
-            if (!result) return [];
-            setStats(result.stats);
-            setIsAvailable(true);
-            return result.newlyEarnedBadges;
-        } catch {
-            setIsAvailable(false);
-            return [];
-        }
-    }, []);
-
     const resetAll = useCallback(async () => {
         try {
             await store.resetAllTime();
@@ -72,5 +53,5 @@ export function useAllTimeStats() {
         }
     }, [refresh]);
 
-    return { stats, isLoading, isAvailable, recordSession, recheckBadges, resetAll };
+    return { stats, isLoading, isAvailable, recordSession, resetAll };
 }

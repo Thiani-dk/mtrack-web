@@ -451,70 +451,6 @@ const feeTrendVsHistory: Generator = (txns, ctx) => {
     };
 };
 
-// ── 14. Milestone (cross-session) ────────────────────────────────────────────
-
-const MILESTONE_SESSION_COUNTS = new Set([10, 25, 50, 100]);
-const MILESTONE_TRANSACTION_COUNTS = new Set([100, 500, 1000]);
-const MILESTONE_AMOUNTS = [100_000, 500_000, 1_000_000];
-
-function ordinal(n: number): string {
-    const rem100 = n % 100;
-    if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
-    switch (n % 10) {
-        case 1: return `${n}st`;
-        case 2: return `${n}nd`;
-        case 3: return `${n}rd`;
-        default: return `${n}th`;
-    }
-}
-
-const milestone: Generator = (txns, ctx) => {
-    const stats = ctx.allTimeStats;
-    if (!stats) return null;
-
-    if (MILESTONE_SESSION_COUNTS.has(stats.sessionCount)) {
-        return {
-            id: 'milestone_sessions',
-            kind: 'milestone',
-            priority: 95,
-            headline: `That's your ${ordinal(stats.sessionCount)} summary.`,
-            evidence: [],
-            shareable: true,
-        };
-    }
-
-    if (MILESTONE_TRANSACTION_COUNTS.has(stats.totalTransactionsTracked)) {
-        return {
-            id: 'milestone_transactions',
-            kind: 'milestone',
-            priority: 95,
-            headline: `You've now tracked ${stats.totalTransactionsTracked} transactions with M-Track.`,
-            evidence: [],
-            shareable: true,
-        };
-    }
-
-    // Aggregate stats here don't yet include this in-progress batch (chat
-    // doesn't persist to the aggregate itself), so check whether adding it
-    // would cross a threshold the running total hasn't reached yet.
-    const totalBefore = stats.totalSpent + stats.totalReceived;
-    const thisAmount = txns.filter(t => !t.excludedFromReceipt).reduce((s, t) => s + t.amount, 0);
-    const projected = totalBefore + thisAmount;
-    const crossed = MILESTONE_AMOUNTS.find(m => totalBefore < m && projected >= m);
-    if (crossed) {
-        return {
-            id: `milestone_amount_${crossed}`,
-            kind: 'milestone',
-            priority: 95,
-            headline: `You've now tracked ${fmtProse(projected)} with M-Track.`,
-            evidence: [],
-            shareable: true,
-        };
-    }
-
-    return null;
-};
-
 export const GENERATORS: Generator[] = [
     feeTotal,
     topCategory,
@@ -529,5 +465,4 @@ export const GENERATORS: Generator[] = [
     recurring,
     comparison,
     feeTrendVsHistory,
-    milestone,
 ];
