@@ -1,13 +1,15 @@
 import type { ParsedTransaction } from '../types';
 import { extractRawBlock, finalizeTransaction, deriveSubType } from './parsers';
 import { extractAmount } from './parsers/extractors/amount';
-import { extractDate } from './parsers/extractors/date';
 import { extractParties } from './parsers/extractors/parties';
 import { extractCode } from './parsers/extractors/code';
 import { extractDirection } from './parsers/extractors/direction';
+import { parseConversationalDate, type ConversationalDateResult } from './parsers/conversationalDate';
+import { hasUsableDate } from './transactionDisplay';
 import type { DirectionResult } from './parsers/types';
 
-export type { DirectionResult };
+export type { DirectionResult, ConversationalDateResult };
+export { parseConversationalDate };
 
 // Conversational entry runs through the SAME classify -> extract -> score
 // components as SMS input (extractRawBlock / finalizeTransaction and the
@@ -23,6 +25,10 @@ export interface DescriptionResult {
     purposeLabel: string | null;
     date: Date | null;
     dateAmbiguous: boolean;
+    // The full verdict from the conversational date parser, so the caller can
+    // echo `interpretation` back for confirmation, ask `reason` when it needs
+    // clarifying, or refuse an out-of-bounds date. Never silently accepted.
+    dateResult: ConversationalDateResult;
     // Direction resolved from the typed text by the SAME layered oracle the
     // SMS pipeline uses (extractDirection), with a light conversational verb
     // nudge for phrasing it was never built for ("paid Kevin 500"). source
@@ -33,45 +39,6 @@ export interface DescriptionResult {
     // 'none'   — nothing usable, start the questions from scratch
     confidence: 'high' | 'partial' | 'none';
     missing: Array<'amount' | 'recipient' | 'date'>;
-}
-
-const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-
-function startOfDay(d: Date): Date {
-    const c = new Date(d);
-    c.setHours(12, 0, 0, 0);
-    return c;
-}
-
-// "today" / "yesterday" / "3 days ago" / "last friday" / "on monday", plus a
-// fall-through to the SMS date extractor for anything calendar-shaped.
-export function parseConversationalDate(text: string, now: Date = new Date()): { date: Date; ambiguous: boolean } | null {
-    const t = text.toLowerCase();
-
-    if (/\b(today|just now|this morning|this afternoon|tonight|earlier today)\b/.test(t)) {
-        return { date: startOfDay(now), ambiguous: false };
-    }
-    if (/\byesterday\b/.test(t)) {
-        return { date: startOfDay(new Date(now.getTime() - 86400000)), ambiguous: false };
-    }
-    const daysAgo = t.match(/\b(\d{1,2})\s+days?\s+ago\b/);
-    if (daysAgo) {
-        return { date: startOfDay(new Date(now.getTime() - Number(daysAgo[1]) * 86400000)), ambiguous: false };
-    }
-    if (/\b(a|one)\s+week\s+ago\b/.test(t)) {
-        return { date: startOfDay(new Date(now.getTime() - 7 * 86400000)), ambiguous: false };
-    }
-    const weekday = t.match(/\b(?:last|on|this)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
-    if (weekday) {
-        const target = WEEKDAYS.indexOf(weekday[1]);
-        let delta = (now.getDay() - target + 7) % 7;
-        if (delta === 0) delta = 7;
-        return { date: startOfDay(new Date(now.getTime() - delta * 86400000)), ambiguous: false };
-    }
-
-    const viaExtractor = extractDate(text);
-    if (viaExtractor) return { date: viaExtractor.date, ambiguous: viaExtractor.ambiguous };
-    return null;
 }
 
 // A trailing "for <purpose>" / "for a <purpose>" clause, when present.
@@ -146,8 +113,16 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
     const amount = (finalized && finalized.amount > 0 ? finalized.amount : null) ?? amountResult?.amount ?? null;
     const currency = finalized?.currency ?? amountResult?.currency ?? 'KES';
     const recipient = finalizedName ?? parties.recipient ?? parties.sender ?? extractFreeformName(text);
-    const date = finalized?.date ?? dateResult?.date ?? null;
-    const dateAmbiguous = finalized?.dateAmbiguous ?? dateResult?.ambiguous ?? false;
+
+    // A pasted confirmation that fully parsed already carries a trustworthy
+    // date; otherwise the conversational reader has the say. A date is only
+    // taken as final when it came back 'exact' — anything else is handed up so
+    // the caller can ask, never quietly accepted.
+    const fromSms = finalized?.date ?? null;
+    const date = fromSms ?? (dateResult.confidence === 'exact' ? dateResult.date : null);
+    const dateAmbiguous = fromSms
+        ? (finalized?.dateAmbiguous ?? false)
+        : dateResult.confidence === 'needs_clarification' && dateResult.date != null;
 
     const missing: Array<'amount' | 'recipient' | 'date'> = [];
     if (amount == null || amount <= 0) missing.push('amount');
@@ -161,6 +136,7 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
         purposeLabel: extractPurpose(text),
         date,
         dateAmbiguous,
+        dateResult,
         direction,
         confidence: missing.length === 0 ? 'high' : missing.length >= 3 ? 'none' : 'partial',
         missing,
@@ -184,11 +160,19 @@ export function buildSelfReportedTransaction(fields: {
     const type = direction.type;
     const directionUnresolved = direction.source === 'unresolved';
     const method = 'transfer';
-    const codeResult = extractCode('', { merchant: null, amount: fields.amount, isoDate: fields.date.toISOString() });
+    // The date may deliberately be an invalid Date — the capture flow offers to
+    // leave it off rather than guess. Nothing downstream may call toISOString
+    // or toLocaleTimeString on one of those without checking first.
+    const dated = hasUsableDate({ date: fields.date });
+    const codeResult = extractCode('', {
+        merchant: null,
+        amount: fields.amount,
+        isoDate: dated ? fields.date.toISOString() : null,
+    });
 
     return {
         date: fields.date,
-        time: fields.date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        time: dated ? fields.date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }) : '',
         type,
         subType: deriveSubType(method, type, false, fields.recipient),
         amount: fields.amount,

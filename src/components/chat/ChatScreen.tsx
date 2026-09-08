@@ -4,7 +4,8 @@ import type {
     DocumentType, MerchantProfile, OnBehalfOfContext, TrackedDocument,
 } from '../../types';
 import { extractDescription, buildSelfReportedTransaction, parseConversationalDate, type DirectionResult } from '../../lib/conversationalCapture';
-import { fmtProse } from '../../lib/transactionDisplay';
+import { DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
+import { fmtProse, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { getDocument } from '../../lib/documentStore';
 import { buildDraft } from '../../lib/draftDocument';
@@ -63,6 +64,11 @@ const OBO_INPUT_PROMPT =
     "Copy the M-Pesa messages, or tell me what you spent and when.";
 const DATE_PROMPT =
     "When was that? A rough date is fine, but I'd rather leave it blank than guess.";
+// Two unreadable answers is enough. A missing date beats a wrong one, and a
+// question that repeats forever is worse than either.
+const MAX_DATE_ATTEMPTS = 2;
+const DATE_GIVE_UP =
+    "Let's leave the date off this one rather than guess. You can tap it on the document to set it later.";
 const OBO_AMBIGUOUS_DATE_PROMPT =
     "That date could be read two ways, day first or month first. On a claim a wrong date can get the whole thing rejected, so which is it?";
 const EFFICIENCY_NUDGE =
@@ -80,6 +86,12 @@ interface CaptureDraft {
     date: Date | null;
     dateAmbiguous: boolean;
     purposeLabel: string | null;
+    // The parser's plain-English reading of the date ("13 March 2026"), echoed
+    // back in the confirmation sentence so a date is never silently accepted.
+    dateInterpretation: string | null;
+    // Set once the user has been offered, and taken, "leave the date off" after
+    // repeated unreadable answers. Stops the date question being asked again.
+    dateSkipped: boolean;
     // Resolved from what the user typed (extractDescription). Starts unresolved
     // so a capture that never carried a directional word gets asked, not guessed.
     direction: DirectionResult;
@@ -93,6 +105,9 @@ interface DocFlow {
     draft: CaptureDraft;
     describedCount: number;
     nudgeShown: boolean;
+    // Unreadable-date answers so far on the line being captured. Capped so the
+    // clarification question can never loop.
+    dateAttempts: number;
     // Transaction codes still awaiting a guided purpose label (on_behalf_of).
     purposeQueue: string[];
     // The persisted draft TrackedDocument backing this flow (id === session id).
@@ -102,7 +117,10 @@ interface DocFlow {
 const UNRESOLVED_DIRECTION: DirectionResult = { type: 'sent', confidence: 30, source: 'unresolved' };
 
 function emptyDraft(): CaptureDraft {
-    return { amount: null, currency: 'KES', recipient: null, date: null, dateAmbiguous: false, purposeLabel: null, direction: UNRESOLVED_DIRECTION };
+    return {
+        amount: null, currency: 'KES', recipient: null, date: null, dateAmbiguous: false,
+        purposeLabel: null, dateInterpretation: null, dateSkipped: false, direction: UNRESOLVED_DIRECTION,
+    };
 }
 
 // The guided demo's ephemeral state machine — a parallel to DocFlow that only
@@ -143,7 +161,7 @@ function fmtShortDate(d: Date): string {
 // (deliverInsights) and conversational capture (commitDraft) — one mechanism,
 // answered by handleDirectionAnswer either way.
 function directionQuestionMessage(t: ParsedTransaction): Omit<ChatMessage, 'id' | 'timestamp'> {
-    const dateLabel = t.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const dateLabel = fmtTxDate(t, { day: 'numeric', month: 'short' });
     const party = t.merchant ?? t.recipient;
     return {
         role: 'bot', kind: 'direction-question',
@@ -160,7 +178,7 @@ function directionQuestionMessage(t: ParsedTransaction): Omit<ChatMessage, 'id' 
 // The claim's real covering span, drawn from the dates the user's lines landed
 // on ("21 Aug to 2 Sep"), for the demo receipt card's range label.
 function demoCoveringLabel(txns: ParsedTransaction[]): string {
-    const times = txns.map(t => t.date.getTime()).sort((a, b) => a - b);
+    const times = txns.filter(hasUsableDate).map(t => t.date.getTime()).sort((a, b) => a - b);
     if (times.length === 0) return 'sample';
     const from = new Date(times[0]);
     const to = new Date(times[times.length - 1]);
@@ -531,6 +549,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             draft: emptyDraft(),
             describedCount: 0,
             nudgeShown: false,
+            dateAttempts: 0,
             purposeQueue: [],
             draftDoc: null,
         });
@@ -571,6 +590,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 draft: emptyDraft(),
                 describedCount: 0,
                 nudgeShown: true,
+                dateAttempts: 0,
                 purposeQueue: [],
                 draftDoc: doc,
             });
@@ -895,7 +915,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
         const base = {
             merchantProfile: null, onBehalfOf: null, draft: emptyDraft(),
-            describedCount: 0, nudgeShown: false, purposeQueue: [] as string[], draftDoc: null,
+            describedCount: 0, nudgeShown: false, dateAttempts: 0, purposeQueue: [] as string[], draftDoc: null,
         };
         if (value === 'own') {
             setDocFlow({ ...base, documentType: 'expense_summary', pending: 'input' });
@@ -956,11 +976,14 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     const commitDraft = useCallback(async (flow: DocFlow, draft: CaptureDraft) => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
-        if (draft.amount == null || draft.amount <= 0 || !draft.recipient || !draft.date) return;
+        if (draft.amount == null || draft.amount <= 0 || !draft.recipient) return;
+        if (!draft.date && !draft.dateSkipped) return;
 
         const txn = buildSelfReportedTransaction({
             amount: draft.amount, currency: draft.currency, recipient: draft.recipient,
-            date: draft.date, dateAmbiguous: draft.dateAmbiguous, purposeLabel: draft.purposeLabel,
+            // Deliberately undated when the user took the "leave it off" offer.
+            date: draft.date ?? UNDATED(),
+            dateAmbiguous: draft.dateAmbiguous, purposeLabel: draft.purposeLabel,
             direction: draft.direction,
         });
 
@@ -976,7 +999,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             updateMsg(receiptMsg.id, { transactions: allTxns });
         } else {
             addMsg({
-                role: 'bot', kind: 'receipt', transactions: allTxns, dateRange: fmtShortDate(draft.date),
+                role: 'bot', kind: 'receipt', transactions: allTxns,
+                dateRange: draft.date ? fmtShortDate(draft.date) : 'undated',
                 isDemo: false, documentType: resolvedType,
             });
         }
@@ -1042,7 +1066,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     // question and returns which prompt we're now waiting on.
     const askNextField = useCallback((draft: CaptureDraft, documentType: DocumentType): PendingPrompt => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
-        if (!draft.date) { addMsg({ role: 'bot', kind: 'text', text: DATE_PROMPT }); return 'field-date'; }
+        if (!draft.date && !draft.dateSkipped) { addMsg({ role: 'bot', kind: 'text', text: DATE_PROMPT }); return 'field-date'; }
         if (draft.amount == null || draft.amount <= 0) { addMsg({ role: 'bot', kind: 'text', text: 'How much was it?' }); return 'field-amount'; }
         if (!draft.recipient) {
             addMsg({ role: 'bot', kind: 'text', text: documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?' });
@@ -1059,7 +1083,11 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             : `${fmtProse(draft.amount ?? 0)} ${draft.direction.type === 'received' ? 'from' : 'to'} ${draft.recipient}`;
         const parts = [lead];
         if (draft.purposeLabel) parts.push(`for ${draft.purposeLabel}`);
-        if (draft.date) parts.push(`on ${fmtShortDate(draft.date)}`);
+        // 1.5 — the date is never accepted silently. The parser's own reading
+        // of it is echoed here, inside the confirmation that already exists,
+        // rather than as a second question of its own.
+        if (draft.date) parts.push(`on ${draft.dateInterpretation ?? fmtShortDate(draft.date)}`);
+        else if (draft.dateSkipped) parts.push('with no date');
         return `${parts.join(', ')}. Right?`;
     }, []);
 
@@ -1085,6 +1113,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             recipient: r.recipient ?? flow.draft.recipient,
             date: r.date ?? flow.draft.date,
             dateAmbiguous: r.dateAmbiguous,
+            dateInterpretation: r.date ? (r.dateResult.interpretation ?? flow.draft.dateInterpretation) : flow.draft.dateInterpretation,
             purposeLabel: r.purposeLabel ?? flow.draft.purposeLabel,
             // Keep a direction we resolved on an earlier turn if this one is silent.
             direction: r.direction.source !== 'unresolved' ? r.direction : flow.draft.direction,
@@ -1097,6 +1126,27 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 setDocFlow(f => (f ? { ...f, nudgeShown: true } : f));
             }
         };
+
+        // A date the parser refused outright (in the future, or older than the
+        // 12-month window) is never carried into the draft — say why and ask again.
+        if (!draft.date && !draft.dateSkipped && r.dateResult.confidence === 'invalid') {
+            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount });
+            addMsg({ role: 'bot', kind: 'text', text: `${r.dateResult.reason} When was it?` });
+            fireNudge();
+            return;
+        }
+
+        // A real but two-way reading ("9/2/2026", "over the weekend") — put the
+        // parser's own question, rather than picking a side. When the sentence
+        // simply never mentioned a date, ask the plain question instead: "I
+        // couldn't work out a date from that" would imply they'd tried.
+        if (!draft.date && !draft.dateSkipped && r.dateResult.confidence === 'needs_clarification' && r.dateResult.reason) {
+            const attempted = r.dateResult.reason !== DATE_REASON_UNREADABLE;
+            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount });
+            addMsg({ role: 'bot', kind: 'text', text: attempted ? r.dateResult.reason : DATE_PROMPT });
+            fireNudge();
+            return;
+        }
 
         // Phase C5 — a day/month flip on a reimbursement claim can sink the
         // whole submission, so escalate it before doing anything else.
@@ -1153,15 +1203,32 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             }
             case 'field-date': {
                 const d = parseConversationalDate(t);
-                if (!d) {
-                    addMsg({ role: 'bot', kind: 'text', text: "I still can't read a date there. A month and day is enough, a year helps too." });
+
+                if (d.confidence === 'exact' && d.date) {
+                    // Accepted, but still echoed back inside the confirmation
+                    // sentence (see confirmText) before anything is committed.
+                    setDocFlow({ ...flow, dateAttempts: 0 });
+                    advanceAfterField(
+                        { ...flow, dateAttempts: 0 },
+                        { ...flow.draft, date: d.date, dateAmbiguous: false, dateInterpretation: d.interpretation, dateSkipped: false },
+                    );
                     return true;
                 }
-                if (d.ambiguous && flow.documentType === 'on_behalf_of') {
-                    addMsg({ role: 'bot', kind: 'text', text: OBO_AMBIGUOUS_DATE_PROMPT });
+
+                // Not settled. Ask the parser's own question, but never more
+                // than twice — past that, offer to leave the date off rather
+                // than loop or let a wrong date through.
+                const attempts = flow.dateAttempts + 1;
+                if (attempts >= MAX_DATE_ATTEMPTS) {
+                    addMsg({ role: 'bot', kind: 'text', text: DATE_GIVE_UP });
+                    advanceAfterField(
+                        { ...flow, dateAttempts: 0 },
+                        { ...flow.draft, date: null, dateAmbiguous: false, dateInterpretation: null, dateSkipped: true },
+                    );
                     return true;
                 }
-                advanceAfterField(flow, { ...flow.draft, date: d.date, dateAmbiguous: d.ambiguous });
+                setDocFlow({ ...flow, dateAttempts: attempts });
+                addMsg({ role: 'bot', kind: 'text', text: d.reason ?? DATE_PROMPT });
                 return true;
             }
             case 'field-amount': {

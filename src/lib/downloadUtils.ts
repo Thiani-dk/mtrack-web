@@ -46,7 +46,13 @@ async function sha256Hash(input: string): Promise<string> {
 // Uses transaction codes + amounts + dates — enough to be unique per dataset.
 function transactionFingerprint(transactions: ParsedTransaction[]): string {
     return transactions
-        .map(t => `${t.transactionCode}|${t.amount}|${t.date.toISOString().slice(0, 10)}`)
+        // An undated line (the capture flow can leave a date off rather than
+        // guess) contributes 'undated' — toISOString would throw on it.
+        .map(t => {
+            const ms = t.date instanceof Date ? t.date.getTime() : NaN;
+            const day = Number.isNaN(ms) ? 'undated' : new Date(ms).toISOString().slice(0, 10);
+            return `${t.transactionCode}|${t.amount}|${day}`;
+        })
         .join('::');
 }
 

@@ -1,5 +1,23 @@
 import type { ParsedTransaction } from '../types';
 
+// A transaction can legitimately have no date: conversational capture offers to
+// leave it off rather than guess when the user's answer stays unreadable. That
+// state is carried as an invalid Date (computeCoveringDates already treats one
+// as "no usable date"), so every surface that prints a line's date goes through
+// fmtTxDate rather than calling toLocaleDateString on it directly.
+export const UNDATED = () => new Date(NaN);
+
+export function hasUsableDate(t: { date: Date }): boolean {
+    return t.date instanceof Date && !Number.isNaN(t.date.getTime());
+}
+
+export function fmtTxDate(
+    t: { date: Date },
+    opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short' },
+): string {
+    return hasUsableDate(t) ? t.date.toLocaleDateString('en-GB', opts) : 'No date';
+}
+
 function commaGroup(n: number): string {
     return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
