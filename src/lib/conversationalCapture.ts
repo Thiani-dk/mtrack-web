@@ -4,6 +4,10 @@ import { extractAmount } from './parsers/extractors/amount';
 import { extractDate } from './parsers/extractors/date';
 import { extractParties } from './parsers/extractors/parties';
 import { extractCode } from './parsers/extractors/code';
+import { extractDirection } from './parsers/extractors/direction';
+import type { DirectionResult } from './parsers/types';
+
+export type { DirectionResult };
 
 // Conversational entry runs through the SAME classify -> extract -> score
 // components as SMS input (extractRawBlock / finalizeTransaction and the
@@ -19,6 +23,11 @@ export interface DescriptionResult {
     purposeLabel: string | null;
     date: Date | null;
     dateAmbiguous: boolean;
+    // Direction resolved from the typed text by the SAME layered oracle the
+    // SMS pipeline uses (extractDirection), with a light conversational verb
+    // nudge for phrasing it was never built for ("paid Kevin 500"). source
+    // 'unresolved' means the caller must ask, never silently default to sent.
+    direction: DirectionResult;
     // 'high'   — amount, recipient and date all present, confirm and wait for yes
     // 'partial'— some fields present, ask for the rest one at a time
     // 'none'   — nothing usable, start the questions from scratch
@@ -87,6 +96,33 @@ function extractFreeformName(text: string): string | null {
     return name;
 }
 
+// The SMS direction oracle handles house-style confirmations. Free typing is
+// different: "paid Kevin 500", "gave mum 2k", "Jane sent me 800" carry a clear
+// direction in the verb, with no "to your account" structure and often no
+// currency token for the structural layer to bite on. Consulted ONLY when
+// extractDirection comes back unresolved, so it never overrides a real signal.
+function conversationalDirectionHint(text: string): DirectionResult | null {
+    const t = ` ${text.toLowerCase()} `;
+
+    // Money coming to the user.
+    if (/\b(?:paid|sent|gave|owed|repaid|refunded|wired)\s+me\b/.test(t) || /\bpay(?:ing|s)?\s+me\b/.test(t)) {
+        return { type: 'received', confidence: 95, source: 'keyword' };
+    }
+    if (/\b(?:received|receive|got|collected|earned|invoiced)\b/.test(t) && /\bfrom\b/.test(t)) {
+        return { type: 'received', confidence: 95, source: 'keyword' };
+    }
+    if (/\b(?:received|receive|got\s+paid|was\s+paid|were\s+paid)\b/.test(t)) {
+        return { type: 'received', confidence: 95, source: 'keyword' };
+    }
+
+    // Money leaving the user.
+    if (/\b(?:i\s+)?(?:paid|pay|paying|sent|send|sending|gave|give|giving|spent|spend|spending|bought|buy|buying|settled|settle)\b/.test(t)) {
+        return { type: 'sent', confidence: 95, source: 'keyword' };
+    }
+
+    return null;
+}
+
 export function extractDescription(text: string, now: Date = new Date()): DescriptionResult {
     // Run both the full SMS path (at a relaxed bar, for anyone who pasted a
     // real confirmation) and the individual extractors, then take the best of
@@ -96,6 +132,13 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
     const amountResult = extractAmount(text);
     const parties = extractParties(text);
     const dateResult = parseConversationalDate(text, now);
+
+    // Direction: the shared oracle first, the conversational verb nudge only if
+    // it could not decide. Never a silent default.
+    const oracleDirection = extractDirection(text);
+    const direction: DirectionResult = oracleDirection.source === 'unresolved'
+        ? (conversationalDirectionHint(text) ?? oracleDirection)
+        : oracleDirection;
 
     const finalizedName =
         finalized && finalized.recipient && finalized.recipient !== 'Unknown' ? finalized.recipient : null;
@@ -118,6 +161,7 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
         purposeLabel: extractPurpose(text),
         date,
         dateAmbiguous,
+        direction,
         confidence: missing.length === 0 ? 'high' : missing.length >= 3 ? 'none' : 'partial',
         missing,
     };
@@ -132,9 +176,13 @@ export function buildSelfReportedTransaction(fields: {
     date: Date;
     dateAmbiguous?: boolean;
     purposeLabel?: string | null;
-    type?: 'sent' | 'received';
+    // The resolved direction. Omitted means "nothing was said" -> unresolved,
+    // exactly as the SMS path treats a signal-free message. No silent 'sent'.
+    direction?: DirectionResult;
 }): ParsedTransaction {
-    const type = fields.type ?? 'sent';
+    const direction: DirectionResult = fields.direction ?? { type: 'sent', confidence: 30, source: 'unresolved' };
+    const type = direction.type;
+    const directionUnresolved = direction.source === 'unresolved';
     const method = 'transfer';
     const codeResult = extractCode('', { merchant: null, amount: fields.amount, isoDate: fields.date.toISOString() });
 
@@ -164,9 +212,12 @@ export function buildSelfReportedTransaction(fields: {
         location: null,
         isBusiness: false,
 
-        confidence: 100,
-        confidenceLevel: 'high',
-        missingFields: [],
+        // A self-reported line is otherwise taken at face value (100/high).
+        // An unresolved direction is the one thing that drops it to low and
+        // marks it for a question, exactly as finalizeTransaction does for SMS.
+        confidence: directionUnresolved ? 30 : 100,
+        confidenceLevel: directionUnresolved ? 'low' : 'high',
+        missingFields: directionUnresolved ? ['direction'] : [],
         codeIsSynthetic: codeResult.synthetic,
         dateAmbiguous: fields.dateAmbiguous ?? false,
         failed: false,
@@ -178,10 +229,9 @@ export function buildSelfReportedTransaction(fields: {
         isReversed: false,
         amountVerified: false,
         balanceMismatch: false,
-        // The user stated the direction explicitly — treat as known.
-        directionSource: 'keyword',
+        directionSource: directionUnresolved ? 'unresolved' : direction.source,
         directionDisputed: false,
-        directionUnresolved: false,
+        directionUnresolved,
 
         dataSource: 'self_reported',
         lineItems: null,

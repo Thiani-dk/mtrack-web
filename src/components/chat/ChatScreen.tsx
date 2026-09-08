@@ -3,7 +3,7 @@ import type {
     ChatMessage, ChatOption, ParsedTransaction, SkippedMessage,
     DocumentType, MerchantProfile, OnBehalfOfContext, TrackedDocument,
 } from '../../types';
-import { extractDescription, buildSelfReportedTransaction, parseConversationalDate } from '../../lib/conversationalCapture';
+import { extractDescription, buildSelfReportedTransaction, parseConversationalDate, type DirectionResult } from '../../lib/conversationalCapture';
 import { fmtProse } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { getDocument } from '../../lib/documentStore';
@@ -80,7 +80,9 @@ interface CaptureDraft {
     date: Date | null;
     dateAmbiguous: boolean;
     purposeLabel: string | null;
-    type: 'sent' | 'received';
+    // Resolved from what the user typed (extractDescription). Starts unresolved
+    // so a capture that never carried a directional word gets asked, not guessed.
+    direction: DirectionResult;
 }
 
 interface DocFlow {
@@ -97,8 +99,10 @@ interface DocFlow {
     draftDoc: TrackedDocument | null;
 }
 
+const UNRESOLVED_DIRECTION: DirectionResult = { type: 'sent', confidence: 30, source: 'unresolved' };
+
 function emptyDraft(): CaptureDraft {
-    return { amount: null, currency: 'KES', recipient: null, date: null, dateAmbiguous: false, purposeLabel: null, type: 'sent' };
+    return { amount: null, currency: 'KES', recipient: null, date: null, dateAmbiguous: false, purposeLabel: null, direction: UNRESOLVED_DIRECTION };
 }
 
 // The guided demo's ephemeral state machine — a parallel to DocFlow that only
@@ -133,6 +137,24 @@ interface DemoFlow {
 
 function fmtShortDate(d: Date): string {
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// The one "money in or out?" question shape, used by both the SMS batch path
+// (deliverInsights) and conversational capture (commitDraft) — one mechanism,
+// answered by handleDirectionAnswer either way.
+function directionQuestionMessage(t: ParsedTransaction): Omit<ChatMessage, 'id' | 'timestamp'> {
+    const dateLabel = t.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const party = t.merchant ?? t.recipient;
+    return {
+        role: 'bot', kind: 'direction-question',
+        text: `I couldn't tell which way this one went. ${fmtProse(t.amount)}, ${party}, ${dateLabel}. Money in or out?`,
+        directionQuestion: {
+            transactionCode: t.transactionCode,
+            amountLabel: fmtProse(t.amount),
+            partyLabel: party,
+            dateLabel,
+        },
+    };
 }
 
 // The claim's real covering span, drawn from the dates the user's lines landed
@@ -399,16 +421,7 @@ async function deliverInsights(
         .sort((a, b) => b.amount - a.amount);
     for (const t of unresolved.slice(0, MAX_DIRECTION_QUESTIONS)) {
         await sleep(350);
-        addMsg({
-            role: 'bot', kind: 'direction-question',
-            text: `I couldn't tell which way this one went. ${fmtProse(t.amount)}, ${t.merchant ?? t.recipient}, ${t.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}. Money in or out?`,
-            directionQuestion: {
-                transactionCode: t.transactionCode,
-                amountLabel: fmtProse(t.amount),
-                partyLabel: t.merchant ?? t.recipient,
-                dateLabel: t.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-            },
-        });
+        addMsg(directionQuestionMessage(t));
     }
     if (unresolved.length > MAX_DIRECTION_QUESTIONS) {
         await sleep(300);
@@ -947,7 +960,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
         const txn = buildSelfReportedTransaction({
             amount: draft.amount, currency: draft.currency, recipient: draft.recipient,
-            date: draft.date, dateAmbiguous: draft.dateAmbiguous, purposeLabel: draft.purposeLabel, type: draft.type,
+            date: draft.date, dateAmbiguous: draft.dateAmbiguous, purposeLabel: draft.purposeLabel,
+            direction: draft.direction,
         });
 
         // A described transaction under "my own spending" is a personal note,
@@ -970,12 +984,25 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         setDocFlow({ ...flow, documentType: resolvedType, draft: emptyDraft(), pending: 'input' });
         syncDraft(allTxns);
 
+        // Direction the capture couldn't settle: ask, using the same tappable
+        // question the SMS path uses. handleDirectionAnswer patches the same
+        // receipt message and re-scores, so nothing else here changes.
+        if (txn.directionUnresolved) {
+            await sleep(300);
+            addMsg(directionQuestionMessage(txn));
+        }
+
         if (resolvedType === 'on_behalf_of' && !txn.purposeLabel) {
             setDocFlow(f => (f ? { ...f, purposeQueue: [txn.transactionCode], pending: 'purpose-label' } : f));
             await sleep(300);
             askPurposeFor(txn.transactionCode, allTxns);
         } else {
-            addMsg({ role: 'bot', kind: 'text', text: "Added. Tell me the next one, or tap Approve when the document looks right." });
+            addMsg({
+                role: 'bot', kind: 'text',
+                text: txn.directionUnresolved
+                    ? 'Added. Set which way that one went above, then tell me the next.'
+                    : 'Added. Tell me the next one, or tap Approve when the document looks right.',
+            });
         }
     }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, setDocFlow, syncDraft, askPurposeFor]);
 
@@ -1025,7 +1052,12 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     }, [isDemoSession, addDemoMessage, addMessage]);
 
     const confirmText = useCallback((draft: CaptureDraft): string => {
-        const parts = [`${fmtProse(draft.amount ?? 0)} to ${draft.recipient}`];
+        // Don't imply a direction we haven't resolved — "money in or out?" is
+        // asked separately, right after this line is added.
+        const lead = draft.direction.source === 'unresolved'
+            ? `${fmtProse(draft.amount ?? 0)}, ${draft.recipient}`
+            : `${fmtProse(draft.amount ?? 0)} ${draft.direction.type === 'received' ? 'from' : 'to'} ${draft.recipient}`;
+        const parts = [lead];
         if (draft.purposeLabel) parts.push(`for ${draft.purposeLabel}`);
         if (draft.date) parts.push(`on ${fmtShortDate(draft.date)}`);
         return `${parts.join(', ')}. Right?`;
@@ -1054,6 +1086,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             date: r.date ?? flow.draft.date,
             dateAmbiguous: r.dateAmbiguous,
             purposeLabel: r.purposeLabel ?? flow.draft.purposeLabel,
+            // Keep a direction we resolved on an earlier turn if this one is silent.
+            direction: r.direction.source !== 'unresolved' ? r.direction : flow.draft.direction,
         };
         const describedCount = flow.describedCount + 1;
 
@@ -1171,7 +1205,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 } else {
                     setDocFlow({
                         ...flow,
-                        draft: { ...emptyDraft(), currency: flow.draft.currency, purposeLabel: flow.draft.purposeLabel },
+                        draft: { ...emptyDraft(), currency: flow.draft.currency, purposeLabel: flow.draft.purposeLabel, direction: flow.draft.direction },
                         pending: 'field-date',
                     });
                     addMsg({ role: 'bot', kind: 'text', text: `No problem, let's go through it. ${DATE_PROMPT}` });

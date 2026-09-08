@@ -179,13 +179,14 @@ export function demoTxnDate(index: number): Date {
 }
 
 // One tapped line -> one self-reported transaction, through the shared builder.
+// The demo only ever records money the user spent, so the direction is known.
 export function buildDemoTransaction(fields: { place: string; amount: number; index: number }): ParsedTransaction {
     return buildSelfReportedTransaction({
         amount: fields.amount,
         currency: 'KES',
         recipient: fields.place,
         date: demoTxnDate(fields.index),
-        type: 'sent',
+        direction: { type: 'sent', confidence: 95, source: 'keyword' },
     });
 }
 
