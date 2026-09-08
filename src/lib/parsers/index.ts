@@ -203,7 +203,7 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
 
         amountVerified: false,
         balanceMismatch: false,
-        directionSource: 'keyword',
+        directionSource: direction.source,
 
         dataSource: 'sms_verified',
         lineItems: null,

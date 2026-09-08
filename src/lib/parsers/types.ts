@@ -28,6 +28,10 @@ export interface PartiesResult {
 export interface DirectionResult {
     type: 'sent' | 'received';
     confidence: number;
+    // How `type` was decided: an unambiguous verb/phrase (95), a preposition +
+    // possessive structure (75), or nothing at all (30 — `type` is a neutral
+    // guess and the caller must treat this as unresolved, never as sent).
+    source: 'keyword' | 'structural' | 'unresolved';
 }
 
 export interface ChannelResult {
