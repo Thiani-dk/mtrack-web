@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
 import type { ParsedTransaction } from '../../types';
 import type { ReceiptData, DocRenderMeta } from '../../lib/receiptGenerator';
 import { fmt, fmtCurrency, getRecipientShort, getProviderSuffix, categoryKeyFor } from '../../lib/receiptGenerator';
 import { providerChipLabel } from '../../lib/transactionDisplay';
-import { formatCovering, issuedDate, trustDisclaimerLine, lineShowsSelfReportedTag, claimTotals } from '../../lib/documentRender';
-import { getUncertaintyNote } from '../../lib/transactionDisplay';
+import { formatCovering, issuedDate, trustDisclaimerLine, claimTotals, DOC_LINE_CAP, DOC_GROUP_THRESHOLD } from '../../lib/documentRender';
+import { CHIP_VERIFIED_BG, CHIP_VERIFIED_TEXT, CHIP_SELF_BG, CHIP_SELF_TEXT, CHECK_PREFIX } from '../../lib/documentLayout';
+import { getUncertaintyNote, fmtTxDate } from '../../lib/transactionDisplay';
 import { CountUp } from '../CountUp';
 import { TransactionSkeleton } from './TransactionSkeleton';
 import { StackedPanel } from './OverlayStack';
@@ -71,16 +72,13 @@ const HEADER_START = 0.3;
 const HEADER_STAGGER = 0.08;
 const TX_START = 0.55;
 const TX_PHASE_WIDTH = 0.85;
-const TX_DISPLAY_CAP = 8;
-const TX_GROUP_THRESHOLD = 12; // only group the remainder past the cap once there are this many or more
-const CAT_START = 1.55;
-const CAT_PHASE_WIDTH = 0.4;
-const CAT_BAR_DURATION = 0.4;
+// Shared with the printed documents so both truncate at the same place.
+const TX_DISPLAY_CAP = DOC_LINE_CAP;
+const TX_GROUP_THRESHOLD = DOC_GROUP_THRESHOLD;
 const TALLY_START = 1.95;
 const TALLY_STAGGER = 0.08;
 const TALLY_DURATION = 0.4;
 const GRAND_TOTAL_DELAY = TALLY_START + TALLY_STAGGER * 2 + TALLY_DURATION * 0.5 + 0.15;
-const GLOW_DURATION = 0.6;
 
 const headerContainer: Variants = {
     hidden: {},
@@ -90,10 +88,6 @@ const headerItem: Variants = {
     hidden: { opacity: 0, y: -6 },
     show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 400, damping: 30 } },
 };
-
-function fmtCount(n: number): string {
-    return String(Math.round(n));
-}
 
 // ── Label picker — inline within the row's existing .glass-panel, never a
 // second glass surface stacked on top of it. ──────────────────────────────
@@ -155,15 +149,31 @@ function LabelPicker({ current, onSelect }: { current: string | null; onSelect: 
     );
 }
 
+// ── Status chip — the ONLY colour anywhere in the document surfaces. Same two
+// colour pairs as the HTML and PDF renderers. ──
+function StatusChip({ t }: { t: ParsedTransaction }) {
+    const verified = t.dataSource !== 'self_reported';
+    return (
+        <span
+            className="inline-block rounded-full px-1.5 py-px text-[9px] font-semibold leading-tight whitespace-nowrap"
+            style={{
+                background: verified ? CHIP_VERIFIED_BG : CHIP_SELF_BG,
+                color: verified ? CHIP_VERIFIED_TEXT : CHIP_SELF_TEXT,
+            }}
+        >
+            {verified ? 'verified' : 'self-reported'}
+        </span>
+    );
+}
+
 // ── Transaction row ─────────────────────────────────────────────────────────
 
 function TransactionRow({
-    t, delay, animateEntrance, onLabelChange, onEditTransaction, documentType,
+    t, delay, animateEntrance, onLabelChange, onEditTransaction,
 }: {
     t: ParsedTransaction; delay: number; animateEntrance: boolean;
     onLabelChange?: (label: string | null) => void;
     onEditTransaction?: (patch: Partial<ParsedTransaction>) => void;
-    documentType: DocRenderMeta['documentType'];
 }) {
     const [expanded, setExpanded] = useState(false);
     const [pickerOpen, setPickerOpen] = useState(false);
@@ -188,27 +198,31 @@ function TransactionRow({
                         {providerTag && <span className="text-[var(--text-muted)] font-normal"> · {providerTag}</span>}
                     </p>
                     <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
-                        {t.date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                        {fmtTxDate(t)}
                         {t.receiptLabel ? ` · ${t.receiptLabel}` : t.merchantCategory ? ` · ${t.merchantCategory}` : ''}
-                        {lineShowsSelfReportedTag(t, documentType) ? ' · self-reported' : ''}
                     </p>
                     {t.purposeLabel && (
                         <p className="text-[10px] text-[var(--text-muted)] mt-0.5 italic truncate">{t.purposeLabel}</p>
                     )}
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                    {uncertaintyNote && (
-                        <span
-                            aria-label="Needs a check"
-                            title="Needs a check"
-                            className="inline-block w-1.5 h-1.5 rounded-full"
-                            style={{ background: 'var(--warn-text, #b45309)' }}
-                        />
-                    )}
-                    <span className="text-xs font-semibold tabular-nums text-[var(--text-primary)]">
-                        {sign}{fmtCurrency(t.amount, t.currency)}
-                    </span>
-                    <ChevronDown className={`w-3 h-3 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                <div className="flex items-start gap-1 flex-shrink-0">
+                    <div className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                            {uncertaintyNote && (
+                                <span
+                                    aria-label="Needs a check"
+                                    title="Needs a check"
+                                    className="inline-block w-1.5 h-1.5 rounded-full"
+                                    style={{ background: 'var(--text-muted)' }}
+                                />
+                            )}
+                            <span className="text-xs font-semibold tabular-nums text-[var(--text-primary)]">
+                                {sign}{fmtCurrency(t.amount, t.currency)}
+                            </span>
+                        </div>
+                        <div className="mt-1"><StatusChip t={t} /></div>
+                    </div>
+                    <ChevronDown className={`w-3 h-3 mt-0.5 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
                 </div>
             </button>
 
@@ -236,8 +250,8 @@ function TransactionRow({
                     >
                         <div className="glass-panel rounded-lg p-2 mb-2 space-y-1 text-[11px]">
                             {uncertaintyNote && (
-                                <p className="pb-1 leading-snug" style={{ color: 'var(--warn-text, #b45309)' }}>
-                                    {uncertaintyNote}
+                                <p className="pb-1 leading-snug text-[var(--text-muted)]">
+                                    {CHECK_PREFIX}{uncertaintyNote}
                                 </p>
                             )}
                             {onEditTransaction && (
@@ -328,76 +342,76 @@ function TransactionRow({
     );
 }
 
-// ── Category bar ────────────────────────────────────────────────────────────
+// ── Category list ───────────────────────────────────────────────────────────
+// Deliberately NOT a composition bar or chart. Most transactions never get a
+// label, so a composition visual would be an empty gesture more often than not
+// — and colour on these surfaces means status, nothing else. The list keeps the
+// tap-to-drilldown that the bars carried.
 
-function CategoryBar({
-    label, total, count, pct, delay, animateEntrance, hasSettled, transactions,
-}: {
-    label: string; total: number; count: number; pct: number; delay: number; animateEntrance: boolean;
-    hasSettled: boolean;
-    transactions: ParsedTransaction[];
-}) {
-    const [expanded, setExpanded] = useState(false);
-    const reducedMotion = useReducedMotion();
-
-    // Once the entrance sequence has settled, a bar's width still animates
-    // when its total changes (e.g. a transaction gets relabelled into or out
-    // of this category) — but as a quick, undelayed "update in place", not
-    // a replay of the original staggered entrance timing. Reduced motion
-    // disables this too, same as the entrance itself.
-    const widthTransition = reducedMotion
-        ? { duration: 0 }
-        : animateEntrance && !hasSettled
-            ? { duration: CAT_BAR_DURATION, delay, ease: 'easeOut' as const }
-            : { duration: 0.3, ease: 'easeOut' as const };
+function CategoryList({ data, transactions }: { data: ReceiptData; transactions: ParsedTransaction[] }) {
+    const [open, setOpen] = useState<string | null>(null);
+    const categories = Object.entries(data.labelTotals).sort((a, b) => b[1] - a[1]);
+    if (categories.length === 0) return null;
 
     return (
-        <div>
-            <button onClick={() => setExpanded(e => !e)} className="w-full text-left py-1">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-[11px] text-[var(--text-secondary)] truncate">{label} <span className="text-[var(--text-muted)]">×{count}</span></span>
-                    <span className="text-[11px] font-medium tabular-nums text-[var(--text-primary)] flex-shrink-0">{fmt(total)}</span>
-                </div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
-                    <motion.div
-                        className="h-full rounded-full"
-                        style={{ background: 'var(--accent)' }}
-                        initial={animateEntrance ? { width: '0%' } : false}
-                        animate={{ width: `${pct}%` }}
-                        transition={widthTransition}
-                    />
-                </div>
-            </button>
-
-            <AnimatePresence initial={false}>
-                {expanded && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
+        <div className="mb-2 pt-2 border-t border-[var(--border-glass)]">
+            {categories.map(([label, total]) => (
+                <div key={label}>
+                    <button
+                        onClick={() => setOpen(o => (o === label ? null : label))}
+                        className="w-full flex items-center justify-between gap-3 py-1.5 text-left"
                     >
-                        <div className="glass-panel rounded-lg p-2 mb-2 mt-1 space-y-1.5">
-                            {transactions.map(t => (
-                                <div key={t.transactionCode} className="flex items-center justify-between gap-2 text-[11px]">
-                                    <div className="min-w-0 flex-1">
-                                        <span className="text-[var(--text-secondary)]">
-                                            {t.date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                                        </span>
-                                        <span className="text-[var(--text-primary)] ml-1.5 truncate">{getRecipientShort(t)}</span>
-                                    </div>
-                                    <span className="font-medium text-[var(--text-primary)] tabular-nums flex-shrink-0">{fmtCurrency(t.amount, t.currency)}</span>
+                        <span className="text-[11px] text-[var(--text-secondary)] truncate">
+                            {label} <span className="text-[var(--text-muted)]">×{data.labelCounts[label]}</span>
+                        </span>
+                        <span className="text-[11px] font-medium tabular-nums text-[var(--text-primary)] flex-shrink-0">
+                            {fmt(total)}
+                        </span>
+                    </button>
+                    <AnimatePresence initial={false}>
+                        {open === label && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="overflow-hidden"
+                            >
+                                <div className="glass-panel rounded-lg p-2 mb-2 space-y-1.5">
+                                    {transactions.filter(t => categoryKeyFor(t) === label).map(t => (
+                                        <div key={t.transactionCode} className="flex items-center justify-between gap-2 text-[11px]">
+                                            <div className="min-w-0 flex-1">
+                                                <span className="text-[var(--text-secondary)]">{fmtTxDate(t)}</span>
+                                                <span className="text-[var(--text-primary)] ml-1.5 truncate">{getRecipientShort(t)}</span>
+                                            </div>
+                                            <span className="font-medium text-[var(--text-primary)] tabular-nums flex-shrink-0">
+                                                {fmtCurrency(t.amount, t.currency)}
+                                            </span>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            ))}
         </div>
     );
 }
 
 // ── Main visual ──────────────────────────────────────────────────────────────
+
+const TYPE_LABEL: Record<DocRenderMeta['documentType'], string> = {
+    expense_summary: 'EXPENSE SUMMARY',
+    personal_note: 'PERSONAL RECORD',
+    point_of_sale: 'RECEIPT',
+    on_behalf_of: 'REIMBURSEMENT CLAIM',
+};
+const HERO_LABEL: Record<DocRenderMeta['documentType'], string> = {
+    expense_summary: 'Total spent',
+    personal_note: 'Total spent',
+    point_of_sale: 'Total paid',
+    on_behalf_of: 'Total due',
+};
 
 export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onEditTransaction }: ChatReceiptVisualProps) {
     const covering = formatCovering(meta.coveringFrom, meta.coveringTo);
@@ -405,35 +419,24 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
     const claim = meta.documentType === 'on_behalf_of' ? claimTotals(data) : null;
     const reducedMotion = useReducedMotion();
     const animateEntrance = playEntrance && !reducedMotion;
-    const [grandReplay, setGrandReplay] = useState(0);
+    const [heroReplay, setHeroReplay] = useState(0);
     const [restExpanded, setRestExpanded] = useState(false);
-
-    // Flips once the entrance sequence has visually finished — after that,
-    // data-driven changes (e.g. a label edit reshaping the category bars)
-    // update in place with a quick tween instead of the anchored entrance
-    // delays. Starts settled if there was no entrance to play in the first
-    // place (reduced motion, or a message loaded from history).
-    const [hasSettled, setHasSettled] = useState(!animateEntrance);
-    useEffect(() => {
-        if (!animateEntrance) return;
-        const timer = setTimeout(() => setHasSettled(true), (GRAND_TOTAL_DELAY + GLOW_DURATION) * 1000);
-        return () => clearTimeout(timer);
-    }, [animateEntrance]);
 
     const txs = data.activeTransactions;
     const groupRemainder = txs.length > TX_GROUP_THRESHOLD;
     const capped = groupRemainder ? txs.slice(0, TX_DISPLAY_CAP) : txs;
     const rest = groupRemainder ? txs.slice(TX_DISPLAY_CAP) : [];
+    const restTotal = rest.reduce((s, t) => s + Math.abs(t.amount), 0);
     const rowStagger = capped.length > 0 ? Math.min(0.09, Math.max(0.05, TX_PHASE_WIDTH / capped.length)) : 0;
     const restDelay = TX_START + capped.length * rowStagger;
 
-    const categories = Object.entries(data.labelTotals).sort((a, b) => b[1] - a[1]);
-    const maxCatTotal = Math.max(...categories.map(([, total]) => total), 1);
-    const catStagger = categories.length > 0 ? Math.min(0.06, Math.max(0.02, CAT_PHASE_WIDTH / categories.length)) : 0;
-
-    const countDelay = TALLY_START;
-    const amountDelay = TALLY_START + TALLY_STAGGER;
-    const costDelay = TALLY_START + TALLY_STAGGER * 2;
+    // The hero figure is the same number the totals block ends on, and the same
+    // number the HTML and PDF print — all three read it from computeReceiptData.
+    const heroValue = claim ? claim.totalDue : data.grandTotal;
+    const heroLabel = HERO_LABEL[meta.documentType];
+    const subtotal = claim ? claim.subtotal : data.totalTransactionAmount;
+    const fees = claim ? claim.transactionCosts : data.totalTransactionCost;
+    const itemCount = data.totalTransactionCount;
 
     return (
         <motion.div
@@ -444,37 +447,59 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
             style={{ background: 'var(--bg-elevated)' }}
         >
             <div className="p-3">
-                {/* Header */}
+                {/* Header: document type left, reference right */}
                 <motion.div
                     variants={headerContainer}
                     initial={animateEntrance ? 'hidden' : false}
                     animate="show"
-                    className="mb-2 pb-2 border-b border-[var(--border-glass)]"
                 >
-                    <motion.div variants={headerItem} className="flex items-center justify-between text-[10px] text-[var(--text-muted)] font-mono">
-                        <span>{data.secCode}</span>
-                        <span>{data.currentDate}</span>
-                    </motion.div>
-                    <motion.div variants={headerItem} className="text-xs font-semibold text-[var(--text-primary)] mt-1">
-                        REF: {data.receiptRef}
-                    </motion.div>
-                    <motion.div variants={headerItem} className="text-[10px] text-[var(--text-muted)]">
-                        Issued {issuedDate()}
-                    </motion.div>
-                    {covering && (
-                        <motion.div variants={headerItem} className="text-[10px] text-[var(--text-muted)]">
-                            {meta.documentType === 'on_behalf_of' ? 'Expenses dated ' : 'Covering '}{covering}
+                    {meta.documentType === 'point_of_sale' && meta.merchantProfile?.businessName && (
+                        <motion.div variants={headerItem} className="text-sm font-bold text-[var(--text-primary)] mb-1">
+                            {meta.merchantProfile.businessName}
                         </motion.div>
                     )}
-                    {trustLine && (
-                        <motion.div variants={headerItem} className="text-[10px] mt-1" style={{ color: 'var(--warn-text, #b45309)' }}>
-                            {trustLine}
-                        </motion.div>
-                    )}
+                    <motion.div variants={headerItem} className="flex items-baseline justify-between gap-3 text-[9px] tracking-wider uppercase text-[var(--text-muted)]">
+                        <span>{TYPE_LABEL[meta.documentType]}</span>
+                        <span>{data.receiptRef}</span>
+                    </motion.div>
+
+                    {/* Hero: the single largest thing on the document */}
+                    <motion.button
+                        variants={headerItem}
+                        onClick={() => setHeroReplay(k => k + 1)}
+                        className="relative w-full text-left mt-3"
+                        whileTap={{ scale: 0.99 }}
+                    >
+                        <span className="block text-[11px] text-[var(--text-muted)]">
+                            {data.isMultiCurrency ? 'Totalled by currency' : heroLabel}
+                        </span>
+                        {!data.isMultiCurrency && (
+                            <span className="block text-2xl font-bold tabular-nums leading-tight text-[var(--text-primary)]">
+                                <CountUp
+                                    value={heroValue}
+                                    format={fmt}
+                                    duration={0.5}
+                                    delay={heroReplay > 0 ? 0 : GRAND_TOTAL_DELAY}
+                                    play={animateEntrance || heroReplay > 0}
+                                    replayKey={heroReplay}
+                                />
+                            </span>
+                        )}
+                    </motion.button>
+
+                    {/* One-line context row: the real covering span, never a relative label */}
+                    <motion.div variants={headerItem} className="text-[10px] text-[var(--text-muted)] mt-1 mb-2">
+                        {[
+                            meta.documentType === 'on_behalf_of' ? `Prepared for ${meta.onBehalfOf?.partyName ?? 'Unknown'}` : null,
+                            meta.documentType === 'on_behalf_of' ? meta.onBehalfOf?.purpose ?? null : null,
+                            meta.documentType === 'point_of_sale' ? meta.merchantProfile?.contact ?? null : null,
+                            covering || null,
+                        ].filter(Boolean).join('  ·  ')}
+                    </motion.div>
                 </motion.div>
 
-                {/* Transaction rows */}
-                <div className="mb-2">
+                {/* Line items */}
+                <div className="mb-2 pt-1 border-t border-[var(--border-glass)]">
                     {capped.map((t, i) => (
                         <TransactionRow
                             key={t.transactionCode}
@@ -483,8 +508,7 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                             animateEntrance={animateEntrance}
                             onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
                             onEditTransaction={onEditTransaction && (patch => onEditTransaction(t.transactionCode, patch))}
-                            documentType={meta.documentType}
-                                            />
+                        />
                     ))}
                     {rest.length > 0 && (
                         <motion.div
@@ -494,10 +518,13 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                         >
                             <button
                                 onClick={() => setRestExpanded(e => !e)}
-                                className="w-full flex items-center justify-between py-2 text-xs text-[var(--accent)] font-medium"
+                                className="w-full flex items-center justify-between gap-2 py-2 text-xs font-medium text-[var(--text-primary)]"
                             >
-                                <span>+{rest.length} more transaction{rest.length !== 1 ? 's' : ''}</span>
-                                <ChevronDown className={`w-3 h-3 transition-transform ${restExpanded ? 'rotate-180' : ''}`} />
+                                <span>+{rest.length} more</span>
+                                <span className="flex items-center gap-1">
+                                    <span className="tabular-nums font-semibold">{fmt(restTotal)}</span>
+                                    <ChevronDown className={`w-3 h-3 text-[var(--text-muted)] transition-transform ${restExpanded ? 'rotate-180' : ''}`} />
+                                </span>
                             </button>
                             <AnimatePresence initial={false}>
                                 {restExpanded && (
@@ -515,7 +542,6 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                                                 animateEntrance={false}
                                                 onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
                                                 onEditTransaction={onEditTransaction && (patch => onEditTransaction(t.transactionCode, patch))}
-                                                documentType={meta.documentType}
                                             />
                                         ))}
                                     </motion.div>
@@ -525,129 +551,48 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                     )}
                 </div>
 
-                {/* Category summary */}
-                {categories.length > 0 && (
-                    <div className="mb-2 pt-2 border-t border-[var(--border-glass)] space-y-2">
-                        {categories.map(([label, total], i) => (
-                            <CategoryBar
-                                key={label}
-                                label={label}
-                                total={total}
-                                count={data.labelCounts[label]}
-                                pct={(total / maxCatTotal) * 100}
-                                delay={CAT_START + i * catStagger}
-                                animateEntrance={animateEntrance}
-                                hasSettled={hasSettled}
-                                transactions={txs.filter(t => categoryKeyFor(t) === label)}
-                            />
-                        ))}
-                    </div>
-                )}
+                <CategoryList data={data} transactions={txs} />
 
-                {/* Tally / claim totals — finale */}
+                {/* Totals — right-aligned, ending on the same figure as the hero */}
                 <div className="pt-2 border-t border-[var(--border-glass)] space-y-1">
                     {data.isMultiCurrency ? (
+                        data.perCurrency.map(pc => (
+                            <div key={pc.currency} className="flex justify-between items-center text-xs font-bold text-[var(--text-primary)]">
+                                <span>{heroLabel.toUpperCase()} · {pc.currency} <span className="font-normal text-[var(--text-muted)]">({pc.count})</span></span>
+                                <span className="tabular-nums">{fmtCurrency(pc.total, pc.currency)}</span>
+                            </div>
+                        ))
+                    ) : (
                         <>
-                            <p className="text-[11px] text-[var(--text-muted)]">Totalled separately by currency</p>
-                            {data.perCurrency.map(pc => (
-                                <div key={pc.currency} className="flex justify-between items-center pt-1.5 border-t border-[var(--border-glass)] first:border-t-0">
-                                    <span className="text-xs font-bold" style={{ color: 'var(--accent)' }}>
-                                        {claim ? 'DUE' : 'TOTAL'} · {pc.currency} <span className="font-normal text-[var(--text-muted)]">({pc.count})</span>
-                                    </span>
-                                    <span className="text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>
-                                        {fmtCurrency(pc.total, pc.currency)}
-                                    </span>
+                            <div className="flex justify-between text-[11px] text-[var(--text-muted)]">
+                                <span>Subtotal, {itemCount} item{itemCount === 1 ? '' : 's'}</span>
+                                <span className="tabular-nums">{fmt(subtotal)}</span>
+                            </div>
+                            {fees > 0 && (
+                                <div className="flex justify-between text-[11px] text-[var(--text-muted)]">
+                                    <span>Transaction fees</span>
+                                    <span className="tabular-nums">{fmt(fees)}</span>
                                 </div>
-                            ))}
-                        </>
-                    ) : claim ? (
-                        <>
-                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
-                                <span>Subtotal, {claim.itemCount} item{claim.itemCount === 1 ? '' : 's'}</span>
-                                <span className="tabular-nums">
-                                    <CountUp value={claim.subtotal} format={fmt} duration={TALLY_DURATION} delay={amountDelay} play={animateEntrance} />
-                                </span>
-                            </div>
-                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
-                                <span>M-Pesa transaction costs</span>
-                                <span className="tabular-nums">
-                                    <CountUp value={claim.transactionCosts} format={fmt} duration={TALLY_DURATION} delay={costDelay} play={animateEntrance} />
-                                </span>
-                            </div>
-                        </>
-                    ) : meta.documentType === 'expense_summary' ? (
-                        <>
-                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
-                                <span>Transactions counted</span>
-                                <span className="tabular-nums">
-                                    <CountUp value={data.totalTransactionCount} format={fmtCount} duration={0.4} delay={countDelay} play={animateEntrance} />
-                                </span>
-                            </div>
-                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
-                                <span>Total transaction amount</span>
-                                <span className="tabular-nums">
-                                    <CountUp value={data.totalTransactionAmount} format={fmt} duration={TALLY_DURATION} delay={amountDelay} play={animateEntrance} />
-                                </span>
-                            </div>
-                            <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
-                                <span>Total transaction cost</span>
-                                <span className="tabular-nums">
-                                    <CountUp value={data.totalTransactionCost} format={fmt} duration={TALLY_DURATION} delay={costDelay} play={animateEntrance} />
-                                </span>
-                            </div>
-                        </>
-                    ) : meta.documentType === 'point_of_sale' && data.totalTransactionCost > 0 ? (
-                        <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
-                            <span>Transaction costs</span>
-                            <span className="tabular-nums">{fmt(data.totalTransactionCost)}</span>
-                        </div>
-                    ) : null}
-
-                    {!data.isMultiCurrency && (
-                    <motion.button
-                        onClick={() => setGrandReplay(k => k + 1)}
-                        className="relative w-full flex justify-between items-center pt-2 mt-1 border-t border-[var(--border-glass)] text-left"
-                        initial={animateEntrance ? { opacity: 0, scale: 0.9 } : false}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={animateEntrance ? { type: 'spring', stiffness: 260, damping: 15, delay: GRAND_TOTAL_DELAY } : undefined}
-                        whileTap={{ scale: 0.97 }}
-                    >
-                        <AnimatePresence>
-                            {!reducedMotion && (animateEntrance || grandReplay > 0) && (
-                                <motion.div
-                                    key={grandReplay}
-                                    className="absolute inset-0 pointer-events-none rounded-lg"
-                                    style={{ background: 'radial-gradient(circle at center, var(--accent-glow), transparent 70%)' }}
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: [0, 1, 0] }}
-                                    transition={{ duration: GLOW_DURATION, delay: grandReplay > 0 ? 0 : GRAND_TOTAL_DELAY }}
-                                />
                             )}
-                        </AnimatePresence>
-                        <span className="text-sm font-bold relative" style={{ color: 'var(--accent)' }}>
-                            {claim ? 'TOTAL DUE' : meta.documentType === 'expense_summary' ? 'GRAND TOTAL' : 'TOTAL'}
-                        </span>
-                        <span className="text-sm font-bold tabular-nums relative" style={{ color: 'var(--accent)' }}>
-                            <CountUp
-                                value={claim ? claim.totalDue : data.grandTotal}
-                                format={fmt}
-                                duration={0.5}
-                                delay={grandReplay > 0 ? 0 : GRAND_TOTAL_DELAY}
-                                play={animateEntrance || grandReplay > 0}
-                                replayKey={grandReplay}
-                            />
-                        </span>
-                    </motion.button>
+                            <div className="flex justify-between items-center pt-2 mt-1 border-t border-[var(--border-glass)] text-sm font-bold text-[var(--text-primary)]">
+                                <span className="uppercase tracking-wide text-xs">{heroLabel}</span>
+                                <span className="tabular-nums">{fmt(heroValue)}</span>
+                            </div>
+                        </>
                     )}
+
+                    {trustLine && (
+                        <p className="pt-2 text-[10px] leading-snug text-[var(--text-muted)]">{trustLine}</p>
+                    )}
+                    <p className="text-[10px] leading-snug text-[var(--text-muted)]">
+                        Issued {issuedDate()}
+                    </p>
 
                     {claim && (
-                        <div className="pt-3 mt-1 space-y-2 text-[11px] text-[var(--text-muted)]">
-                            <div className="flex items-end gap-2"><span>Approved by</span><span className="flex-1 border-b border-[var(--text-muted)]" /></div>
-                            <div className="flex items-end gap-2"><span>Date</span><span className="flex-1 border-b border-[var(--text-muted)]" /></div>
+                        <div className="pt-4 mt-1 space-y-3 text-[10px] text-[var(--text-muted)]">
+                            <div className="flex items-end gap-2"><span className="flex-1 border-b border-[var(--text-muted)]" /></div>
+                            <div className="flex justify-between"><span>Approved by</span><span>Date</span></div>
                         </div>
-                    )}
-                    {meta.documentType === 'point_of_sale' && (
-                        <p className="pt-2 text-[10px] text-center text-[var(--text-muted)]">Thank you. Keep this for your records.</p>
                     )}
                 </div>
             </div>

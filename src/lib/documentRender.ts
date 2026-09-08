@@ -1,5 +1,6 @@
 import type { DataSource, DocumentType, MerchantProfile, OnBehalfOfContext, ParsedTransaction } from '../types';
 import type { ReceiptData } from './receiptGenerator';
+import { stripEmojiOr, stripEmojiOptional } from './sanitizeText';
 
 // Everything the four document layouts need beyond the shared computeReceiptData
 // math. One module so the chat preview, the HTML file and the PDF all derive
@@ -13,6 +14,34 @@ export interface DocRenderMeta {
     merchantProfile: MerchantProfile | null;
     onBehalfOf: OnBehalfOfContext | null;
 }
+
+// The context fields carried on the meta are user-supplied too — a business
+// name, a party name, an errand. Same emoji strip as the transaction fields,
+// applied once at the top of each render.
+export function sanitizeDocMeta(meta: DocRenderMeta): DocRenderMeta {
+    return {
+        ...meta,
+        merchantProfile: meta.merchantProfile
+            ? {
+                businessName: stripEmojiOr(meta.merchantProfile.businessName, 'Receipt'),
+                contact: stripEmojiOptional(meta.merchantProfile.contact),
+            }
+            : null,
+        onBehalfOf: meta.onBehalfOf
+            ? {
+                partyName: stripEmojiOr(meta.onBehalfOf.partyName, 'Unknown'),
+                preparedBy: stripEmojiOptional(meta.onBehalfOf.preparedBy),
+                purpose: stripEmojiOptional(meta.onBehalfOf.purpose),
+            }
+            : null,
+    };
+}
+
+// How many line items a document shows individually before the remainder is
+// folded into a single "+N more" row. Shared with the interactive chat view so
+// both truncate at the same place.
+export const DOC_LINE_CAP = 8;
+export const DOC_GROUP_THRESHOLD = 12;
 
 function fmtDay(ms: number): string {
     return new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
