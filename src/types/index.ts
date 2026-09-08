@@ -232,7 +232,15 @@ export type ChatMessageKind =
     | 'recurring'         // detected recurring payment patterns
     | 'skipped-review'    // recoverable messages the parser set aside
     | 'near-duplicate'    // a tappable "keep both / drop the small one" question
+    | 'direction-question' // "money in or out?" for a transaction the parser couldn't place
     | 'thinking';         // animated typing indicator
+
+export interface DirectionQuestion {
+    transactionCode: string;
+    amountLabel: string;   // "Ksh 500"
+    partyLabel: string;    // "KPLC" / "Unknown"
+    dateLabel: string;     // "21 Aug"
+}
 
 export interface ChatOption {
     id: string;
@@ -260,6 +268,7 @@ export interface ChatMessage {
     skippedReviewId?: string;           // for 'text' kind (the 'partial' notice)
     skippedMessages?: SkippedMessage[]; // for 'skipped-review' kind
     nearDuplicatePair?: NearDuplicatePair; // for 'near-duplicate' kind
+    directionQuestion?: DirectionQuestion; // for 'direction-question' kind
     // for 'receipt' kind — which of the four documents this builds, plus the
     // session-scoped context gathered for it. These ride on the message (not
     // the persisted session) so a resumed draft can rebuild its state.

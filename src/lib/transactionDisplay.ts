@@ -48,6 +48,36 @@ export function getExclusionReason(t: ParsedTransaction): string | null {
     return null;
 }
 
+// One plain sentence explaining why a transaction is worth a second look, or
+// null if it isn't. Most specific concern first. Drives the "check this"
+// marker on every surface (chat preview, HTML, PDF) — this is what makes the
+// low-confidence notice's promise ("they're marked") true.
+export function getUncertaintyNote(t: ParsedTransaction): string | null {
+    if (t.balanceMismatch) {
+        return "The amount doesn't line up with the balance change on that message.";
+    }
+    if (t.directionDisputed) {
+        return 'The running balance says this went the opposite way to how the message reads.';
+    }
+    if (t.directionUnresolved) {
+        return "I couldn't tell whether this was money in or money out.";
+    }
+    if (t.dateAmbiguous) {
+        return 'This date could be read day-first or month-first.';
+    }
+    if (t.confidenceLevel === 'low') {
+        return 'Some of the details on this one are uncertain.';
+    }
+    if (t.confidenceLevel === 'medium') {
+        return 'Worth a quick check.';
+    }
+    return null;
+}
+
+export function needsCheck(t: ParsedTransaction): boolean {
+    return getUncertaintyNote(t) !== null;
+}
+
 export function joinNatural(list: string[]): string {
     if (list.length === 0) return '';
     if (list.length === 1) return list[0];

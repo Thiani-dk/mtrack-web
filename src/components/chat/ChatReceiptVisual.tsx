@@ -6,6 +6,7 @@ import type { ReceiptData, DocRenderMeta } from '../../lib/receiptGenerator';
 import { fmt, fmtCurrency, getRecipientShort, getProviderSuffix, categoryKeyFor } from '../../lib/receiptGenerator';
 import { providerChipLabel } from '../../lib/transactionDisplay';
 import { formatCovering, issuedDate, trustDisclaimerLine, lineShowsSelfReportedTag, claimTotals } from '../../lib/documentRender';
+import { getUncertaintyNote } from '../../lib/transactionDisplay';
 import { CountUp } from '../CountUp';
 import { TransactionSkeleton } from './TransactionSkeleton';
 import { StackedPanel } from './OverlayStack';
@@ -168,6 +169,7 @@ function TransactionRow({
     const [pickerOpen, setPickerOpen] = useState(false);
     const sign = t.type === 'sent' ? '-' : '+';
     const providerTag = getProviderSuffix(t);
+    const uncertaintyNote = getUncertaintyNote(t);
 
     return (
         <motion.div
@@ -195,6 +197,14 @@ function TransactionRow({
                     )}
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
+                    {uncertaintyNote && (
+                        <span
+                            aria-label="Needs a check"
+                            title="Needs a check"
+                            className="inline-block w-1.5 h-1.5 rounded-full"
+                            style={{ background: 'var(--warn-text, #b45309)' }}
+                        />
+                    )}
                     <span className="text-xs font-semibold tabular-nums text-[var(--text-primary)]">
                         {sign}{fmtCurrency(t.amount, t.currency)}
                     </span>
@@ -225,6 +235,11 @@ function TransactionRow({
                         className="overflow-hidden"
                     >
                         <div className="glass-panel rounded-lg p-2 mb-2 space-y-1 text-[11px]">
+                            {uncertaintyNote && (
+                                <p className="pb-1 leading-snug" style={{ color: 'var(--warn-text, #b45309)' }}>
+                                    {uncertaintyNote}
+                                </p>
+                            )}
                             {onEditTransaction && (
                                 <>
                                     <EditableDetail

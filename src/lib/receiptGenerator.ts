@@ -6,6 +6,7 @@ import {
     type DocRenderMeta, formatCovering, issuedDate, baseDisclaimerLines,
     trustDisclaimerLine, lineShowsSelfReportedTag, claimTotals, lineItemMismatch,
 } from './documentRender';
+import { getUncertaintyNote } from './transactionDisplay';
 
 export type { DocRenderMeta };
 
@@ -340,6 +341,8 @@ function buildDocumentRows(transactions: ParsedTransaction[], meta: DocRenderMet
         if (tx.transactionCost != null && tx.transactionCost > 0) push({ t: 'line', text: `    Fee ${fmtCurrency(tx.transactionCost, tx.currency)}`, muted: true });
         if (tx.purposeLabel) push({ t: 'line', text: `    ${tx.purposeLabel}`, muted: true });
         if (lineShowsSelfReportedTag(tx, meta.documentType)) push({ t: 'line', text: '    self-reported', muted: true });
+        const note = getUncertaintyNote(tx);
+        if (note) push({ t: 'line', text: `    (check) ${note}`, muted: true });
         push({ t: 'gap' });
     });
     push({ t: 'rule', ch: '=' });
@@ -564,6 +567,8 @@ export async function generateReceiptHTML(transactions: ParsedTransaction[], met
         } else if (t.merchantCategory) {
             lines.push(`   → ${t.merchantCategory.toUpperCase()}`);
         }
+        const esNote = getUncertaintyNote(t);
+        if (esNote) lines.push(`   (check) ${esNote}`);
         lines.push('');
     });
 
@@ -870,6 +875,9 @@ export async function generateReceiptPDF(transactions: ParsedTransaction[], meta
         } else if (t.merchantCategory) {
             line(`   → ${t.merchantCategory.toUpperCase()}`, 6.5, true);
         }
+
+        const esNote = getUncertaintyNote(t);
+        if (esNote) line(`   (check) ${esNote}`, 6);
 
         sp(0.6);
     });

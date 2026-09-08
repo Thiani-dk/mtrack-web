@@ -13,7 +13,8 @@ import { useChatSession } from '../../lib/useChatSession';
 import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
 import type { AllTimeStats } from '../../lib/aggregate/useAllTimeStats';
-import { parseAllMessages, type ParseStats, type LinkEnrichment, type NearDuplicatePair, type ReversalPair } from '../../lib/parsers';
+import { parseAllMessages, deriveSubType, type ParseStats, type LinkEnrichment, type NearDuplicatePair, type ReversalPair } from '../../lib/parsers';
+import { scoreWithContext } from '../../lib/parsers/confidence';
 import { computeReceiptData } from '../../lib/receiptGenerator';
 import { generateDemoMessages } from '../../lib/demoData';
 import { generateInsights, computeDaySpan, detectRecurring, type InsightContext } from '../../lib/insights';
@@ -113,6 +114,10 @@ const LEAD_INS = [
 // saying so plainly rather than promising a rich summary.
 const SMALL_RESULT_THRESHOLD = 3;
 
+// Never interrogate someone about more than this many unresolved directions in
+// one batch — ask about the largest by amount, mark the rest.
+const MAX_DIRECTION_QUESTIONS = 5;
+
 // Safety net for anything unexpected in the parse/insight/save pipeline —
 // never leave the "thinking" bubble (and the composer, disabled while
 // isProcessing) stuck forever. Deliberately generic: no raw error.message,
@@ -165,11 +170,12 @@ async function deliverInsights(
 ): Promise<void> {
     const scoped = fullTransactions.filter(t => !t.excludedFromReceipt);
     const currencyCount = computeReceiptData(scoped).distinctCurrencies.length;
+    const balanceMismatchCount = scoped.filter(t => t.balanceMismatch).length;
 
     // No date-range question exists yet, so nothing is ever "out of range" —
     // passing 0 here means the 'all-out-of-range' and 'out-of-range' notices
     // can never fire.
-    const notices = buildParseNotices(stats, { linkEnrichments, nearDuplicates, reversalPairs, currencyCount });
+    const notices = buildParseNotices(stats, { linkEnrichments, nearDuplicates, reversalPairs, currencyCount, balanceMismatchCount });
     const nothingNotice = notices.find(n => n.id === 'nothing');
 
     if (nothingNotice) {
@@ -287,6 +293,29 @@ async function deliverInsights(
             role: 'bot', kind: 'receipt', transactions: fullTransactions, dateRange: receiptRangeLabel, isDemo,
             documentType,
         });
+    }
+
+    // Ask about transactions the oracle could not place. Batch, cap at 5 —
+    // beyond that, ask about the largest by amount and leave the rest marked.
+    const unresolved = scoped
+        .filter(t => t.directionUnresolved)
+        .sort((a, b) => b.amount - a.amount);
+    for (const t of unresolved.slice(0, MAX_DIRECTION_QUESTIONS)) {
+        await sleep(350);
+        addMsg({
+            role: 'bot', kind: 'direction-question',
+            text: `I couldn't tell which way this one went. ${fmtProse(t.amount)}, ${t.merchant ?? t.recipient}, ${t.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}. Money in or out?`,
+            directionQuestion: {
+                transactionCode: t.transactionCode,
+                amountLabel: fmtProse(t.amount),
+                partyLabel: t.merchant ?? t.recipient,
+                dateLabel: t.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+            },
+        });
+    }
+    if (unresolved.length > MAX_DIRECTION_QUESTIONS) {
+        await sleep(300);
+        await emitBotText(`${unresolved.length - MAX_DIRECTION_QUESTIONS} more like that are marked on the document for you to set.`);
     }
 
     if (isDemo) {
@@ -972,6 +1001,37 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         updateMsg(receiptMsg.id, { transactions: updatedTransactions });
     }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage]);
 
+    // The user answers "money in / out" for a transaction the parser could not
+    // place. Sets the direction, re-derives subType, clears the unresolved
+    // flag, and re-scores confidence (direction now counts for full points).
+    const handleDirectionAnswer = useCallback((messageId: string, transactionCode: string, direction: 'sent' | 'received') => {
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        updateMsg(messageId, { answered: true, answeredValue: direction });
+
+        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        if (!receiptMsg?.transactions) return;
+
+        const updated = receiptMsg.transactions.map(t => {
+            if (t.transactionCode !== transactionCode) return t;
+            const next: ParsedTransaction = {
+                ...t,
+                type: direction,
+                subType: deriveSubType(t.method, direction, t.isBusiness, t.merchant ?? t.recipient),
+                directionUnresolved: false,
+                directionSource: 'keyword',
+                sender: direction === 'received' ? (t.sender ?? t.recipient) : null,
+            };
+            const scored = scoreWithContext(next, next.rawLine);
+            next.confidence = scored.score;
+            next.confidenceLevel = scored.level;
+            next.missingFields = scored.missing;
+            return next;
+        });
+        updateMsg(receiptMsg.id, { transactions: updated });
+        if (!isDemoSession) syncDraft(updated);
+    }, [isDemoSession, demoMessages, activeSession, updateDemoMessage, updateMessage, syncDraft]);
+
     // Phase D2 — tap-to-edit on the preview. Mutates only the message's own
     // transactions (and the draft document); PDF/HTML blobs are untouched
     // until Save or Share.
@@ -1057,6 +1117,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 onUnexcludeSkipped={handleUnexcludeSkipped}
                 onNearDuplicateKeep={handleNearDuplicateKeep}
                 onNearDuplicateDrop={handleNearDuplicateDrop}
+                onDirectionAnswer={handleDirectionAnswer}
                 onOptionSelect={handleOptionSelect}
                 documentContext={documentContext}
                 onApproveDocument={isDemoSession ? undefined : handleApprove}

@@ -26,6 +26,9 @@ export interface BuildNoticesInput {
     // Number of distinct currencies across the included transactions (>1 fires
     // the mixed-currency notice).
     currencyCount?: number;
+    // How many included transactions have an amount that doesn't reconcile
+    // with the balance change on their message.
+    balanceMismatchCount?: number;
 }
 
 // Every reconciliation situation the parser can surface routes through here so
@@ -39,7 +42,7 @@ export interface BuildNoticesInput {
 // confidence > card check left out > holds/failures > duplicate paste >
 // near-duplicate question.
 export function buildParseNotices(stats: ParseStats, input: BuildNoticesInput = {}): ParseNotice[] {
-    const { outOfRangeCount = 0, linkEnrichments = [], nearDuplicates = [], reversalPairs = [], currencyCount = 1 } = input;
+    const { outOfRangeCount = 0, linkEnrichments = [], nearDuplicates = [], reversalPairs = [], currencyCount = 1, balanceMismatchCount = 0 } = input;
 
     if (stats.parsed === 0) {
         return [{
@@ -119,7 +122,17 @@ export function buildParseNotices(stats: ParseStats, input: BuildNoticesInput = 
     if (stats.byConfidence.low > 0) {
         notices.push({
             id: 'lowconf',
-            text: "A few of these I'm less sure about. They're marked so you can check them.",
+            text: "A few of these I'm less sure about. They're marked on the document so you can check them.",
+        });
+    }
+
+    // ── Amount doesn't reconcile with the balance change ──
+    if (balanceMismatchCount > 0) {
+        notices.push({
+            id: 'balance-mismatch',
+            text: balanceMismatchCount === 1
+                ? "One amount doesn't line up with the balance change on that message. Worth a look before you send this anywhere."
+                : `${spell(balanceMismatchCount)} amounts don't line up with the balance change on their messages. Worth a look before you send this anywhere.`,
         });
     }
 

@@ -9,6 +9,7 @@ import { ChatRecurring } from './ChatRecurring';
 import { ChatReceipt } from './ChatReceipt';
 import { ChatSkippedReview } from './ChatSkippedReview';
 import { ChatNearDuplicate } from './ChatNearDuplicate';
+import { ChatDirectionQuestion } from './ChatDirectionQuestion';
 import { ChatOptions } from './ChatOptions';
 
 interface ChatMessageListProps {
@@ -20,6 +21,7 @@ interface ChatMessageListProps {
     onUnexcludeSkipped?: (messageId: string, transactionCode: string) => void;
     onNearDuplicateKeep?: (messageId: string) => void;
     onNearDuplicateDrop?: (messageId: string, smallerTransactionCode: string) => void;
+    onDirectionAnswer?: (messageId: string, transactionCode: string, direction: 'sent' | 'received') => void;
     onOptionSelect?: (messageId: string, value: string) => void;
     documentContext?: DocumentContext | null;
     onApproveDocument?: (messageId: string) => void;
@@ -36,7 +38,7 @@ const NO_SIGNAL = { id: '', epoch: 0 };
 
 function ChatMessageItem({
     message, receiptTransactions, onLabelChange, onViewSkipped, skippedReviewExpandSignal, onIncludeSkipped, onUnexcludeSkipped,
-    onNearDuplicateKeep, onNearDuplicateDrop, onOptionSelect,
+    onNearDuplicateKeep, onNearDuplicateDrop, onDirectionAnswer, onOptionSelect,
     documentContext, onApproveDocument, onEditTransaction, onEditContext,
 }: {
     message: ChatMessage;
@@ -48,6 +50,7 @@ function ChatMessageItem({
     onUnexcludeSkipped?: (messageId: string, transactionCode: string) => void;
     onNearDuplicateKeep?: (messageId: string) => void;
     onNearDuplicateDrop?: (messageId: string, smallerTransactionCode: string) => void;
+    onDirectionAnswer?: (messageId: string, transactionCode: string, direction: 'sent' | 'received') => void;
     onOptionSelect?: (messageId: string, value: string) => void;
     documentContext?: DocumentContext | null;
     onApproveDocument?: (messageId: string) => void;
@@ -109,6 +112,10 @@ function ChatMessageItem({
                     />
                 )
                 : null;
+        case 'direction-question':
+            return message.directionQuestion && onDirectionAnswer
+                ? <ChatDirectionQuestion message={message} onAnswer={onDirectionAnswer} />
+                : null;
         default:
             // Still placeholders: options, dropzone, transactions (Phase 5B)
             return (
@@ -121,7 +128,7 @@ function ChatMessageItem({
 
 export function ChatMessageList({
     messages, onLabelChange, onViewSkipped, skippedReviewExpandSignal, onIncludeSkipped, onUnexcludeSkipped,
-    onNearDuplicateKeep, onNearDuplicateDrop, onOptionSelect,
+    onNearDuplicateKeep, onNearDuplicateDrop, onDirectionAnswer, onOptionSelect,
     documentContext, onApproveDocument, onEditTransaction, onEditContext,
 }: ChatMessageListProps) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -171,6 +178,7 @@ export function ChatMessageList({
                             onUnexcludeSkipped={onUnexcludeSkipped}
                             onNearDuplicateKeep={onNearDuplicateKeep}
                             onNearDuplicateDrop={onNearDuplicateDrop}
+                            onDirectionAnswer={onDirectionAnswer}
                             onOptionSelect={onOptionSelect}
                             documentContext={documentContext}
                             onApproveDocument={onApproveDocument}
