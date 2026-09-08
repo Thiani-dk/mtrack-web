@@ -231,6 +231,9 @@ function SkippedRow({
             fulizaAmount: null,
             reversalOf: null,
             isReversed: false,
+            amountVerified: false,
+            balanceMismatch: false,
+            directionSource: 'keyword',
 
             // Entered by hand through the recovery form.
             dataSource: 'self_reported',

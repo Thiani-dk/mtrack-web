@@ -176,6 +176,10 @@ export function buildSelfReportedTransaction(fields: {
         fulizaAmount: null,
         reversalOf: null,
         isReversed: false,
+        amountVerified: false,
+        balanceMismatch: false,
+        // The user stated the direction explicitly — treat as known.
+        directionSource: 'keyword',
 
         dataSource: 'self_reported',
         lineItems: null,

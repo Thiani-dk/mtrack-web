@@ -14,6 +14,7 @@ import { linkTransactions, type RawBlockResult, type LinkEnrichment } from './li
 import { applyVerificationChargeDetection } from './verificationCharge';
 import { detectNearDuplicates, type NearDuplicatePair } from './nearDuplicates';
 import { applyReversalPairs, type ReversalPair } from './reversals';
+import { applyBalanceOracle } from './balanceOracle';
 
 export type { ParseStats, SkippedMessage };
 export type { LinkEnrichment } from './linkTransactions';
@@ -200,6 +201,10 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
         reversalOf,
         isReversed: false,
 
+        amountVerified: false,
+        balanceMismatch: false,
+        directionSource: 'keyword',
+
         dataSource: 'sms_verified',
         lineItems: null,
         purposeLabel: null,
@@ -271,9 +276,18 @@ export function parseAllMessages(raw: string): ParseResult {
 
     const { unique: deduped, duplicatesRemoved, removed: duplicateTransactions } = dedupeTransactions(withVerificationCharges);
 
+    // Balance reconciliation — arithmetic proof of direction and amount for
+    // any transaction whose running balance chains to a neighbour on the same
+    // ledger. Where a direction is proven, re-derive subType to match.
+    const oracled = applyBalanceOracle(deduped).map(t =>
+        t.directionSource === 'balance'
+            ? { ...t, subType: deriveSubType(t.method, t.type, t.isBusiness, t.merchant ?? t.recipient) }
+            : t
+    );
+
     // Pair each reversal with its original (when both are in the batch) and
     // exclude both sides by default.
-    const { transactions: unique, pairs: reversalPairs } = applyReversalPairs(deduped);
+    const { transactions: unique, pairs: reversalPairs } = applyReversalPairs(oracled);
     unique.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     // Keep only enrichments whose merged transaction actually survived to the

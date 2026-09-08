@@ -140,6 +140,21 @@ export interface ParsedTransaction {
     // reversal) — they cancel each other, so both are excluded by default.
     isReversed: boolean;
 
+    // ── direction / amount oracle (balance reconciliation) ──
+    // The amount was confirmed by arithmetic: the balance on this message
+    // minus the balance on the previous message on the same ledger equals
+    // exactly +amount (received) or -(amount + fee) (sent).
+    amountVerified: boolean;
+    // The balance moved by an amount that matches neither hypothesis — weak
+    // evidence the amount extractor picked the wrong number from a
+    // multi-amount message. Surfaced for review, never acted on automatically.
+    balanceMismatch: boolean;
+    // How `type` was decided, strongest first: 'balance' (reconciliation),
+    // 'keyword' (an unambiguous verb/phrase), 'structural' (preposition +
+    // possessive), or 'unresolved' (we genuinely could not tell — `type`
+    // holds a best guess but directionUnresolved is set).
+    directionSource: 'balance' | 'keyword' | 'structural' | 'unresolved';
+
     // ── unified document model (Phase A) ──
     // 'sms_verified' for anything from the SMS parsing pipeline,
     // 'self_reported' for anything entered conversationally or by hand.
