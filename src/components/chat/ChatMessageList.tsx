@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import type { ChatMessage, ParsedTransaction, SkippedMessage } from '../../types';
 import type { DocumentContext } from './ChatReceipt';
@@ -12,6 +12,8 @@ import { ChatNearDuplicate } from './ChatNearDuplicate';
 import { ChatDirectionQuestion } from './ChatDirectionQuestion';
 import { ChatOptions } from './ChatOptions';
 import { ChatCopyBlock } from './ChatCopyBlock';
+import { ScrollToBottomButton } from './ScrollToBottomButton';
+import { isNearBottom, shouldShowJumpToLatest } from '../../lib/chatScroll';
 
 interface ChatMessageListProps {
     messages: ChatMessage[];
@@ -29,11 +31,6 @@ interface ChatMessageListProps {
     onEditTransaction?: (messageId: string, transactionCode: string, patch: Partial<ParsedTransaction>) => void;
     onEditContext?: (patch: Partial<DocumentContext>) => void;
 }
-
-// How close to the bottom (px) counts as "already there" — below this we
-// keep auto-scrolling on new messages; above it we assume the user is
-// reading history and leave their scroll position alone.
-const NEAR_BOTTOM_THRESHOLD = 120;
 
 const NO_SIGNAL = { id: '', epoch: 0 };
 
@@ -137,19 +134,27 @@ export function ChatMessageList({
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const nearBottomRef = useRef(true);
+    const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
-    const handleScroll = () => {
+    const handleScroll = useCallback(() => {
         const el = containerRef.current;
         if (!el) return;
-        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-        nearBottomRef.current = distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
-    };
+        nearBottomRef.current = isNearBottom(el.scrollHeight, el.clientHeight, el.scrollTop);
+        setShowJumpToLatest(shouldShowJumpToLatest(el.scrollHeight, el.clientHeight, el.scrollTop));
+    }, []);
+
+    const scrollToBottom = useCallback(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, []);
 
     useEffect(() => {
         if (nearBottomRef.current) {
             bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [messages]);
+        // A message arriving while the user is reading back should surface the
+        // button, so re-evaluate on every change, not only on scroll.
+        handleScroll();
+    }, [messages, handleScroll]);
 
     // The one receipt message's transactions — the source a 'skipped-review'
     // message's 'excluded' rows look up against for their display label and
@@ -158,6 +163,7 @@ export function ChatMessageList({
     const receiptTransactions = receiptMessage?.transactions ?? [];
 
     return (
+        <div className="relative flex-1 min-h-0 flex flex-col">
         <div
             ref={containerRef}
             onScroll={handleScroll}
@@ -192,6 +198,8 @@ export function ChatMessageList({
                 </AnimatePresence>
             )}
             <div ref={bottomRef} />
+        </div>
+        <ScrollToBottomButton visible={showJumpToLatest} onClick={scrollToBottom} />
         </div>
     );
 }
