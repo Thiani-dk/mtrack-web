@@ -11,6 +11,7 @@ import { ChatSkippedReview } from './ChatSkippedReview';
 import { ChatNearDuplicate } from './ChatNearDuplicate';
 import { ChatDirectionQuestion } from './ChatDirectionQuestion';
 import { ChatOptions } from './ChatOptions';
+import { ChatCopyBlock } from './ChatCopyBlock';
 
 interface ChatMessageListProps {
     messages: ChatMessage[];
@@ -64,6 +65,8 @@ function ChatMessageItem({
             return message.options && message.options.length > 0 && onOptionSelect
                 ? <ChatOptions message={message} onSelect={onOptionSelect} />
                 : null;
+        case 'copyable':
+            return message.text ? <ChatCopyBlock text={message.text} /> : null;
         case 'thinking':
             return <ChatThinking />;
         case 'insight':

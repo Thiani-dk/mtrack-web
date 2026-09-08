@@ -19,7 +19,7 @@ import { computeReceiptData } from '../../lib/receiptGenerator';
 import {
     demoPartyOptions, demoErrandOptions, demoCategoryOptions, demoPlaceOptions,
     demoAmountOptions, demoPurposeOptions, demoLoopOptions, demoPartyName,
-    buildDemoTransaction, DEMO_CATEGORIES, DEMO_PLENTY_COUNT,
+    buildDemoTransaction, buildDemoPasteMessage, DEMO_CATEGORIES, DEMO_PLENTY_COUNT,
     type DemoStep, type DemoCategory, type DemoParty,
 } from '../../lib/demoFlow';
 import { generateInsights, computeDaySpan, detectRecurring, type InsightContext } from '../../lib/insights';
@@ -122,6 +122,12 @@ interface DemoFlow {
     purposeQueue: string[];
     // Set to the current step while a "Something else" free-text prompt is open.
     awaitingText: DemoStep | null;
+    // Pass 2 — the fake M-Pesa message shown for the paste lesson, the code of
+    // the tapped line it was built from, and that line's purpose label (carried
+    // onto the parsed line if the user sends the sample back).
+    pasteFake: string | null;
+    pasteSourceCode: string | null;
+    pastePurpose: string | null;
 }
 
 function fmtShortDate(d: Date): string {
@@ -159,6 +165,16 @@ const DEMO_PURPOSE_INTRO =
     "Last part. Let's say what each line was for. An unexplained line is what gets a claim sent back.";
 const DEMO_PRE_RECEIPT = "That's everything. Here's the claim you just built.";
 const DEMO_TAP_NUDGE = 'Tap one of the options above to keep going.';
+const demoPasteIntro = (who: string) =>
+    `One more thing. Most of the time you'll copy the actual M-Pesa message instead of tapping it in. Here's what the ${who} one would look like.`;
+const DEMO_PASTE_ASK = 'Copy that and send it back to me, the way you would a real one.';
+const DEMO_PASTE_FAILED = "That didn't read as a transaction message, but no matter. Here's the claim you built.";
+const demoPasteCallout = (t: ParsedTransaction): string => {
+    const bits = ['the exact amount', 'the date', 'the reference number'];
+    if (t.transactionCost != null && t.transactionCost > 0) bits.push(`the Ksh ${t.transactionCost} fee`);
+    const list = `${bits.slice(0, -1).join(', ')}, and ${bits[bits.length - 1]}`;
+    return `Notice what came across on its own: ${list}. That line is verified straight from the message now. That's why copying beats typing when you have it.`;
+};
 
 // Shown when the user taps "Something else" on a given question.
 const DEMO_ELSE_PROMPTS: Record<string, string> = {
@@ -547,6 +563,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 step: 'party', party: 'boss', partyName: '', errandLabel: '',
                 draftCategory: null, customCategoryLabel: '', draftPlace: null,
                 txns: [], txnCategory: {}, purposeQueue: [], awaitingText: null,
+                pasteFake: null, pasteSourceCode: null, pastePurpose: null,
             });
             await sleep(600);
             addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_PARTY_Q, options: demoPartyOptions() });
@@ -581,6 +598,27 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         });
     }, [addDemoMessage]);
 
+    // Pass 2 — the paste lesson. Build one fake M-Pesa message from the biggest
+    // line the user tapped in, show it in a copyable block, and wait for them to
+    // send it back so it runs through the real parsing pipeline.
+    const startDemoPaste = useCallback(async (flow: DemoFlow, txns: ParsedTransaction[]) => {
+        const src = [...txns].sort((a, b) => b.amount - a.amount)[0];
+        const category = src ? (flow.txnCategory[src.transactionCode] ?? null) : null;
+        const fake = src
+            ? buildDemoPasteMessage({ recipient: src.recipient, amount: src.amount, date: src.date, category })
+            : '';
+        setDemoFlow({
+            ...flow, txns, step: 'paste', awaitingText: null,
+            pasteFake: fake, pasteSourceCode: src?.transactionCode ?? null, pastePurpose: src?.purposeLabel ?? null,
+        });
+        await sleep(400);
+        addDemoMessage({ role: 'bot', kind: 'text', text: demoPasteIntro(src?.recipient ?? 'M-Pesa') });
+        await sleep(500);
+        addDemoMessage({ role: 'bot', kind: 'copyable', text: fake });
+        await sleep(400);
+        addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_PASTE_ASK });
+    }, [setDemoFlow, addDemoMessage]);
+
     const askDemoPurpose = useCallback((code: string, txns: ParsedTransaction[], cats: Record<string, DemoCategory | null>) => {
         const txn = txns.find(t => t.transactionCode === code);
         if (!txn) return;
@@ -599,10 +637,11 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             await sleep(300);
             askDemoPurpose(rest[0], txns, flow.txnCategory);
         } else {
-            setDemoFlow({ ...flow, txns, purposeQueue: [], awaitingText: null, step: 'done' });
-            await emitDemoReceipt(txns);
+            const next: DemoFlow = { ...flow, txns, purposeQueue: [], awaitingText: null };
+            setDemoFlow(next);
+            await startDemoPaste(next, txns);
         }
-    }, [setDemoFlow, askDemoPurpose, emitDemoReceipt]);
+    }, [setDemoFlow, askDemoPurpose, startDemoPaste]);
 
     const startDemoPurposes = useCallback(async (flow: DemoFlow) => {
         const queue = flow.txns.map(t => t.transactionCode);
@@ -757,6 +796,42 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_TAP_NUDGE });
         }
     }, [addDemoMessage, setDemoFlow, addDemoLine, applyDemoPurpose]);
+
+    // The paste lesson's send: whatever the user sends goes through the real
+    // parsing pipeline. The sample message joins the claim (replacing the line
+    // it was based on, now verified); anything else is added if it parses, or
+    // shrugged off if it doesn't. Then the claim renders.
+    const handleDemoPaste = useCallback(async (flow: DemoFlow, text: string) => {
+        const { transactions } = parseAllMessages(text);
+        const parsed = transactions[0];
+
+        if (!parsed) {
+            addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_PASTE_FAILED });
+            setDemoFlow({ ...flow, step: 'done' });
+            await emitDemoReceipt(flow.txns);
+            return;
+        }
+
+        const src = flow.pasteSourceCode
+            ? flow.txns.find(t => t.transactionCode === flow.pasteSourceCode)
+            : undefined;
+        const isSample = !!src
+            && Math.abs(parsed.amount - src.amount) < 1
+            && src.recipient.toLowerCase().startsWith(parsed.recipient.toLowerCase().slice(0, 5));
+
+        const joined: ParsedTransaction = {
+            ...parsed,
+            purposeLabel: parsed.purposeLabel ?? flow.pastePurpose ?? src?.purposeLabel ?? null,
+        };
+        const merged = isSample && src
+            ? flow.txns.map(t => (t.transactionCode === src.transactionCode ? joined : t))
+            : [...flow.txns, joined];
+
+        setDemoFlow({ ...flow, txns: merged, step: 'done' });
+        await sleep(400);
+        addDemoMessage({ role: 'bot', kind: 'text', text: demoPasteCallout(parsed) });
+        await emitDemoReceipt(merged);
+    }, [addDemoMessage, setDemoFlow, emitDemoReceipt]);
 
     // ── Phase C: mode selection + conversational capture ──────────────────
 
@@ -1090,11 +1165,13 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
         addMsg({ role: 'user', kind: 'text', text });
 
-        // The guided demo is tap-first; a typed message only ever means the
-        // user took a "Something else" free-text branch. Never parses, never
-        // persists.
+        // The guided demo is tap-first. A typed message is either a "Something
+        // else" free-text answer or, during the paste lesson, a message to run
+        // through the real pipeline. Never persists either way.
         if (isDemoSession) {
-            await handleDemoText(text);
+            const df = demoFlowRef.current;
+            if (df?.step === 'paste') await handleDemoPaste(df, text);
+            else await handleDemoText(text);
             return;
         }
 
@@ -1154,7 +1231,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         } finally {
             setIsProcessing(false);
         }
-    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, allTimeStats, handleDemoText, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
+    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, allTimeStats, handleDemoText, handleDemoPaste, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
 
     // Fired from the interactive receipt's tap-to-label UI. Updates the
     // message's own transactions in place (persisted through the normal
@@ -1326,6 +1403,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     // always says what to type next.
     const composerPlaceholder = (() => {
         if (isDemoSession) {
+            if (demoFlow?.step === 'paste') return 'Send the message like a real one...';
             if (demoFlow?.awaitingText === 'amount') return 'Amount in Ksh...';
             if (demoFlow?.awaitingText) return 'Type your answer...';
             return 'Tap an option above...';

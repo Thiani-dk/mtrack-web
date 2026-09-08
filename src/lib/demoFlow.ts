@@ -30,6 +30,7 @@ export type DemoParty = 'boss' | 'client' | 'flatmate' | 'other';
 interface CategoryConfig {
     label: string;      // the option card, and the line label
     spentOn: string;    // slots into "for ___" in the confirmation sentence
+    account: string;    // the "for account ___" slot in a real M-Pesa message
     places: string[];
     amounts: number[];  // category-scaled, smallest first
     purposes: string[]; // what a line like this was for
@@ -39,6 +40,7 @@ export const DEMO_CATEGORIES: Record<DemoCategory, CategoryConfig> = {
     fuel: {
         label: 'Fuel',
         spentOn: 'fuel',
+        account: 'FUEL',
         places: ['Shell Kilimani', 'Total Ngong Road', 'Rubis Westlands'],
         amounts: [2500, 4500, 6000],
         purposes: ['Return trip', 'Client pickup', 'Site runs'],
@@ -46,6 +48,7 @@ export const DEMO_CATEGORIES: Record<DemoCategory, CategoryConfig> = {
     food: {
         label: 'Food',
         spentOn: 'food',
+        account: 'MEALS',
         places: ['Java House', 'Galitos', 'Mama Mboga'],
         amounts: [450, 850, 1600],
         purposes: ['Client lunch', 'Team meal', 'Working late'],
@@ -53,6 +56,7 @@ export const DEMO_CATEGORIES: Record<DemoCategory, CategoryConfig> = {
     transport: {
         label: 'Transport',
         spentOn: 'transport',
+        account: 'TRANSPORT',
         places: ['Bolt ride', 'Matatu fare', 'Boda'],
         amounts: [150, 400, 900],
         purposes: ['Client pickup', 'Getting to site', 'Airport run'],
@@ -60,6 +64,7 @@ export const DEMO_CATEGORIES: Record<DemoCategory, CategoryConfig> = {
     supplies: {
         label: 'Supplies',
         spentOn: 'supplies',
+        account: 'SUPPLIES',
         places: ['Text Book Centre', 'Kisumu Hardware', 'Naivas'],
         amounts: [1200, 3400, 7500],
         purposes: ['Project materials', 'Office restock', 'Site supplies'],
@@ -67,6 +72,7 @@ export const DEMO_CATEGORIES: Record<DemoCategory, CategoryConfig> = {
     stay: {
         label: 'Somewhere to stay',
         spentOn: 'a place to stay',
+        account: 'ACCOMMODATION',
         places: ['Acacia Guesthouse', 'Sarova', 'An Airbnb'],
         amounts: [2800, 4500, 8000],
         purposes: ['Overnight for a site visit', 'Late finish', 'Early start the next day'],
@@ -181,4 +187,49 @@ export function buildDemoTransaction(fields: { place: string; amount: number; in
         date: demoTxnDate(fields.index),
         type: 'sent',
     });
+}
+
+// ── Pass 2: the one fake M-Pesa message the demo teaches the paste path with.
+// Built from a line the user already tapped in, in exact M-Pesa paybill house
+// style, so what the parser pulls out of it (amount, date, ref, fee) reads as
+// their own data coming back richer than they typed it. ──
+
+export const DEMO_PASTE_FEE = 29;
+
+function fmtMoney2(n: number): string {
+    return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function fmtMpesaDateTime(d: Date): string {
+    const year = d.getFullYear() % 100;
+    let h = d.getHours();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${d.getDate()}/${d.getMonth() + 1}/${year} at ${h}:${mm} ${ampm}`;
+}
+
+function fakeMpesaCode(): string {
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const digits = '0123456789';
+    let s = '';
+    for (let i = 0; i < 10; i++) {
+        s += i % 2 === 0
+            ? letters[Math.floor(Math.random() * letters.length)]
+            : digits[Math.floor(Math.random() * digits.length)];
+    }
+    return s;
+}
+
+export function buildDemoPasteMessage(fields: {
+    recipient: string;
+    amount: number;
+    date: Date;
+    category: DemoCategory | null;
+}): string {
+    const account = fields.category ? DEMO_CATEGORIES[fields.category].account : 'EXPENSES';
+    const balance = 8000 + Math.round(fields.amount * 1.847);
+    return `${fakeMpesaCode()} Confirmed. Ksh${fmtMoney2(fields.amount)} sent to ${fields.recipient.toUpperCase()} `
+        + `for account ${account} on ${fmtMpesaDateTime(fields.date)}. New M-PESA balance is Ksh${fmtMoney2(balance)}. `
+        + `Transaction cost, Ksh${fmtMoney2(DEMO_PASTE_FEE)}.`;
 }

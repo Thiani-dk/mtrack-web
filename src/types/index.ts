@@ -225,6 +225,7 @@ export type ChatMessageRole = 'bot' | 'user' | 'system';
 export type ChatMessageKind =
     | 'text'              // plain message bubble
     | 'options'           // tappable option cards
+    | 'copyable'          // a monospace, copy-to-clipboard block (demo paste lesson)
     | 'dropzone'          // the paste/upload input widget
     | 'transactions'      // parsed transaction list with label pickers
     | 'receipt'           // final receipt preview + download buttons
