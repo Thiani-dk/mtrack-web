@@ -228,6 +228,9 @@ function SkippedRow({
             isHold: false,
             isVerificationCharge: false,
             cardLast4: null,
+            fulizaAmount: null,
+            reversalOf: null,
+            isReversed: false,
 
             // Entered by hand through the recovery form.
             dataSource: 'self_reported',

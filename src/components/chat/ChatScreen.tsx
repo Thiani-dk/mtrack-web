@@ -13,7 +13,8 @@ import { useChatSession } from '../../lib/useChatSession';
 import { useReceiptStore } from '../../lib/useReceiptStore';
 import { useAllTimeStats } from '../../lib/aggregate/useAllTimeStats';
 import type { AllTimeStats } from '../../lib/aggregate/useAllTimeStats';
-import { parseAllMessages, type ParseStats, type LinkEnrichment, type NearDuplicatePair } from '../../lib/parsers';
+import { parseAllMessages, type ParseStats, type LinkEnrichment, type NearDuplicatePair, type ReversalPair } from '../../lib/parsers';
+import { computeReceiptData } from '../../lib/receiptGenerator';
 import { generateDemoMessages } from '../../lib/demoData';
 import { generateInsights, computeDaySpan, detectRecurring, type InsightContext } from '../../lib/insights';
 import { buildParseNotices } from '../../lib/parseNotices';
@@ -159,14 +160,16 @@ async function deliverInsights(
     allTimeStats: AllTimeStats | null,
     linkEnrichments: LinkEnrichment[] = [],
     nearDuplicates: NearDuplicatePair[] = [],
-    documentType: DocumentType = 'expense_summary'
+    documentType: DocumentType = 'expense_summary',
+    reversalPairs: ReversalPair[] = []
 ): Promise<void> {
     const scoped = fullTransactions.filter(t => !t.excludedFromReceipt);
+    const currencyCount = computeReceiptData(scoped).distinctCurrencies.length;
 
     // No date-range question exists yet, so nothing is ever "out of range" —
     // passing 0 here means the 'all-out-of-range' and 'out-of-range' notices
     // can never fire.
-    const notices = buildParseNotices(stats, { linkEnrichments, nearDuplicates });
+    const notices = buildParseNotices(stats, { linkEnrichments, nearDuplicates, reversalPairs, currencyCount });
     const nothingNotice = notices.find(n => n.id === 'nothing');
 
     if (nothingNotice) {
@@ -450,7 +453,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 const cutoff = new Date();
                 cutoff.setDate(cutoff.getDate() - 15);
 
-                const { transactions, stats, skippedMessages: parserSkipped, linkEnrichments, nearDuplicates } = parseAllMessages(generateDemoMessages());
+                const { transactions, stats, skippedMessages: parserSkipped, linkEnrichments, nearDuplicates, reversalPairs } = parseAllMessages(generateDemoMessages());
                 const withDefaults = transactions.map(t =>
                     t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
                 );
@@ -465,7 +468,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 await deliverInsights(
                     inRange, stats, [...parserSkipped, ...excludedSkipped], thinkingId,
                     addDemoMessage, updateDemoMessage, true, false, null,
-                    linkEnrichments, nearDuplicates
+                    linkEnrichments, nearDuplicates, 'expense_summary', reversalPairs
                 );
             } catch (err) {
                 console.error('Demo bootstrap failed:', err);
@@ -833,7 +836,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const thinkingId = addMsg({ role: 'bot', kind: 'thinking' });
 
         try {
-            const { transactions, stats: parseStats, skippedMessages: parserSkipped, linkEnrichments, nearDuplicates } = parseAllMessages(text);
+            const { transactions, stats: parseStats, skippedMessages: parserSkipped, linkEnrichments, nearDuplicates, reversalPairs } = parseAllMessages(text);
             const withDefaults = transactions.map(t =>
                 t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
             );
@@ -859,7 +862,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 withDefaults, parseStats, [...parserSkipped, ...excludedSkipped], thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
                 allTimeStats,
                 linkEnrichments, nearDuplicates,
-                flow?.documentType ?? 'expense_summary'
+                flow?.documentType ?? 'expense_summary', reversalPairs
             );
 
             if (!isDemoSession) {

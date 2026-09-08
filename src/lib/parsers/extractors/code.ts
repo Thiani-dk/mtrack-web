@@ -8,8 +8,11 @@ export interface CodeContext {
     isoDate?: string | null;
 }
 
+// The captured code allows internal dots so Airtel's dotted transaction IDs
+// ("PP260823.1234.567890") survive intact; a trailing dot (sentence period)
+// is excluded by requiring the final character to be alphanumeric.
 const LABELLED_RE =
-    /(?:M-?Pesa\s+receipt\s+number\s+is:?|MPESA\s+Ref\.?|Ref(?:erence)?:?|Txn\s*ID:?|Transaction\s+(?:ID|Ref|Code):?)\s*([A-Z0-9]{6,15})/i;
+    /(?:M-?Pesa\s+receipt\s+number\s+is:?|MPESA\s+Ref\.?|Ref(?:erence)?:?|Txn\s*ID:?|Transaction\s+(?:ID|Ref|Code):?)\s*([A-Z0-9](?:[A-Z0-9.]{4,28}[A-Z0-9])?)/i;
 
 const LEADING_RE = /^([A-Z0-9]{10})\b/i;
 

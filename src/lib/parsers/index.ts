@@ -13,10 +13,12 @@ import { classifyMessage } from './classify';
 import { linkTransactions, type RawBlockResult, type LinkEnrichment } from './linkTransactions';
 import { applyVerificationChargeDetection } from './verificationCharge';
 import { detectNearDuplicates, type NearDuplicatePair } from './nearDuplicates';
+import { applyReversalPairs, type ReversalPair } from './reversals';
 
 export type { ParseStats, SkippedMessage };
 export type { LinkEnrichment } from './linkTransactions';
 export type { NearDuplicatePair } from './nearDuplicates';
+export type { ReversalPair } from './reversals';
 
 function fallbackNameForMethod(method: string): string | null {
     switch (method) {
@@ -137,12 +139,27 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
     const base = scoreTransaction(partial);
     const boost = applyProviderHint(r.rawBlock, channel.provider);
     const score = Math.min(100, base.score + boost);
-    const level: 'high' | 'medium' | 'low' = score >= 80 ? 'high' : score >= 75 ? 'medium' : 'low';
+    let level: 'high' | 'medium' | 'low' = score >= 80 ? 'high' : score >= 75 ? 'medium' : 'low';
 
     // Below this, the extracted fields aren't trustworthy enough to keep.
     if (score < minScore) return null;
 
+    // A message copied mid-sentence (ends on a bare letter, no terminal
+    // punctuation) still counts if amount and date came through, but it is
+    // never high-confidence — the user should eyeball it.
+    const trimmedBlock = r.rawBlock.trim();
+    const looksTruncated = /[A-Za-z]$/.test(trimmedBlock) && !/[.!?)"']$/.test(trimmedBlock);
+    if (looksTruncated) level = 'low';
+
     const isHold = amount.amount === 0;
+
+    // Fuliza (overdraft) portion of the payment, when the message mentions one.
+    const fulizaMatch = r.rawBlock.match(/Fuliza\s+M-?PESA\s+amount\s+is\s+Ksh\.?\s*([\d,]+(?:\.\d{1,2})?)/i);
+    const fulizaAmount = fulizaMatch ? parseFloat(fulizaMatch[1].replace(/,/g, '')) : null;
+
+    // For a reversal message: the code of the original payment being reversed.
+    const reversalMatch = r.rawBlock.match(/Reversal\s+of\s+transaction\s+([A-Z0-9]{8,15})/i);
+    const reversalOf = reversalMatch ? reversalMatch[1].toUpperCase() : null;
 
     return {
         date: dateResult.date,
@@ -179,6 +196,9 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
         isHold,
         isVerificationCharge: false,
         cardLast4: r.cardLast4,
+        fulizaAmount,
+        reversalOf,
+        isReversed: false,
 
         dataSource: 'sms_verified',
         lineItems: null,
@@ -196,6 +216,9 @@ export interface ParseResult {
     linkEnrichments: LinkEnrichment[];
     // Same-party, minutes-apart pairs that need a human judgement call.
     nearDuplicates: NearDuplicatePair[];
+    // A payment and its reversal, both present in the batch — both excluded
+    // by default.
+    reversalPairs: ReversalPair[];
 }
 
 export function parseAllMessages(raw: string): ParseResult {
@@ -246,7 +269,11 @@ export function parseAllMessages(raw: string): ParseResult {
 
     const withVerificationCharges = applyVerificationChargeDetection(successfulTransactions);
 
-    const { unique, duplicatesRemoved, removed: duplicateTransactions } = dedupeTransactions(withVerificationCharges);
+    const { unique: deduped, duplicatesRemoved, removed: duplicateTransactions } = dedupeTransactions(withVerificationCharges);
+
+    // Pair each reversal with its original (when both are in the batch) and
+    // exclude both sides by default.
+    const { transactions: unique, pairs: reversalPairs } = applyReversalPairs(deduped);
     unique.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     // Keep only enrichments whose merged transaction actually survived to the
@@ -298,7 +325,7 @@ export function parseAllMessages(raw: string): ParseResult {
         if (t.failed) stats.failed++;
     }
 
-    return { transactions: unique, stats, skippedMessages, linkEnrichments, nearDuplicates };
+    return { transactions: unique, stats, skippedMessages, linkEnrichments, nearDuplicates, reversalPairs };
 }
 
 export function parseAllSMS(raw: string): ParsedTransaction[] {

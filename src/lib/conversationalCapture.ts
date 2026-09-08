@@ -173,6 +173,9 @@ export function buildSelfReportedTransaction(fields: {
         isHold: false,
         isVerificationCharge: false,
         cardLast4: null,
+        fulizaAmount: null,
+        reversalOf: null,
+        isReversed: false,
 
         dataSource: 'self_reported',
         lineItems: null,

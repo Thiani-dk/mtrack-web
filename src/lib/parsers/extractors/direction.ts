@@ -18,7 +18,9 @@ const KEYWORDS: Keyword[] = [
     { re: /reversal/i, type: 'received', weight: 2 },
 
     { re: /card\s*payment/i, type: 'sent', weight: 3 },
+    { re: /you have sent/i, type: 'sent', weight: 3 },
     { re: /sent to/i, type: 'sent', weight: 3 },
+    { re: /\bsent\b\s+(?:ksh|kes)/i, type: 'sent', weight: 2 },
     { re: /paid to/i, type: 'sent', weight: 3 },
     { re: /you bought/i, type: 'sent', weight: 2 },
     { re: /withdraw/i, type: 'sent', weight: 2 },

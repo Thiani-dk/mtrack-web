@@ -117,3 +117,47 @@ export const FIXTURES: Fixture[] = [
 ];
 
 export const ALL_FIXTURES_TEXT = FIXTURES.map(f => f.raw).join('\n\n');
+
+// ---------------------------------------------------------------------------
+// Phase 2 — parser hardening fixtures, grouped by the case they test.
+// ---------------------------------------------------------------------------
+
+// 2.1 Fuliza / overdraft
+export const FULIZA_STANDALONE_NOTICE =
+    'UHN7A3XX7G Confirmed. Fuliza M-PESA amount is Ksh 500.00. Interest charged Ksh 5.00. Total Fuliza M-PESA outstanding amount is Ksh 1,505.00 due on 30/8/26.';
+export const FULIZA_PAYMENT =
+    'UHN7A3XX7G Confirmed. Ksh2,000.00 sent to JOHN DOE 0712345678 on 23/8/26 at 5:00 PM. New M-PESA balance is Ksh0.00. Transaction cost, Ksh29.00. Fuliza M-PESA amount is Ksh 1,500.00.';
+
+// 2.2 Reversal
+export const REVERSAL_ORIGINAL =
+    'UHM7A2WWQ1 Confirmed. Ksh500.00 sent to MARY WANJIKU 0722000111 on 23/8/26 at 3:00 PM. New M-PESA balance is Ksh1,000.00. Transaction cost, Ksh7.00.';
+export const REVERSAL_MESSAGE =
+    'UHN7A3XX7G Confirmed. Reversal of transaction UHM7A2WWQ1 has been successfully completed. Ksh500.00 has been credited back to your account on 23/8/26 at 3:20 PM. New M-PESA balance is Ksh1,500.00.';
+
+// 2.3 Balance-only / non-transaction M-Pesa messages
+export const BALANCE_ENQUIRY =
+    'Your M-PESA balance was Ksh1,234.56 on 23/8/26 at 11:07 PM. Transaction cost, Ksh0.00.';
+export const CONTACT_ADDED =
+    'UHN7A3XX7G Confirmed. You have added JOHN DOE 0712345678 to your M-PESA contacts.';
+export const STATEMENT_READY =
+    'Your M-PESA statement for August 2026 is ready. Dial *334# to view.';
+
+// 2.4 Airtel Money and T-Kash
+export const AIRTEL_SEND =
+    'You have sent Ksh500.00 to JOHN DOE 0733123456. Your new balance is Ksh1,200.00. Transaction ID: PP260823.1234.567890 on 23/08/2026 17:30.';
+export const AIRTEL_RECEIVE =
+    'You have received Ksh1,000.00 from JANE DOE 0733999888. New balance Ksh2,200.00. Transaction ID PP260823.1235.567891.';
+export const TKASH_SEND =
+    'Confirmed. You have sent KSH 300.00 to JOHN DOE 0770123456 on 23/08/2026 at 5:45 PM. Ref: TK26082312345.';
+
+// 2.5 Multi-currency card payment
+export const USD_CARD_PAYMENT =
+    'Dear DANIEL, Card PAYMENT transaction dated 10-AUG-2026 22:20:28 of USD 23.2 ANTHROPIC* CLAUDE SUB>+14152360599 US Was Successful.';
+
+// 2.6 Truncated and concatenated
+export const TRUNCATED_MESSAGE =
+    'QGH7XK9P2L Confirmed. Ksh1,000.00 sent to KEVIN ELIJAH 0712345678 on 21/8/26 at 7:38 PM. New M-PES';
+export const TRUNCATED_UNREADABLE =
+    'Confirmed. Ksh sent to someone on';
+export const CONCATENATED_PAIR =
+    'QGH7XK9P2L Confirmed. Ksh1,000.00 sent to KEVIN ELIJAH 0712345678 on 21/8/26 at 7:38 PM. New M-PESA balance is Ksh15,230.00. Transaction cost, Ksh0.00. RJH2P9XQ7K Confirmed. You have received Ksh2,500.00 from JANE MUTHONI 0798123456 on 20/8/26 at 9:05 AM. New M-PESA balance is Ksh17,730.00.';

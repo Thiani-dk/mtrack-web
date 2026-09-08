@@ -44,6 +44,7 @@ export function getExclusionReason(t: ParsedTransaction): string | null {
     if (t.isHold) return 'Authorisation hold';
     if (t.failed) return 'Payment declined';
     if (t.isVerificationCharge) return 'Verification charge';
+    if (t.isReversed) return 'Reversed';
     return null;
 }
 

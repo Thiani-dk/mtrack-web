@@ -13,7 +13,7 @@ const AMOUNT_RE = /(Ksh\.?|KES|USD|EUR|GBP|TZS|UGX|RWF|\$|£|€)\s*\.?\s*([\d,]
 const POSITIVE_CONTEXT =
     /\b(sent|paid|received|bought|give|withdraw|transfer(?:red)?|of|you have (?:sent|paid|received))\b/i;
 const NEGATIVE_CONTEXT =
-    /\b(balance|transaction cost|transact within the day|limit|charge|fee|avail(?:able)?\s*bal)\b/i;
+    /\b(balance|transaction cost|transact within the day|limit|charge|fee|avail(?:able)?\s*bal|fuliza|outstanding|interest)\b/i;
 
 function currencyKey(sym: string): string {
     return sym.toLowerCase().replace(/\.$/, '');

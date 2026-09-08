@@ -7,12 +7,15 @@ export type { PartiesResult };
 const RECIPIENT_PATTERNS: RegExp[] = [
     /to\s+(.+?)\s+for account\s+(\S+)/i,
     /(?:sent|paid|transferred)\s+to\s+(.+?)(?=\s+(?:for account|on\s+\d|\d{1,2}\/|\.|$))/i,
+    // Airtel / T-Kash: "You have sent Ksh500.00 to JOHN DOE 0733123456. ..."
+    // — the amount sits between the verb and "to".
+    /(?:you have\s+)?(?:sent|paid)\s+(?:Ksh|KES|KSH)?\s*[\d,.]*\s+to\s+(.+?)(?=\s+(?:for account|on\s+\d|\d{1,2}\/|\.|Your\s+new|New\s+balance|New\s+M-?PESA|Transaction\s+ID|Ref[:.]|$))/i,
     /Give\s+Ksh[\d,.]+\s+cash\s+to\s+(.+?)(?=\s+(?:on\s+\d|New|$))/i,
     /Withdraw.+?from\s+(.+?)(?=\s+(?:on\s+\d|New|$))/i,
 ];
 
 // Sender pattern (money coming in)
-const SENDER_PATTERN = /(?:received|credited with).+?from\s+(.+?)(?=\s+(?:on\s+\d|\d{1,2}\/|at\s+\d|\.|$))/i;
+const SENDER_PATTERN = /(?:received|credited with).+?from\s+(.+?)(?=\s+(?:on\s+\d|\d{1,2}\/|at\s+\d|\.|Your\s+new|New\s+balance|Transaction\s+ID|Ref[:.]|$))/i;
 
 const ACCOUNT_PATTERN = /for account\s+(\S+?)(?=\s+on|\s*\.|\s*$)/i;
 

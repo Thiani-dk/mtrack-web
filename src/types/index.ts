@@ -129,6 +129,17 @@ export interface ParsedTransaction {
     isVerificationCharge: boolean;   // paired Ksh<=5 sent/received test charge (e.g. GlobalPay card verification)
     cardLast4: string | null;        // last 3-4 digits from "card ****3388", when present
 
+    // The Fuliza (overdraft) portion of a payment that drew on Fuliza, when
+    // the message mentions one. The transaction amount is still the amount
+    // sent, not this. null when no Fuliza was involved.
+    fulizaAmount: number | null;
+    // For a reversal message: the transaction code of the original payment
+    // it reverses. null otherwise.
+    reversalOf: string | null;
+    // Set on BOTH sides of a matched reversal pair (the original and its
+    // reversal) — they cancel each other, so both are excluded by default.
+    isReversed: boolean;
+
     // ── unified document model (Phase A) ──
     // 'sms_verified' for anything from the SMS parsing pipeline,
     // 'self_reported' for anything entered conversationally or by hand.

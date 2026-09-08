@@ -21,6 +21,16 @@ const CURRENCY_RE = /(Ksh\.?|KES|USD|EUR|GBP|TZS|UGX|RWF|\$|£|€)\s*\.?\s*[\d,
 const TRANSACTION_VERB_RE =
     /\b(?:sent|paid|payment|received|withdraw|approved|charge(?:d)?|bought|purchased|credited|debited|deposited|transferred|refund|reversal)\b|\bdone at\b/i;
 
+// Checked BEFORE the currency+verb test: these carry transaction-verb-like
+// wording ("Interest charged", "credited") but are notices, not payments.
+const NON_TRANSACTION_OVERRIDES: RegExp[] = [
+    // A standalone Fuliza / overdraft facility notice — no payment happened,
+    // it just reports the outstanding overdraft. A real payment that merely
+    // *drew on* Fuliza has "sent to"/"paid to" and is not matched here.
+    /Confirmed\.?\s*Fuliza\s+M-?PESA\s+amount\s+is/i,
+    /Total\s+Fuliza\s+M-?PESA\s+outstanding\s+amount\s+is/i,
+];
+
 const SERVICE_NOTICE_PATTERNS: RegExp[] = [
     /has been unsuspended/i,
     /has been suspended/i,
@@ -31,6 +41,12 @@ const SERVICE_NOTICE_PATTERNS: RegExp[] = [
     /keep them secure/i,
     /to unsuspend/i,
     /confirming successful unsuspension/i,
+    // Balance enquiry / non-transaction M-PESA messages that still carry an
+    // amount and a date.
+    /Your\s+M-?PESA\s+balance\s+(?:was|is)\b/i,
+    /to your\s+M-?PESA\s+contacts\b/i,
+    /M-?PESA\s+statement\s+for\s+.+\s+is\s+ready/i,
+    /statement\s+is\s+ready/i,
 ];
 
 const SECURITY_ALERT_PATTERNS: RegExp[] = [
@@ -40,6 +56,7 @@ const SECURITY_ALERT_PATTERNS: RegExp[] = [
 ];
 
 export function classifyMessage(msg: string): MessageClass {
+    if (NON_TRANSACTION_OVERRIDES.some(re => re.test(msg))) return 'service_notice';
     if (CURRENCY_RE.test(msg) && TRANSACTION_VERB_RE.test(msg)) return 'transaction';
     if (SERVICE_NOTICE_PATTERNS.some(re => re.test(msg))) return 'service_notice';
     if (SECURITY_ALERT_PATTERNS.some(re => re.test(msg))) return 'security_alert';

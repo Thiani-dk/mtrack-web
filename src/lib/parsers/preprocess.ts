@@ -143,6 +143,22 @@ export function splitIntoBlocks(text: string): string[] {
     return blocks.map(b => b.trim()).filter(Boolean);
 }
 
+// ── Concatenated-message repair ──────────────────────────────────────────────
+// Some SMS apps join two messages with no separator. A new message almost
+// always begins with a 10-char transaction code (letters + digits) followed by
+// "Confirmed" — insert a break before any such code that is NOT already at the
+// start of a line/paste so the block splitter treats it as a fresh message.
+
+const MID_LINE_CODE_RE = /(\S)[ \t]+([A-Z0-9]{10})(?=[ \t]+Confirmed\b)/g;
+
+export function splitConcatenatedMessages(text: string): string {
+    return text.replace(MID_LINE_CODE_RE, (full, prev: string, code: string) => {
+        // Only a real transaction code (letters AND digits) starts a message.
+        if (!/[A-Z]/.test(code) || !/[0-9]/.test(code)) return full;
+        return `${prev}\n\n${code}`;
+    });
+}
+
 // ── Orchestration ────────────────────────────────────────────────────────────
 
 export function preprocessToBlocks(raw: string): string[] {
@@ -160,6 +176,7 @@ export function preprocessToBlocks(raw: string): string[] {
     let cleaned = stripWhatsAppPrefixes(trimmed);
     cleaned = stripEmailChrome(cleaned);
     cleaned = stripNoiseLines(cleaned);
+    cleaned = splitConcatenatedMessages(cleaned);
     return splitIntoBlocks(cleaned);
 }
 

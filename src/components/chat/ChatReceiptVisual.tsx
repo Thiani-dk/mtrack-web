@@ -3,7 +3,7 @@ import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer
 import { ChevronDown } from 'lucide-react';
 import type { ParsedTransaction } from '../../types';
 import type { ReceiptData, DocRenderMeta } from '../../lib/receiptGenerator';
-import { fmt, getRecipientShort, getProviderSuffix, categoryKeyFor } from '../../lib/receiptGenerator';
+import { fmt, fmtCurrency, getRecipientShort, getProviderSuffix, categoryKeyFor } from '../../lib/receiptGenerator';
 import { providerChipLabel } from '../../lib/transactionDisplay';
 import { formatCovering, issuedDate, trustDisclaimerLine, lineShowsSelfReportedTag, claimTotals } from '../../lib/documentRender';
 import { CountUp } from '../CountUp';
@@ -196,7 +196,7 @@ function TransactionRow({
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
                     <span className="text-xs font-semibold tabular-nums text-[var(--text-primary)]">
-                        {sign}{fmt(t.amount)}
+                        {sign}{fmtCurrency(t.amount, t.currency)}
                     </span>
                     <ChevronDown className={`w-3 h-3 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
                 </div>
@@ -302,7 +302,7 @@ function TransactionRow({
                             {t.transactionCost != null && t.transactionCost > 0 && (
                                 <div className="flex justify-between gap-2">
                                     <span className="text-[var(--text-muted)]">Fee</span>
-                                    <span className="text-[var(--text-primary)]">{fmt(t.transactionCost)}</span>
+                                    <span className="text-[var(--text-primary)]">{fmtCurrency(t.transactionCost, t.currency)}</span>
                                 </div>
                             )}
                         </div>
@@ -371,7 +371,7 @@ function CategoryBar({
                                         </span>
                                         <span className="text-[var(--text-primary)] ml-1.5 truncate">{getRecipientShort(t)}</span>
                                     </div>
-                                    <span className="font-medium text-[var(--text-primary)] tabular-nums flex-shrink-0">{fmt(t.amount)}</span>
+                                    <span className="font-medium text-[var(--text-primary)] tabular-nums flex-shrink-0">{fmtCurrency(t.amount, t.currency)}</span>
                                 </div>
                             ))}
                         </div>
@@ -531,7 +531,21 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
 
                 {/* Tally / claim totals — finale */}
                 <div className="pt-2 border-t border-[var(--border-glass)] space-y-1">
-                    {claim ? (
+                    {data.isMultiCurrency ? (
+                        <>
+                            <p className="text-[11px] text-[var(--text-muted)]">Totalled separately by currency</p>
+                            {data.perCurrency.map(pc => (
+                                <div key={pc.currency} className="flex justify-between items-center pt-1.5 border-t border-[var(--border-glass)] first:border-t-0">
+                                    <span className="text-xs font-bold" style={{ color: 'var(--accent)' }}>
+                                        {claim ? 'DUE' : 'TOTAL'} · {pc.currency} <span className="font-normal text-[var(--text-muted)]">({pc.count})</span>
+                                    </span>
+                                    <span className="text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>
+                                        {fmtCurrency(pc.total, pc.currency)}
+                                    </span>
+                                </div>
+                            ))}
+                        </>
+                    ) : claim ? (
                         <>
                             <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
                                 <span>Subtotal, {claim.itemCount} item{claim.itemCount === 1 ? '' : 's'}</span>
@@ -574,6 +588,7 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                         </div>
                     ) : null}
 
+                    {!data.isMultiCurrency && (
                     <motion.button
                         onClick={() => setGrandReplay(k => k + 1)}
                         className="relative w-full flex justify-between items-center pt-2 mt-1 border-t border-[var(--border-glass)] text-left"
@@ -608,6 +623,7 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                             />
                         </span>
                     </motion.button>
+                    )}
 
                     {claim && (
                         <div className="pt-3 mt-1 space-y-2 text-[11px] text-[var(--text-muted)]">

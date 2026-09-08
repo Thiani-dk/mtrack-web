@@ -1,5 +1,5 @@
 import type { ParseStats } from './parsers';
-import type { LinkEnrichment, NearDuplicatePair } from './parsers';
+import type { LinkEnrichment, NearDuplicatePair, ReversalPair } from './parsers';
 import { fmtProse } from './transactionDisplay';
 
 // A word for a small count, so a sentence reads like a person wrote it
@@ -22,6 +22,10 @@ export interface BuildNoticesInput {
     outOfRangeCount?: number;
     linkEnrichments?: LinkEnrichment[];
     nearDuplicates?: NearDuplicatePair[];
+    reversalPairs?: ReversalPair[];
+    // Number of distinct currencies across the included transactions (>1 fires
+    // the mixed-currency notice).
+    currencyCount?: number;
 }
 
 // Every reconciliation situation the parser can surface routes through here so
@@ -35,7 +39,7 @@ export interface BuildNoticesInput {
 // confidence > card check left out > holds/failures > duplicate paste >
 // near-duplicate question.
 export function buildParseNotices(stats: ParseStats, input: BuildNoticesInput = {}): ParseNotice[] {
-    const { outOfRangeCount = 0, linkEnrichments = [], nearDuplicates = [] } = input;
+    const { outOfRangeCount = 0, linkEnrichments = [], nearDuplicates = [], reversalPairs = [], currencyCount = 1 } = input;
 
     if (stats.parsed === 0) {
         return [{
@@ -135,6 +139,27 @@ export function buildParseNotices(stats: ParseStats, input: BuildNoticesInput = 
         notices.push({
             id: 'holdsfailed',
             text: `I left out ${stats.holds} hold${stats.holds === 1 ? '' : 's'} and ${stats.failed} failed payment${stats.failed === 1 ? '' : 's'}. You can add them back if you want them counted.`,
+        });
+    }
+
+    // ── Reversal pair ──
+    if (reversalPairs.length > 0) {
+        const one = reversalPairs.length === 1;
+        notices.push({
+            id: 'reversal',
+            text: one
+                ? "Found a payment and its reversal. I've left both out since they cancel each other. Add them back if you want them shown."
+                : `Found ${spell(reversalPairs.length)} payments that were each reversed. I've left both sides of each out since they cancel out. Add them back if you want them shown.`,
+        });
+    }
+
+    // ── Mixed currencies ──
+    if (currencyCount > 1) {
+        notices.push({
+            id: 'multi-currency',
+            text: currencyCount === 2
+                ? "These are in two currencies, so I've totalled them separately."
+                : `These are in ${spell(currencyCount)} currencies, so I've totalled them separately.`,
         });
     }
 

@@ -19,8 +19,10 @@ const VIRTUAL_CARD_APPROVAL_RE = /done at[\s\S]*?has been approved on your card/
 
 const PROVIDER_SIGNALS: ProviderSignal[] = [
     { provider: 'M-PESA', tests: [/M-PESA/i, /MPESA/i, /saf\.cx/i, /\*334#/, GLOBALPAY_RE, VIRTUAL_CARD_APPROVAL_RE] },
-    { provider: 'Airtel Money', tests: [/Airtel Money/i, /\bAirtel\b/i] },
-    { provider: 'T-Kash', tests: [/T-Kash/i, /\bTelkom\b/i] },
+    // Airtel Money often omits the word "Airtel" but its transaction IDs have
+    // a distinctive dotted "PPyymmdd.nnnn.nnnnnn" shape.
+    { provider: 'Airtel Money', tests: [/Airtel Money/i, /\bAirtel\b/i, /\bPP\d{6}\.\d{3,4}\.\d{4,}\b/] },
+    { provider: 'T-Kash', tests: [/T-Kash/i, /T\s*Kash/i, /\bTelkom\b/i, /\bRef:\s*TK\d{6,}/i] },
     { provider: 'Co-operative Bank', tests: [/Co-operative Bank/i, /Co-op Bank/i, /\+254703027000/] },
     { provider: 'Equity', tests: [/Equity Bank/i, /EazzyBanking/i, /Equitel/i] },
     { provider: 'KCB', tests: [/\bKCB\b/i, /Lipa na KCB/i] },
@@ -67,7 +69,7 @@ export function extractChannel(msg: string): ChannelResult {
         method = 'savings';
     } else if (/received/i.test(msg) && /\bfrom\b/i.test(msg)) {
         method = 'p2p_in';
-    } else if (/sent to/i.test(msg)) {
+    } else if (/sent to/i.test(msg) || /you have sent\b/i.test(msg)) {
         method = 'p2p';
     }
 

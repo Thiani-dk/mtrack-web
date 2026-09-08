@@ -27,6 +27,11 @@ const RE_ISO = /(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/;
 const RE_LONGFORM =
     /(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\s+(\d{4})(?:,?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?)?/i;
 
+// Airtel transaction IDs encode the date as "PPyymmdd" — used only as a last
+// resort when the message carries no explicit date (some Airtel receive SMS
+// don't). Time is left at midnight.
+const RE_AIRTEL_ID = /\bPP(\d{2})(\d{2})(\d{2})\.\d{3,4}\.\d{4,}\b/;
+
 function normYear(y: number): number {
     return y < 100 ? 2000 + y : y;
 }
@@ -113,6 +118,18 @@ export function extractDate(msg: string): DateResult | null {
                 const minutes = m[5] ? parseInt(m[5], 10) : 0;
                 const seconds = m[6] ? parseInt(m[6], 10) : 0;
                 result = { date: new Date(year, month, day, hours, minutes, seconds), ambiguous: false };
+            }
+        }
+    }
+
+    if (!result) {
+        m = RE_AIRTEL_ID.exec(msg);
+        if (m) {
+            const year = normYear(parseInt(m[1], 10));
+            const month = parseInt(m[2], 10);
+            const day = parseInt(m[3], 10);
+            if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                result = { date: new Date(year, month - 1, day, 0, 0, 0), ambiguous: false };
             }
         }
     }

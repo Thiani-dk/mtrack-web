@@ -17,8 +17,21 @@ function buildQRDataUrl(): Promise<string> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function group(n: number): string {
+    return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
 export function fmt(n: number): string {
-    return 'Ksh ' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return 'Ksh ' + group(n);
+}
+
+// Currency-aware amount. KES / KSH keep the familiar "Ksh" prefix; any other
+// currency prints its ISO code so a mixed-currency document is never
+// ambiguous.
+export function fmtCurrency(n: number, currency: string | null | undefined): string {
+    const c = (currency ?? 'KES').toUpperCase();
+    if (c === 'KES' || c === 'KSH') return 'Ksh ' + group(n);
+    return `${c} ${group(n)}`;
 }
 
 function fmtSigned(n: number): string {
@@ -120,6 +133,13 @@ export interface ReceiptData {
     totalTransactionAmount: number;
     totalTransactionCost: number;
     grandTotal: number;
+    // Multi-currency: distinct currencies among the included transactions, and
+    // a per-currency subtotal for each. When more than one currency is
+    // present, callers must show perCurrency rather than the single
+    // grandTotal, which would be a meaningless mix.
+    distinctCurrencies: string[];
+    isMultiCurrency: boolean;
+    perCurrency: { currency: string; count: number; amount: number; cost: number; total: number }[];
 }
 
 // Round to 2dp before summing/comparing so displayed totals never drift from
@@ -196,6 +216,18 @@ export function computeReceiptData(transactions: ParsedTransaction[]): ReceiptDa
     const totalTransactionCost   = round2(activeTransactions.reduce((s, t) => s + (t.transactionCost ?? 0), 0));
     const grandTotal             = round2(totalTransactionAmount + totalTransactionCost);
 
+    // Per-currency breakdown. A document must never sum two currencies into one
+    // figure — when there is more than one, callers show these instead.
+    const currencyOf = (t: ParsedTransaction) => (t.currency || 'KES').toUpperCase();
+    const distinctCurrencies = [...new Set(activeTransactions.map(currencyOf))];
+    const perCurrency = distinctCurrencies.map(currency => {
+        const rows = activeTransactions.filter(t => currencyOf(t) === currency);
+        const amount = round2(rows.reduce((s, t) => s + Math.abs(t.amount), 0));
+        const cost = round2(rows.reduce((s, t) => s + (t.transactionCost ?? 0), 0));
+        return { currency, count: rows.length, amount, cost, total: round2(amount + cost) };
+    });
+    const isMultiCurrency = distinctCurrencies.length > 1;
+
     return {
         currentDate, currentTime, receiptRef, secCode,
         totalSent, totalReceived, personSendTotal, pochiTotal,
@@ -205,6 +237,7 @@ export function computeReceiptData(transactions: ParsedTransaction[]): ReceiptDa
         recurringPatterns,
         activeTransactions,
         totalTransactionCount, totalTransactionAmount, totalTransactionCost, grandTotal,
+        distinctCurrencies, isMultiCurrency, perCurrency,
     };
 }
 
@@ -292,26 +325,38 @@ function buildDocumentRows(transactions: ParsedTransaction[], meta: DocRenderMet
         const dateStr = tx.date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
         const name = trunc(getRecipientShort(tx), 20);
         const sign = tx.type === 'sent' ? '' : '+';
-        push({ t: 'lr', left: `${num}  ${dateStr}  ${name}`, right: `${sign}${fmt(tx.amount)}` });
+        push({ t: 'lr', left: `${num}  ${dateStr}  ${name}`, right: `${sign}${fmtCurrency(tx.amount, tx.currency)}` });
 
         if (meta.documentType === 'point_of_sale' && tx.lineItems && tx.lineItems.length > 0) {
             for (const li of tx.lineItems) {
                 const mid = li.quantity != null && li.unitPrice != null
-                    ? `${li.quantity} x ${fmt(li.unitPrice)}` : '';
-                push({ t: 'lr', left: `    ${trunc(li.description, 20)}${mid ? '  ' + mid : ''}`, right: fmt(li.amount) });
+                    ? `${li.quantity} x ${fmtCurrency(li.unitPrice, tx.currency)}` : '';
+                push({ t: 'lr', left: `    ${trunc(li.description, 20)}${mid ? '  ' + mid : ''}`, right: fmtCurrency(li.amount, tx.currency) });
             }
             const mm = lineItemMismatch(tx);
-            if (mm) push({ t: 'line', text: `    items add to ${fmt(mm.itemsTotal)}, total given ${fmt(mm.lineTotal)}`, muted: true });
+            if (mm) push({ t: 'line', text: `    items add to ${fmtCurrency(mm.itemsTotal, tx.currency)}, total given ${fmtCurrency(mm.lineTotal, tx.currency)}`, muted: true });
         }
         if (tx.transactionCode && !tx.codeIsSynthetic) push({ t: 'line', text: `    Ref ${tx.transactionCode}`, muted: true });
-        if (tx.transactionCost != null && tx.transactionCost > 0) push({ t: 'line', text: `    Fee ${fmt(tx.transactionCost)}`, muted: true });
+        if (tx.transactionCost != null && tx.transactionCost > 0) push({ t: 'line', text: `    Fee ${fmtCurrency(tx.transactionCost, tx.currency)}`, muted: true });
         if (tx.purposeLabel) push({ t: 'line', text: `    ${tx.purposeLabel}`, muted: true });
         if (lineShowsSelfReportedTag(tx, meta.documentType)) push({ t: 'line', text: '    self-reported', muted: true });
         push({ t: 'gap' });
     });
     push({ t: 'rule', ch: '=' });
 
-    if (meta.documentType === 'on_behalf_of') {
+    const totalLabel = meta.documentType === 'on_behalf_of' ? 'TOTAL DUE' : 'TOTAL';
+
+    if (d.isMultiCurrency) {
+        // Never a single combined figure — one subtotal per currency.
+        push({ t: 'gap' });
+        push({ t: 'line', text: 'Totalled separately by currency:' });
+        for (const pc of d.perCurrency) {
+            push({ t: 'lr', left: `  ${pc.currency}, ${pc.count} item${pc.count === 1 ? '' : 's'}`, right: fmtCurrency(pc.amount, pc.currency) });
+            if (pc.cost > 0) push({ t: 'lr', left: `  ${pc.currency} transaction costs`, right: fmtCurrency(pc.cost, pc.currency) });
+            push({ t: 'lr', left: `  ${totalLabel} (${pc.currency})`, right: fmtCurrency(pc.total, pc.currency), strong: true });
+        }
+        push({ t: 'rule', ch: '=' });
+    } else if (meta.documentType === 'on_behalf_of') {
         const ct = claimTotals(d);
         push({ t: 'gap' });
         push({ t: 'lr', left: `Subtotal, ${ct.itemCount} item${ct.itemCount === 1 ? '' : 's'}`, right: fmt(ct.subtotal) });
@@ -319,6 +364,18 @@ function buildDocumentRows(transactions: ParsedTransaction[], meta: DocRenderMet
         push({ t: 'rule', ch: '-' });
         push({ t: 'total', left: 'TOTAL DUE', right: fmt(ct.totalDue) });
         push({ t: 'rule', ch: '=' });
+    } else if (meta.documentType === 'point_of_sale') {
+        push({ t: 'gap' });
+        if (d.totalTransactionCost > 0) push({ t: 'lr', left: 'Transaction costs', right: fmt(d.totalTransactionCost) });
+        push({ t: 'total', left: 'TOTAL', right: fmt(d.grandTotal) });
+        push({ t: 'rule', ch: '=' });
+    } else {
+        push({ t: 'gap' });
+        push({ t: 'total', left: 'TOTAL', right: fmt(d.grandTotal) });
+        push({ t: 'rule', ch: '=' });
+    }
+
+    if (meta.documentType === 'on_behalf_of') {
         push({ t: 'gap' });
         push({ t: 'gap' });
         push({ t: 'line', text: 'Approved by  ____________________________' });
@@ -326,15 +383,7 @@ function buildDocumentRows(transactions: ParsedTransaction[], meta: DocRenderMet
         push({ t: 'line', text: 'Date         ____________________________' });
     } else if (meta.documentType === 'point_of_sale') {
         push({ t: 'gap' });
-        if (d.totalTransactionCost > 0) push({ t: 'lr', left: 'Transaction costs', right: fmt(d.totalTransactionCost) });
-        push({ t: 'total', left: 'TOTAL', right: fmt(d.grandTotal) });
-        push({ t: 'rule', ch: '=' });
-        push({ t: 'gap' });
         push({ t: 'center', text: 'Thank you. Keep this for your records.' });
-    } else {
-        push({ t: 'gap' });
-        push({ t: 'total', left: 'TOTAL', right: fmt(d.grandTotal) });
-        push({ t: 'rule', ch: '=' });
     }
 
     // M-Track's mark lives in the footer for a customer-facing receipt.
@@ -545,12 +594,20 @@ export async function generateReceiptHTML(transactions: ParsedTransaction[], met
     lines.push('');
     lines.push(center('TOTALS', W));
     lines.push(repeat('-', W));
-    lines.push(leftRight('Items sent', fmt(d.trueOutflow), W));
-    lines.push(leftRight('Items received', fmt(d.totalReceived), W));
-    lines.push(leftRight('Transaction fees', fmt(d.totalFees), W));
-    lines.push(repeat('-', W));
-    lines.push(leftRight('NET', fmtSigned(d.net), W));
-    lines.push(leftRight('TOTAL + FEES', fmt(d.trueOutflow + d.totalFees), W));
+    if (d.isMultiCurrency) {
+        lines.push(center('Mixed currencies, per-currency subtotals:', W));
+        for (const pc of d.perCurrency) {
+            lines.push(leftRight(`${pc.currency}, ${pc.count} item${pc.count === 1 ? '' : 's'}`, fmtCurrency(pc.amount, pc.currency), W));
+            if (pc.cost > 0) lines.push(leftRight(`${pc.currency} fees`, fmtCurrency(pc.cost, pc.currency), W));
+        }
+    } else {
+        lines.push(leftRight('Items sent', fmt(d.trueOutflow), W));
+        lines.push(leftRight('Items received', fmt(d.totalReceived), W));
+        lines.push(leftRight('Transaction fees', fmt(d.totalFees), W));
+        lines.push(repeat('-', W));
+        lines.push(leftRight('NET', fmtSigned(d.net), W));
+        lines.push(leftRight('TOTAL + FEES', fmt(d.trueOutflow + d.totalFees), W));
+    }
     lines.push(repeat('=', W));
 
     // ── Fee breakdown ──
@@ -570,13 +627,23 @@ export async function generateReceiptHTML(transactions: ParsedTransaction[], met
     lines.push(repeat('-', W));
     lines.push(leftRight('Transactions counted', String(d.totalTransactionCount), W));
     lines.push(repeat('-', W));
-    lines.push(leftRight('Total transaction amount', fmt(d.totalTransactionAmount), W));
-    lines.push(leftRight('Total transaction cost', fmt(d.totalTransactionCost), W));
-    lines.push(repeat('-', W));
 
-    // GRAND TOTAL breaks out of the shared <pre> so it can be the single
-    // heaviest line on the receipt — bold + accent, not just monospace text.
-    const grandTotalLine = leftRight('GRAND TOTAL', fmt(d.grandTotal), W);
+    let grandTotalLine: string;
+    if (d.isMultiCurrency) {
+        lines.push(center('Totalled separately by currency', W));
+        for (const pc of d.perCurrency) {
+            lines.push(leftRight(`${pc.currency} (x${pc.count})`, fmtCurrency(pc.total, pc.currency), W));
+        }
+        lines.push(repeat('-', W));
+        grandTotalLine = leftRight('GRAND TOTAL', 'see per-currency above', W);
+    } else {
+        lines.push(leftRight('Total transaction amount', fmt(d.totalTransactionAmount), W));
+        lines.push(leftRight('Total transaction cost', fmt(d.totalTransactionCost), W));
+        lines.push(repeat('-', W));
+        // GRAND TOTAL breaks out of the shared <pre> so it can be the single
+        // heaviest line on the receipt — bold + accent, not just monospace text.
+        grandTotalLine = leftRight('GRAND TOTAL', fmt(d.grandTotal), W);
+    }
     const bodyTextTop = lines.join('\n');
 
     const footerLines: string[] = [
@@ -834,12 +901,20 @@ export async function generateReceiptPDF(transactions: ParsedTransaction[], meta
     sp(0.5);
     line('TOTALS', 7.5, true, 'center');
     divider();
-    lr('Items sent', fmt(d.trueOutflow), 7.5);
-    lr('Items received', fmt(d.totalReceived), 7.5);
-    lr('Transaction fees', fmt(d.totalFees), 7.5);
-    divider();
-    lr('NET', fmtSigned(d.net), 8.5, true);
-    lr('TOTAL + FEES', fmt(d.trueOutflow + d.totalFees), 8.5, true);
+    if (d.isMultiCurrency) {
+        line('Mixed currencies, per-currency subtotals:', 6.5, false, 'center');
+        d.perCurrency.forEach(pc => {
+            lr(`${pc.currency}, ${pc.count} item${pc.count === 1 ? '' : 's'}`, fmtCurrency(pc.amount, pc.currency), 7.5);
+            if (pc.cost > 0) lr(`${pc.currency} fees`, fmtCurrency(pc.cost, pc.currency), 7);
+        });
+    } else {
+        lr('Items sent', fmt(d.trueOutflow), 7.5);
+        lr('Items received', fmt(d.totalReceived), 7.5);
+        lr('Transaction fees', fmt(d.totalFees), 7.5);
+        divider();
+        lr('NET', fmtSigned(d.net), 8.5, true);
+        lr('TOTAL + FEES', fmt(d.trueOutflow + d.totalFees), 8.5, true);
+    }
     divider('=');
 
     // ── Fee breakdown ──
@@ -859,11 +934,17 @@ export async function generateReceiptPDF(transactions: ParsedTransaction[], meta
     divider();
     lr('Transactions counted', String(d.totalTransactionCount), 7.5);
     divider();
-    lr('Total transaction amount', fmt(d.totalTransactionAmount), 7.5);
-    lr('Total transaction cost', fmt(d.totalTransactionCost), 7.5);
-    divider();
-    lr('GRAND TOTAL', fmt(d.grandTotal), 9.5, true);
-    divider('=');
+    if (d.isMultiCurrency) {
+        line('Totalled separately by currency', 6.5, false, 'center');
+        d.perCurrency.forEach(pc => lr(`${pc.currency} (x${pc.count})`, fmtCurrency(pc.total, pc.currency), 8, true));
+        divider('=');
+    } else {
+        lr('Total transaction amount', fmt(d.totalTransactionAmount), 7.5);
+        lr('Total transaction cost', fmt(d.totalTransactionCost), 7.5);
+        divider();
+        lr('GRAND TOTAL', fmt(d.grandTotal), 9.5, true);
+        divider('=');
+    }
 
     // ── Footer ──
     sp(0.5);
@@ -903,7 +984,10 @@ export function summariseReceiptForShare(transactions: ParsedTransaction[], meta
     const lines = [
         covering ? `${noun} · ${covering}` : noun,
     ];
-    if (meta.documentType === 'on_behalf_of') {
+    if (d.isMultiCurrency) {
+        lines.push(`${d.activeTransactions.length} item${d.activeTransactions.length !== 1 ? 's' : ''}`);
+        for (const pc of d.perCurrency) lines.push(`${fmtCurrency(pc.total, pc.currency)} (${pc.count})`);
+    } else if (meta.documentType === 'on_behalf_of') {
         const ct = claimTotals(d);
         lines.push(`${ct.itemCount} item${ct.itemCount === 1 ? '' : 's'} · ${fmt(ct.totalDue)} due`);
     } else if (meta.documentType === 'expense_summary') {

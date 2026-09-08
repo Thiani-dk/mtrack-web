@@ -22,8 +22,12 @@ export const AGGREGATE_STORE = 'aggregate';
 export const DOCUMENTS_STORE = 'documents';
 
 function migrateTransaction(t: ParsedTransaction): ParsedTransaction {
+    const legacy = t as Partial<ParsedTransaction>;
     return {
         ...t,
+        fulizaAmount: legacy.fulizaAmount ?? null,
+        reversalOf: legacy.reversalOf ?? null,
+        isReversed: legacy.isReversed ?? false,
         dataSource: 'sms_verified',
         lineItems: null,
         purposeLabel: null,

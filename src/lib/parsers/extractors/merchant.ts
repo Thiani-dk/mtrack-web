@@ -11,6 +11,11 @@ const BUSINESS_SUFFIX_RE = /\b(LTD|PLC|ENTERPRISE|T\/A|LIMITED|CO|SHOP|STORE|MAR
 const CARD_RE =
     /\bon\s+([^\n>]{2,60})>([^\n]{1,50}?)(?=\s+\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\s+\d{1,2}-[A-Za-z]{3,9}-\d{4}|\s+Avail(?:able)?\s*Bal|\s*$)/i;
 
+// Alternate card wording: "... of USD 23.2 ANTHROPIC* CLAUDE SUB>+1415... US Was Successful."
+// The merchant follows the "of <CUR> <amount>" clause with no "on" keyword.
+const CARD_ALT_RE =
+    /\bof\s+[A-Z]{3}\s+[\d,]+(?:\.\d{1,2})?\s+([^\n>]{2,60})>([^\n]{1,50}?)(?=\s+Was\s+Success|\s+Avail(?:able)?\s*Bal|\s*$)/i;
+
 // Fixed-width padded merchant descriptor: "for account PWL*Glovo                Nairobi      KE"
 // or "done at PWL*Glovo                Nairobi      KE has been approved". The
 // wide gaps are field separators (merchant / city / country), same idea as
@@ -65,7 +70,7 @@ function cleanMerchantName(raw: string): string {
 }
 
 export function extractMerchant(msg: string, recipient: string | null): MerchantResult | null {
-    const cardMatch = CARD_RE.exec(msg);
+    const cardMatch = CARD_RE.exec(msg) ?? CARD_ALT_RE.exec(msg);
     if (cardMatch) {
         const name = cleanMerchantName(cardMatch[1]);
         const location = cardMatch[2].trim().replace(/\s{2,}/g, ' ');
