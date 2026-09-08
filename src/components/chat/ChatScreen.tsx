@@ -16,7 +16,12 @@ import type { AllTimeStats } from '../../lib/aggregate/useAllTimeStats';
 import { parseAllMessages, deriveSubType, type ParseStats, type LinkEnrichment, type NearDuplicatePair, type ReversalPair } from '../../lib/parsers';
 import { scoreWithContext } from '../../lib/parsers/confidence';
 import { computeReceiptData } from '../../lib/receiptGenerator';
-import { generateDemoMessages } from '../../lib/demoData';
+import {
+    demoPartyOptions, demoErrandOptions, demoCategoryOptions, demoPlaceOptions,
+    demoAmountOptions, demoPurposeOptions, demoLoopOptions, demoPartyName,
+    buildDemoTransaction, DEMO_CATEGORIES, DEMO_PLENTY_COUNT,
+    type DemoStep, type DemoCategory, type DemoParty,
+} from '../../lib/demoFlow';
 import { generateInsights, computeDaySpan, detectRecurring, type InsightContext } from '../../lib/insights';
 import { buildParseNotices } from '../../lib/parseNotices';
 import { ChatShell } from './ChatShell';
@@ -96,12 +101,74 @@ function emptyDraft(): CaptureDraft {
     return { amount: null, currency: 'KES', recipient: null, date: null, dateAmbiguous: false, purposeLabel: null, type: 'sent' };
 }
 
+// The guided demo's ephemeral state machine — a parallel to DocFlow that only
+// ever runs in a demo session. Never persisted, never touches IndexedDB.
+interface DemoFlow {
+    step: DemoStep;
+    party: DemoParty;
+    partyName: string;
+    errandLabel: string;
+    // The category of the line currently being built. null while a custom
+    // ("Something else") category is in progress — customCategoryLabel holds
+    // its text and the place / amount questions fall to free text.
+    draftCategory: DemoCategory | null;
+    customCategoryLabel: string;
+    draftPlace: string | null;
+    txns: ParsedTransaction[];
+    // Transaction code -> the category it was filed under, for the purpose
+    // questions later (a fuel line offers different purposes than a food one).
+    txnCategory: Record<string, DemoCategory | null>;
+    // Transaction codes still waiting on a purpose label, walked one at a time.
+    purposeQueue: string[];
+    // Set to the current step while a "Something else" free-text prompt is open.
+    awaitingText: DemoStep | null;
+}
+
 function fmtShortDate(d: Date): string {
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-const DEMO_INTRO = "This is a demo run with made-up transactions, so you can see how it works before using your own.";
-const DEMO_NEXT_STEP = 'Want to do this with your real messages? Start a new summary.';
+// The claim's real covering span, drawn from the dates the user's lines landed
+// on ("21 Aug to 2 Sep"), for the demo receipt card's range label.
+function demoCoveringLabel(txns: ParsedTransaction[]): string {
+    const times = txns.map(t => t.date.getTime()).sort((a, b) => a - b);
+    if (times.length === 0) return 'sample';
+    const from = new Date(times[0]);
+    const to = new Date(times[times.length - 1]);
+    const f = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    return from.toDateString() === to.toDateString() ? f(from) : `${f(from)} to ${f(to)}`;
+}
+
+// ── Guided demo: a reimbursement claim the user co-authors, one tap at a time.
+// Every question is a tappable pick; every pick has a "Something else" escape to
+// free text, but tapping alone completes the whole run. ──
+const DEMO_OPENER =
+    "Let's build a claim for money you spent on someone else's behalf. Made-up numbers, nothing saved. You pick, I'll put it together.";
+const DEMO_PARTY_Q = 'Who are you claiming from?';
+const DEMO_ERRAND_Q = 'What was the errand?';
+const DEMO_ERRAND_ACK = 'Good. Now the spending, one line at a time.';
+const DEMO_CATEGORY_Q = 'What did you spend on?';
+const DEMO_CATEGORY_Q_AGAIN = 'What was the next one on?';
+const DEMO_PLACE_Q = 'Where?';
+const DEMO_AMOUNT_Q = 'How much?';
+const DEMO_CUSTOM_PLACE_Q = 'Where did you spend it?';
+const DEMO_CUSTOM_AMOUNT_Q = 'How much was it, in Ksh?';
+const DEMO_LOOP_Q = 'Added. Another one, or is that enough?';
+const DEMO_LOOP_Q_PLENTY = "Added. That's plenty to work with. Add more if you want, or move on.";
+const DEMO_PURPOSE_INTRO =
+    "Last part. Let's say what each line was for. An unexplained line is what gets a claim sent back.";
+const DEMO_PRE_RECEIPT = "That's everything. Here's the claim you just built.";
+const DEMO_TAP_NUDGE = 'Tap one of the options above to keep going.';
+
+// Shown when the user taps "Something else" on a given question.
+const DEMO_ELSE_PROMPTS: Record<string, string> = {
+    party: 'Who are you claiming from?',
+    errand: 'What was the errand?',
+    category: 'What did you spend on?',
+    place: 'Where was it?',
+    amount: 'How much was it, in Ksh?',
+    purpose: 'What was it for?',
+};
 
 const LEAD_INS = [
     "Here's what stood out.",
@@ -317,11 +384,6 @@ async function deliverInsights(
         await sleep(300);
         await emitBotText(`${unresolved.length - MAX_DIRECTION_QUESTIONS} more like that are marked on the document for you to set.`);
     }
-
-    if (isDemo) {
-        await sleep(400);
-        addMsg({ role: 'bot', kind: 'text', text: DEMO_NEXT_STEP });
-    }
 }
 
 export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProps) {
@@ -360,6 +422,16 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const resolved = typeof next === 'function' ? (next as (p: DocFlow | null) => DocFlow | null)(docFlowRef.current) : next;
         docFlowRef.current = resolved;
         setDocFlowState(resolved);
+    }, []);
+
+    // The guided demo flow. Same ref-plus-state-mirror shape as DocFlow: the
+    // ref is what async handlers read, the state copy drives renders.
+    const [demoFlow, setDemoFlowState] = useState<DemoFlow | null>(null);
+    const demoFlowRef = useRef<DemoFlow | null>(null);
+    const setDemoFlow = useCallback((next: DemoFlow | null | ((prev: DemoFlow | null) => DemoFlow | null)) => {
+        const resolved = typeof next === 'function' ? (next as (p: DemoFlow | null) => DemoFlow | null)(demoFlowRef.current) : next;
+        demoFlowRef.current = resolved;
+        setDemoFlowState(resolved);
     }, []);
 
     const hasInitialized = useRef(false);
@@ -462,51 +534,24 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         })();
     }, [isDemoSession, activeSession, setDocFlow, addMessage]);
 
-    // Demo bootstrap: intro line, a beat of "thinking", then the demo data
-    // auto-parses and flows through the exact same insights pipeline as a
-    // real paste. Runs once. Skip the date-range question entirely — the
-    // demo data is always the last 14 days, so a 15-day cutoff guarantees
-    // the Phase 6 range filter passes it all through rather than binning it.
+    // Demo bootstrap: open with what's about to happen, then ask the first
+    // question. Everything after this is driven by taps (see the demo handlers
+    // below). Runs once. No parsing, no IndexedDB — the whole run is ephemeral.
     useEffect(() => {
         if (!isDemoSession || demoStarted.current) return;
         demoStarted.current = true;
 
         (async () => {
-            addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_INTRO });
-            setIsProcessing(true);
-
-            const thinkingId = addDemoMessage({ role: 'bot', kind: 'thinking' });
-            try {
-                await sleep(800);
-
-                const cutoff = new Date();
-                cutoff.setDate(cutoff.getDate() - 15);
-
-                const { transactions, stats, skippedMessages: parserSkipped, linkEnrichments, nearDuplicates, reversalPairs } = parseAllMessages(generateDemoMessages());
-                const withDefaults = transactions.map(t =>
-                    t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
-                );
-                const inRange = withDefaults.filter(t => t.date >= cutoff);
-                const excludedSkipped: SkippedMessage[] = inRange
-                    .filter(t => t.excludedFromReceipt)
-                    .map(t => ({ rawText: t.rawLine, reason: 'excluded', transactionCode: t.transactionCode }));
-
-                // Demo history is fake and never persisted, so the "run a longer
-                // range" hint (which reads real past sessions) never applies here,
-                // and there's no aggregate to consult or update.
-                await deliverInsights(
-                    inRange, stats, [...parserSkipped, ...excludedSkipped], thinkingId,
-                    addDemoMessage, updateDemoMessage, true, false, null,
-                    linkEnrichments, nearDuplicates, 'expense_summary', reversalPairs
-                );
-            } catch (err) {
-                console.error('Demo bootstrap failed:', err);
-                updateDemoMessage(thinkingId, { kind: 'text', text: PROCESSING_ERROR_TEXT });
-            } finally {
-                setIsProcessing(false);
-            }
+            addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_OPENER });
+            setDemoFlow({
+                step: 'party', party: 'boss', partyName: '', errandLabel: '',
+                draftCategory: null, customCategoryLabel: '', draftPlace: null,
+                txns: [], txnCategory: {}, purposeQueue: [], awaitingText: null,
+            });
+            await sleep(600);
+            addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_PARTY_Q, options: demoPartyOptions() });
         })();
-    }, [isDemoSession, addDemoMessage, updateDemoMessage]);
+    }, [isDemoSession, addDemoMessage, setDemoFlow]);
 
     const handleSelectSession = (id: string) => {
         setIsDemoSession(false);
@@ -520,14 +565,211 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         setSidebarOpen(false);
     };
 
+    // ── Guided demo handlers ─────────────────────────────────────────────
+    // A parallel to the real document flow, running entirely on demoMessages
+    // and demoFlow — no useChatSession, no documentStore, no aggregate.
+
+    // The claim the user just built, rendered through the normal receipt path
+    // (isDemo flags every surface as sample data).
+    const emitDemoReceipt = useCallback(async (txns: ParsedTransaction[]) => {
+        await sleep(400);
+        addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_PRE_RECEIPT });
+        await sleep(500);
+        addDemoMessage({
+            role: 'bot', kind: 'receipt', transactions: txns,
+            dateRange: demoCoveringLabel(txns), isDemo: true, documentType: 'on_behalf_of',
+        });
+    }, [addDemoMessage]);
+
+    const askDemoPurpose = useCallback((code: string, txns: ParsedTransaction[], cats: Record<string, DemoCategory | null>) => {
+        const txn = txns.find(t => t.transactionCode === code);
+        if (!txn) return;
+        addDemoMessage({
+            role: 'bot', kind: 'options',
+            text: `What was the ${fmtProse(txn.amount)} at ${txn.recipient} for?`,
+            options: demoPurposeOptions(cats[code] ?? null),
+        });
+    }, [addDemoMessage]);
+
+    const applyDemoPurpose = useCallback(async (flow: DemoFlow, label: string) => {
+        const [code, ...rest] = flow.purposeQueue;
+        const txns = flow.txns.map(t => (t.transactionCode === code ? { ...t, purposeLabel: label } : t));
+        if (rest.length > 0) {
+            setDemoFlow({ ...flow, txns, purposeQueue: rest, awaitingText: null });
+            await sleep(300);
+            askDemoPurpose(rest[0], txns, flow.txnCategory);
+        } else {
+            setDemoFlow({ ...flow, txns, purposeQueue: [], awaitingText: null, step: 'done' });
+            await emitDemoReceipt(txns);
+        }
+    }, [setDemoFlow, askDemoPurpose, emitDemoReceipt]);
+
+    const startDemoPurposes = useCallback(async (flow: DemoFlow) => {
+        const queue = flow.txns.map(t => t.transactionCode);
+        setDemoFlow({ ...flow, step: 'purpose', purposeQueue: queue, awaitingText: null });
+        await sleep(400);
+        addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_PURPOSE_INTRO });
+        await sleep(500);
+        askDemoPurpose(queue[0], flow.txns, flow.txnCategory);
+    }, [setDemoFlow, addDemoMessage, askDemoPurpose]);
+
+    // Three taps (category, place, amount) become one self-reported line.
+    const addDemoLine = useCallback(async (flow: DemoFlow, amount: number) => {
+        const place = flow.draftPlace ?? 'Unknown';
+        const index = flow.txns.length;
+        const txn = buildDemoTransaction({ place, amount, index });
+        const txns = [...flow.txns, txn];
+        const txnCategory = { ...flow.txnCategory, [txn.transactionCode]: flow.draftCategory };
+        setDemoFlow({
+            ...flow, step: 'loop', txns, txnCategory,
+            draftCategory: null, customCategoryLabel: '', draftPlace: null, awaitingText: null,
+        });
+        await sleep(400);
+        const spentOn = flow.draftCategory
+            ? DEMO_CATEGORIES[flow.draftCategory].spentOn
+            : (flow.customCategoryLabel || 'this').toLowerCase();
+        addDemoMessage({
+            role: 'bot', kind: 'text',
+            text: `${fmtProse(amount)} at ${place} for ${spentOn}, ${fmtShortDate(txn.date)}.`,
+        });
+        await sleep(400);
+        addDemoMessage({
+            role: 'bot', kind: 'options',
+            text: txns.length >= DEMO_PLENTY_COUNT ? DEMO_LOOP_Q_PLENTY : DEMO_LOOP_Q,
+            options: demoLoopOptions(),
+        });
+    }, [setDemoFlow, addDemoMessage]);
+
+    const handleDemoOption = useCallback(async (messageId: string, value: string) => {
+        updateDemoMessage(messageId, { answered: true, answeredValue: value });
+        const flow = demoFlowRef.current;
+        if (!flow) return;
+
+        if (value === 'else') {
+            setDemoFlow({ ...flow, awaitingText: flow.step });
+            addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_ELSE_PROMPTS[flow.step] ?? 'Tell me more.' });
+            return;
+        }
+
+        switch (flow.step) {
+            case 'party': {
+                const party = value as DemoParty;
+                setDemoFlow({ ...flow, step: 'errand', party, partyName: demoPartyName(party) });
+                await sleep(400);
+                addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_ERRAND_Q, options: demoErrandOptions(party) });
+                break;
+            }
+            case 'errand': {
+                setDemoFlow({ ...flow, step: 'category', errandLabel: value });
+                await sleep(400);
+                addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_ERRAND_ACK });
+                await sleep(500);
+                addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_CATEGORY_Q, options: demoCategoryOptions() });
+                break;
+            }
+            case 'category': {
+                const category = value as DemoCategory;
+                setDemoFlow({ ...flow, step: 'place', draftCategory: category, customCategoryLabel: '' });
+                await sleep(400);
+                addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_PLACE_Q, options: demoPlaceOptions(category) });
+                break;
+            }
+            case 'place': {
+                if (!flow.draftCategory) break;
+                setDemoFlow({ ...flow, step: 'amount', draftPlace: value });
+                await sleep(400);
+                addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_AMOUNT_Q, options: demoAmountOptions(flow.draftCategory) });
+                break;
+            }
+            case 'amount':
+                await addDemoLine(flow, Number(value));
+                break;
+            case 'loop':
+                if (value === 'another') {
+                    setDemoFlow({ ...flow, step: 'category' });
+                    await sleep(300);
+                    addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_CATEGORY_Q_AGAIN, options: demoCategoryOptions() });
+                } else {
+                    await startDemoPurposes(flow);
+                }
+                break;
+            case 'purpose':
+                await applyDemoPurpose(flow, value);
+                break;
+        }
+    }, [updateDemoMessage, addDemoMessage, setDemoFlow, addDemoLine, startDemoPurposes, applyDemoPurpose]);
+
+    // The "Something else" free-text path. Tapping is always enough to finish
+    // the demo; this only runs when the user chose to type instead.
+    const handleDemoText = useCallback(async (text: string) => {
+        const flow = demoFlowRef.current;
+        if (!flow) return;
+        const t = text.trim();
+        const step = flow.awaitingText;
+
+        if (!step) {
+            addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_TAP_NUDGE });
+            return;
+        }
+
+        switch (step) {
+            case 'party':
+                setDemoFlow({ ...flow, step: 'errand', party: 'other', partyName: t || 'Someone', awaitingText: null });
+                await sleep(300);
+                addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_ERRAND_Q, options: demoErrandOptions('other') });
+                break;
+            case 'errand':
+                setDemoFlow({ ...flow, step: 'category', errandLabel: t || 'An errand', awaitingText: null });
+                await sleep(300);
+                addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_ERRAND_ACK });
+                await sleep(500);
+                addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_CATEGORY_Q, options: demoCategoryOptions() });
+                break;
+            case 'category':
+                setDemoFlow({ ...flow, step: 'place', draftCategory: null, customCategoryLabel: t || 'Spending', awaitingText: 'place' });
+                await sleep(300);
+                addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_CUSTOM_PLACE_Q });
+                break;
+            case 'place':
+                if (flow.draftCategory) {
+                    setDemoFlow({ ...flow, step: 'amount', draftPlace: t || 'Unknown', awaitingText: null });
+                    await sleep(300);
+                    addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_AMOUNT_Q, options: demoAmountOptions(flow.draftCategory) });
+                } else {
+                    setDemoFlow({ ...flow, step: 'amount', draftPlace: t || 'Unknown', awaitingText: 'amount' });
+                    await sleep(300);
+                    addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_CUSTOM_AMOUNT_Q });
+                }
+                break;
+            case 'amount': {
+                const m = t.replace(/[,\s]/g, '').match(/(\d+(?:\.\d{1,2})?)/);
+                if (!m) {
+                    addDemoMessage({ role: 'bot', kind: 'text', text: 'Give me a number, in Ksh.' });
+                    return;
+                }
+                await addDemoLine({ ...flow, awaitingText: null }, parseFloat(m[1]));
+                break;
+            }
+            case 'purpose':
+                await applyDemoPurpose({ ...flow, awaitingText: null }, t || 'A work errand');
+                break;
+            default:
+                addDemoMessage({ role: 'bot', kind: 'text', text: DEMO_TAP_NUDGE });
+        }
+    }, [addDemoMessage, setDemoFlow, addDemoLine, applyDemoPurpose]);
+
     // ── Phase C: mode selection + conversational capture ──────────────────
 
     const handleOptionSelect = useCallback((messageId: string, value: string) => {
-        const addMsg = isDemoSession ? addDemoMessage : addMessage;
-        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
+        if (isDemoSession) {
+            void handleDemoOption(messageId, value);
+            return;
+        }
+        const addMsg = addMessage;
+        const updateMsg = updateMessage;
         updateMsg(messageId, { answered: true, answeredValue: value });
 
-        if (!isDemoSession && activeSession?.sessionStatus === 'awaiting_input') {
+        if (activeSession?.sessionStatus === 'awaiting_input') {
             updateSessionStatus(activeSession.id, 'active');
         }
 
@@ -545,7 +787,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
             setDocFlow({ ...base, documentType: 'on_behalf_of', pending: 'party-name' });
             addMsg({ role: 'bot', kind: 'text', text: OBO_PARTY_PROMPT });
         }
-    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, activeSession, updateSessionStatus, setDocFlow]);
+    }, [isDemoSession, handleDemoOption, addMessage, updateMessage, activeSession, updateSessionStatus, setDocFlow]);
 
     // Persists (debounced) the draft TrackedDocument backing this flow. Its id
     // is the session id — one draft per session — so a resume finds it. Draft
@@ -848,6 +1090,14 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
 
         addMsg({ role: 'user', kind: 'text', text });
 
+        // The guided demo is tap-first; a typed message only ever means the
+        // user took a "Something else" free-text branch. Never parses, never
+        // persists.
+        if (isDemoSession) {
+            await handleDemoText(text);
+            return;
+        }
+
         // Route through the document flow first. A pending prompt consumes the
         // message outright; the open 'input' state falls through here so we can
         // tell a pasted message from a typed description.
@@ -904,7 +1154,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         } finally {
             setIsProcessing(false);
         }
-    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, allTimeStats, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
+    }, [isDemoSession, activeSession, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, allTimeStats, handleDemoText, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
 
     // Fired from the interactive receipt's tap-to-label UI. Updates the
     // message's own transactions in place (persisted through the normal
@@ -1057,9 +1307,17 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         syncDraft(receiptMsg?.transactions ?? flow.draftDoc?.transactions ?? []);
     }, [isDemoSession, demoMessages, activeSession, setDocFlow, syncDraft]);
 
-    const documentContext = docFlow
-        ? { documentType: docFlow.documentType, merchantProfile: docFlow.merchantProfile, onBehalfOf: docFlow.onBehalfOf }
-        : null;
+    const documentContext = isDemoSession
+        ? (demoFlow
+            ? {
+                documentType: 'on_behalf_of' as const,
+                merchantProfile: null,
+                onBehalfOf: { preparedBy: null, partyName: demoFlow.partyName || 'Someone', purpose: demoFlow.errandLabel || null },
+            }
+            : null)
+        : (docFlow
+            ? { documentType: docFlow.documentType, merchantProfile: docFlow.merchantProfile, onBehalfOf: docFlow.onBehalfOf }
+            : null);
 
     const messages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
     const title = isDemoSession ? 'Sample data' : (activeSession?.title ?? 'New Receipt');
@@ -1067,6 +1325,11 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
     // A short hint that tracks where the document flow is, so the composer
     // always says what to type next.
     const composerPlaceholder = (() => {
+        if (isDemoSession) {
+            if (demoFlow?.awaitingText === 'amount') return 'Amount in Ksh...';
+            if (demoFlow?.awaitingText) return 'Type your answer...';
+            return 'Tap an option above...';
+        }
         switch (docFlow?.pending) {
             case 'mode': return 'Tap an option above...';
             case 'business-name': return 'Business name...';
