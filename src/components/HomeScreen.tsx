@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
-import { FileText, Share2, Settings, Trash2, X, History as HistoryIcon } from 'lucide-react';
+import { FileText, Share2, X, History as HistoryIcon } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { HistoryButton } from './HistoryButton';
 import { useAllTimeStats } from '../lib/aggregate/useAllTimeStats';
@@ -64,63 +64,8 @@ function dismissReturnNote(): void {
     }
 }
 
-// ── Settings affordance ──────────────────────────────────────────────────────
-
-function SettingsMenu({ onClearData }: { onClearData: () => void }) {
-    const [open, setOpen] = useState(false);
-    const [confirming, setConfirming] = useState(false);
-
-    const handleClearTap = () => {
-        if (confirming) {
-            onClearData();
-            setConfirming(false);
-            setOpen(false);
-        } else {
-            setConfirming(true);
-        }
-    };
-
-    return (
-        <div className="relative">
-            <motion.button
-                onClick={() => { setOpen(o => !o); setConfirming(false); }}
-                aria-label="Settings"
-                className="flex items-center justify-center w-9 h-9 rounded-xl border border-[var(--border-glass)] bg-[var(--bg-elevated)] text-[var(--text-primary)]"
-                whileTap={{ scale: 0.88 }}
-            >
-                <Settings className="w-4 h-4" />
-            </motion.button>
-
-            <AnimatePresence>
-                {open && (
-                    <>
-                        <div className="fixed inset-0" style={{ zIndex: 15 }} onClick={() => setOpen(false)} />
-                        <motion.div
-                            initial={{ opacity: 0, y: 8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 8 }}
-                            className="glass-panel z-chip-row absolute top-full right-0 mt-1.5 w-56 rounded-xl overflow-hidden p-1.5"
-                        >
-                            <button
-                                onClick={handleClearTap}
-                                className="w-full flex items-center gap-2 text-left text-xs px-3 py-2.5 rounded-lg transition-colors"
-                                style={confirming
-                                    ? { background: 'rgba(239,68,68,0.12)', color: '#ef4444' }
-                                    : { color: 'var(--text-secondary)' }}
-                            >
-                                <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
-                                {confirming ? 'Tap again to clear my data' : 'Clear my data'}
-                            </button>
-                        </motion.div>
-                    </>
-                )}
-            </AnimatePresence>
-        </div>
-    );
-}
-
 export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeClick }: HomeScreenProps) {
-    const { stats, resetAll } = useAllTimeStats();
+    const { stats } = useAllTimeStats();
     // Captured once on mount rather than read fresh on every render — keeps
     // the render body pure (no direct Date.now() calls in render).
     const [now] = useState(() => Date.now());
@@ -136,7 +81,7 @@ export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeCli
     };
 
     return (
-        <div className="relative flex flex-col items-center justify-center min-h-screen overflow-hidden bg-[var(--bg-base)]">
+        <div className="relative flex flex-col min-h-screen overflow-hidden bg-[var(--bg-base)]">
 
             {/* Ambient background — accent "sun" hint, top-right */}
             <div
@@ -144,14 +89,16 @@ export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeCli
                 style={{ background: 'radial-gradient(ellipse at top right, rgba(232,133,10,0.06), transparent 60%)' }}
             />
 
-            {/* Theme toggle + settings */}
-            <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
-                <SettingsMenu onClearData={resetAll} />
+            {/* Same sticky header bar every other screen uses, rather than icons
+                floating loose over the hero copy. No back control: this is the
+                root screen. */}
+            <div className="glass-header sticky top-0 z-header h-14 flex-shrink-0 border-b border-[var(--border-glass)] flex items-center px-4">
+                <div className="flex-1" />
                 <ThemeToggle />
             </div>
 
             <motion.div
-                className="relative z-10 w-full max-w-lg px-5 space-y-8"
+                className="relative z-10 flex-1 flex flex-col justify-center w-full max-w-lg mx-auto px-5 py-8 space-y-8"
                 variants={container}
                 initial="hidden"
                 animate="show"
