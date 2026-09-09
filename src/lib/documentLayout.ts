@@ -689,19 +689,30 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null, fam: Families
         // fits — otherwise the reason wraps onto its own line(s) beneath,
         // spanning the full content width (the amount is only ever on the first
         // line, so nothing collides). Never truncated.
+        //
+        // The description wraps too: a long recipient name
+        // ("CO-OPERATIVE BANK COLLECTION ACCOUNT") is split against DESC_W and
+        // every line drawn, with the cursor advanced by the real line count.
+        // Assuming a single line here is what used to drop the Ref/fee line,
+        // the category and the next row on top of the name's second line.
         const fullW = PAGE_W - MARGIN - descX;
         const dt = applyTier(doc, fam, 'rowTitle');
-        const descW = doc.getTextWidth(l.description);
+        const descParts = doc.splitTextToSize(l.description, DESC_W) as string[];
+        // An inline reason continues from the end of the *last* description line.
+        const lastDescW = doc.getTextWidth(descParts[descParts.length - 1] ?? '');
         const inlineReason = l.reason ? ` — ${l.reason}` : '';
         applyTier(doc, fam, 'rowReason');
-        const reasonFits = !l.reason || descW + doc.getTextWidth(inlineReason) <= DESC_W;
+        const reasonFits = !l.reason || lastDescW + doc.getTextWidth(inlineReason) <= DESC_W;
 
         applyTier(doc, fam, 'rowTitle');
-        doc.text(l.description, descX, top);
-        let leftY = top + lh(dt.pt);
+        let leftY = top;
+        for (const part of descParts) {
+            doc.text(part, descX, leftY);
+            leftY += lh(dt.pt);
+        }
         if (l.reason && reasonFits) {
             applyTier(doc, fam, 'rowReason');
-            doc.text(inlineReason, descX + descW, top);
+            doc.text(inlineReason, descX + lastDescW, leftY - lh(dt.pt));
         } else if (l.reason) {
             leftY = drawWrapped(doc, fam, 'rowReason', l.reason, descX, leftY + 0.4, fullW);
         }
