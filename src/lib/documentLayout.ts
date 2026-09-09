@@ -4,7 +4,7 @@ import type { ReceiptData } from './receiptGenerator';
 import { computeReceiptData, fmt, fmtCurrency, getRecipientShort } from './receiptGenerator';
 import {
     type DocRenderMeta, formatCovering, issuedDate, baseDisclaimerLines, trustDisclaimerLine,
-    claimTotals, lineItemMismatch, sanitizeDocMeta, DOC_LINE_CAP, DOC_GROUP_THRESHOLD,
+    claimTotals, lineItemMismatch, sanitizeDocMeta,
 } from './documentRender';
 import { getUncertaintyNote, fmtTxDate } from './transactionDisplay';
 
@@ -66,9 +66,11 @@ export interface DocModel {
     heroLabel: string;
     heroAmount: string | null;
     contextLine: string;
+    // Every included transaction, always. An exported document IS the record —
+    // a "+42 more" row makes it unusable as the thing someone files or hands
+    // over. The chat card's own entrance-animation grouping is a separate,
+    // live-only concern and is untouched.
     lines: DocLine[];
-    moreCount: number;
-    moreSubtotal: string | null;
     totals: DocTotal[];
     disclaimer: string;
     signature: boolean;
@@ -184,11 +186,6 @@ export function buildDocModel(transactions: ParsedTransaction[], rawMeta: DocRen
     const covering = formatCovering(meta.coveringFrom, meta.coveringTo);
     const active = d.activeTransactions;
 
-    const groupRemainder = active.length > DOC_GROUP_THRESHOLD;
-    const shown = groupRemainder ? active.slice(0, DOC_LINE_CAP) : active;
-    const rest = groupRemainder ? active.slice(DOC_LINE_CAP) : [];
-    const restTotal = rest.reduce((s, t) => s + Math.abs(t.amount), 0);
-
     const { totals, hero, heroLabel } = buildTotals(d, meta);
 
     const disclaimerParts = [...baseDisclaimerLines(meta.documentType)];
@@ -204,9 +201,7 @@ export function buildDocModel(transactions: ParsedTransaction[], rawMeta: DocRen
         heroLabel,
         heroAmount: hero,
         contextLine: buildContextLine(meta, covering),
-        lines: shown.map(t => buildLine(t, meta)),
-        moreCount: rest.length,
-        moreSubtotal: rest.length > 0 ? fmt(restTotal) : null,
+        lines: active.map(t => buildLine(t, meta)),
         totals,
         disclaimer: `${disclaimerParts.join(' ')} Issued ${issuedDate()}.`,
         signature: meta.documentType === 'on_behalf_of',
@@ -241,10 +236,6 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
           <div>${chipHTML(l.chip)}</div>
         </div>
       </div>`).join('');
-
-    const more = m.moreCount > 0
-        ? `<div class="row"><div class="rowMain"><div class="desc">+${m.moreCount} more</div></div><div class="rowAmt"><div class="num amt">${esc(m.moreSubtotal ?? '')}</div></div></div>`
-        : '';
 
     const totals = m.totals.map(t => `
       <div class="tot ${t.strong ? 'strong' : ''}">
@@ -316,7 +307,7 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
     ${m.contextLine ? `<div class="ctx">${esc(m.contextLine)}</div>` : ''}
 
     <hr>
-    ${lines}${more}
+    ${lines}
     <hr>
 
     <div>${totals}</div>
@@ -448,14 +439,6 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null): number {
         y = drawRule(doc, y - 1.2);
     }
 
-    if (m.moreCount > 0) {
-        const top = y;
-        const leftY = drawWrapped(doc, `+${m.moreCount} more`, MARGIN, y, DESC_W, 8.5, true, INK);
-        const rightY = drawWrapped(doc, m.moreSubtotal ?? '', PAGE_W - MARGIN - AMOUNT_COL_W, top, AMOUNT_COL_W, 8.5, true, INK, 'right');
-        y = Math.max(leftY, rightY) + 1;
-        y = drawRule(doc, y);
-    }
-
     y += 2;
     for (const t of m.totals) {
         const size = t.strong ? 10 : 7.5;
@@ -523,6 +506,11 @@ export interface DrawnString {
     text: string;
     left: number;
     right: number;
+    // Baseline y in mm, and the approximate top/bottom of the glyph box, so a
+    // test can check both horizontal margins and vertical clipping.
+    y: number;
+    top: number;
+    bottom: number;
 }
 
 // Every string the PDF layout actually draws, with its measured horizontal
@@ -536,14 +524,19 @@ export function measureDrawnStrings(m: DocModel): DrawnString[] {
     doc.setFont('helvetica', 'normal');
     const drawn: DrawnString[] = [];
     const original = doc.text.bind(doc);
+    const PT_TO_MM = 0.352777;
     (doc as unknown as { text: unknown }).text = function (
         text: string | string[], x: number, y: number, opts?: { align?: string },
     ) {
+        const sizeMm = doc.getFontSize() * PT_TO_MM;
         for (const part of Array.isArray(text) ? text : [String(text)]) {
             const w = doc.getTextWidth(part);
             const align = opts?.align ?? 'left';
             const left = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
-            drawn.push({ text: part, left, right: left + w });
+            drawn.push({
+                text: part, left, right: left + w, y,
+                top: y - sizeMm * 0.75, bottom: y + sizeMm * 0.25,
+            });
         }
         return original(text, x, y, opts as Parameters<typeof original>[3]);
     };
