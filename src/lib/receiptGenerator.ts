@@ -76,6 +76,9 @@ export function categoryKeyFor(t: ParsedTransaction): string {
 export function getProviderSuffix(t: ParsedTransaction): string | null {
     if (t.method === 'card') return 'Card';
     if (t.provider === 'M-PESA' || t.provider === 'Unknown') return null;
+    // A hand-entered line has no external payment channel to name — and
+    // "Self-reported" is an internal token, never shown to a user.
+    if (t.provider === 'Self-reported') return null;
     if (t.provider === 'Co-operative Bank') return 'Co-op';
     return t.provider;
 }
@@ -244,21 +247,26 @@ export function computeReceiptData(transactions: ParsedTransaction[]): ReceiptDa
 // shared a row-model builder; both are retired so the design lives in one place
 // and the HTML and PDF can never disagree.
 
-// The Geist font data (~150 KB base64) is split into its own module and pulled
-// in only here, on the first export — so it lands in a lazy chunk instead of
-// weighing down the initial load.
-const geistFonts = () => import('./pdfFontData');
+// The embedded font data (~390 KB base64 — Source Serif 4 plus Geist for the
+// micro-labels) is split into its own module and pulled in only here, on the
+// first export, so it lands in a lazy chunk instead of weighing down the
+// initial load.
+const docFonts = () => import('./pdfFontData');
 
 export async function generateReceiptHTML(transactions: ParsedTransaction[], meta: DocRenderMeta, isDemo = false): Promise<string> {
     const model = buildDocModel(transactions, meta, isDemo);
-    const [{ GEIST_VARIABLE_WOFF2_B64 }, qr] = await Promise.all([geistFonts(), buildQRDataUrl()]);
-    return renderDocHTML(model, qr, GEIST_VARIABLE_WOFF2_B64);
+    const [{ SOURCE_SERIF_VARIABLE_WOFF2_B64, GEIST_VARIABLE_WOFF2_B64 }, qr] = await Promise.all([docFonts(), buildQRDataUrl()]);
+    return renderDocHTML(model, qr, { serifWoff2: SOURCE_SERIF_VARIABLE_WOFF2_B64, sansWoff2: GEIST_VARIABLE_WOFF2_B64 });
 }
 
 export async function generateReceiptPDF(transactions: ParsedTransaction[], meta: DocRenderMeta, isDemo = false): Promise<Blob> {
     const model = buildDocModel(transactions, meta, isDemo);
-    const [{ GEIST_REGULAR_TTF_B64, GEIST_BOLD_TTF_B64 }, qr] = await Promise.all([geistFonts(), buildQRDataUrl()]);
-    return renderDocPDF(model, qr, { regular: GEIST_REGULAR_TTF_B64, bold: GEIST_BOLD_TTF_B64 });
+    const [{ SOURCE_SERIF_REGULAR_TTF_B64, SOURCE_SERIF_SEMIBOLD_TTF_B64, GEIST_REGULAR_TTF_B64 }, qr] = await Promise.all([docFonts(), buildQRDataUrl()]);
+    return renderDocPDF(model, qr, {
+        serifRegular: SOURCE_SERIF_REGULAR_TTF_B64,
+        serifBold: SOURCE_SERIF_SEMIBOLD_TTF_B64,
+        sans: GEIST_REGULAR_TTF_B64,
+    });
 }
 
 // ── Share text ────────────────────────────────────────────────────────────────

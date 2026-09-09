@@ -2,9 +2,13 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/source-serif-4";
 
 @theme inline {
     --font-sans: 'Geist Variable', sans-serif;
+    /* Editorial serif — carries the wordmark, titles and hero figures on the
+       document surfaces (the exported PDF/HTML embed the same face). */
+    --font-serif: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
 }
 
 /* ── Design tokens ─────────────────────────────────────────────────────────── */

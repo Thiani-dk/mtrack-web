@@ -10,20 +10,23 @@ import { fmtTxDate } from './transactionDisplay';
 
 // One layout for all four document types.
 //
-// Previously expense_summary had its own renderer and the other three shared a
-// row-model builder, so the design had to be built and maintained twice. Both
-// are retired here: buildDocModel produces a single structured model and the
-// HTML and PDF renderers consume it, which is also what guarantees the numbers
-// can never drift between the two.
+// buildDocModel produces a single structured model; the HTML and PDF renderers
+// each consume it, which is what guarantees the two can never disagree on a
+// figure. There is no per-type fork below the model — the type only changes the
+// title, the meta block, the total label and a couple of words.
 //
-// The look is a fintech statement rather than a thermal receipt: sans-serif,
-// right-aligned tabular figures, and no colour used as an organising device —
-// data source is stated in plain text, not a coloured chip. There is
-// deliberately no category-composition bar or chart.
+// The look is editorial, not a fintech card: a serif (Source Serif 4, a modern
+// financial-report face) for the wordmark, the title, the section headers, the
+// body and every monetary figure; the sans (Geist) only for the small
+// tracked-caps micro-labels. Grayscale throughout — near-black text on white,
+// grays for anything secondary. No colour is used to organise or decorate:
+// data source is a plain sentence, not a coloured chip; the page has no border
+// or card frame; there is no chart.
 
-const INK = '#111827';
-const MUTED = '#6B7280';
-const RULE = '#E5E7EB';
+const INK = '#1A1A1A';
+const MUTED = '#6B6B6B';
+const FAINT = '#9A9A9A';
+const RULE = '#DCDCDC';
 const PAPER = '#FFFFFF';
 
 const DEMO_LINE = 'SAMPLE, NOT REAL DATA';
@@ -51,23 +54,44 @@ export interface DocTotal {
     strong?: boolean;
 }
 
+// A labelled field in the per-type meta block. `strong` renders the value in
+// the semibold serif (used for the reimbursement claim's party name).
+export interface DocMetaField {
+    label: string;
+    value: string;
+    strong?: boolean;
+}
+
 export interface DocModel {
-    typeLabel: string;
+    // "M-Track", or the business name for a point_of_sale receipt — the document
+    // is meant to read as the merchant's, not the app's.
+    wordmark: string;
+    // Large serif title: "REIMBURSEMENT CLAIM" / "EXPENSE SUMMARY" /
+    // "PERSONAL RECORD" / "SALES RECEIPT".
+    title: string;
     reference: string;
-    // point_of_sale puts the business name where M-Track's mark would be — the
-    // document is meant to read as the merchant's, not the app's.
-    brandName: string | null;
-    heroLabel: string;
-    heroAmount: string | null;
-    contextLine: string;
-    // One plain-text line stating where every figure came from, always shown
-    // near the top: "Source: all entries from payment messages." /
-    // "Source: all entries entered by hand." / "Source: 18 from payment
-    // messages, 4 entered by hand." No colour, no badge — the per-row tags
-    // (DocLine.sourceTag) carry the mixed case row by row.
+    // One plain-text line stating where every figure came from, shown top-right:
+    // "Source: all entries from payment messages." /
+    // "Source: all entries entered by hand." /
+    // "Source: 18 from payment messages, 4 entered by hand." No colour, no badge
+    // — the per-row tags (DocLine.sourceTag) carry the mixed case row by row.
     sourceStatement: string;
+    // The per-type meta block. `on_behalf_of` gets two fields, rendered as two
+    // columns with a thin divider between; the others get zero or one and it
+    // renders as a single line.
+    metaFields: DocMetaField[];
+    // The tracked-caps label above the hero figure: "TOTAL CLAIM" etc.
+    totalLabel: string;
+    heroAmount: string | null;
+    // Small muted line under the hero where one applies (the claim's
+    // "Includes expenses and fees"); null otherwise.
+    heroSubtitle: string | null;
+    // "4 items  ·  10 Aug – 15 Aug 2026" — count and covering span.
+    heroMeta: string;
+    // Serif section label above the itemisation: "EXPENSES" / "ITEMS".
+    sectionLabel: string;
     // Every included transaction, always. An exported document IS the record —
-    // a "+42 more" row makes it unusable as the thing someone files or hands
+    // a "+N more" row makes it unusable as the thing someone files or hands
     // over. The chat card's own entrance-animation grouping is a separate,
     // live-only concern and is untouched.
     lines: DocLine[];
@@ -76,19 +100,27 @@ export interface DocModel {
     isDemo: boolean;
 }
 
-const TYPE_LABEL: Record<DocRenderMeta['documentType'], string> = {
+const TITLE: Record<DocRenderMeta['documentType'], string> = {
     expense_summary: 'EXPENSE SUMMARY',
     personal_note: 'PERSONAL RECORD',
-    point_of_sale: 'RECEIPT',
+    point_of_sale: 'SALES RECEIPT',
     on_behalf_of: 'REIMBURSEMENT CLAIM',
 };
 
-// The hero label and the bold row in the totals block always agree.
-const HERO_LABEL: Record<DocRenderMeta['documentType'], string> = {
-    expense_summary: 'Total spent',
-    personal_note: 'Total spent',
-    point_of_sale: 'Total paid',
-    on_behalf_of: 'Total due',
+// The tracked-caps label above the hero figure and the bold row in the totals
+// block always agree — both read from here.
+const TOTAL_LABEL: Record<DocRenderMeta['documentType'], string> = {
+    expense_summary: 'TOTAL SPENT',
+    personal_note: 'TOTAL',
+    point_of_sale: 'TOTAL PAID',
+    on_behalf_of: 'TOTAL CLAIM',
+};
+
+const SECTION_LABEL: Record<DocRenderMeta['documentType'], string> = {
+    expense_summary: 'EXPENSES',
+    personal_note: 'EXPENSES',
+    point_of_sale: 'ITEMS',
+    on_behalf_of: 'EXPENSES',
 };
 
 // Display words for a transaction's source. The underlying enum values
@@ -136,24 +168,30 @@ function buildLine(t: ParsedTransaction, meta: DocRenderMeta, minoritySource: Pa
     };
 }
 
-function buildContextLine(meta: DocRenderMeta, covering: string): string {
-    const parts: string[] = [];
+function buildMetaFields(meta: DocRenderMeta, covering: string): DocMetaField[] {
     if (meta.documentType === 'on_behalf_of') {
-        parts.push(`Prepared for ${meta.onBehalfOf?.partyName ?? 'Unknown'}`);
-        if (meta.onBehalfOf?.purpose) parts.push(meta.onBehalfOf.purpose);
-    } else if (meta.documentType === 'point_of_sale') {
-        if (meta.merchantProfile?.businessName) parts.push(meta.merchantProfile.businessName);
-        if (meta.merchantProfile?.contact) parts.push(meta.merchantProfile.contact);
+        const fields: DocMetaField[] = [
+            { label: 'Prepared for', value: meta.onBehalfOf?.partyName || 'Unknown', strong: true },
+        ];
+        if (meta.onBehalfOf?.purpose) fields.push({ label: 'Purpose', value: meta.onBehalfOf.purpose });
+        else if (covering) fields.push({ label: 'Covering', value: covering });
+        return fields;
     }
-    // Always the real derived span, never a relative label, and left out
-    // entirely when there isn't one.
-    if (covering) parts.push(covering);
-    return parts.join('  ·  ');
+    if (meta.documentType === 'point_of_sale') {
+        const fields: DocMetaField[] = [];
+        if (meta.merchantProfile?.contact) fields.push({ label: 'Contact', value: meta.merchantProfile.contact });
+        if (covering) fields.push({ label: 'Date', value: covering });
+        return fields.slice(0, 1);
+    }
+    // expense_summary / personal_note: the real covering span, never a relative
+    // label, left out entirely when there isn't one. (There is no free-text
+    // note field on the meta, so personal_note carries the same covering line;
+    // the per-line reasons carry what each entry was for.)
+    return covering ? [{ label: 'Covering', value: covering }] : [];
 }
 
-function buildTotals(d: ReceiptData, meta: DocRenderMeta): { totals: DocTotal[]; hero: string | null; heroLabel: string } {
-    const heroLabel = HERO_LABEL[meta.documentType];
-    const boldLabel = heroLabel.toUpperCase();
+function buildTotals(d: ReceiptData, meta: DocRenderMeta): { totals: DocTotal[]; hero: string | null } {
+    const boldLabel = TOTAL_LABEL[meta.documentType];
 
     if (d.isMultiCurrency) {
         // Two currencies never become one figure.
@@ -163,7 +201,7 @@ function buildTotals(d: ReceiptData, meta: DocRenderMeta): { totals: DocTotal[];
             if (pc.cost > 0) totals.push({ label: `${pc.currency} fees`, value: fmtCurrency(pc.cost, pc.currency) });
             totals.push({ label: `${boldLabel} (${pc.currency})`, value: fmtCurrency(pc.total, pc.currency), strong: true });
         }
-        return { totals, hero: null, heroLabel: 'Totalled by currency' };
+        return { totals, hero: null };
     }
 
     if (meta.documentType === 'on_behalf_of') {
@@ -173,7 +211,7 @@ function buildTotals(d: ReceiptData, meta: DocRenderMeta): { totals: DocTotal[];
         ];
         if (ct.transactionCosts > 0) totals.push({ label: 'Transaction fees', value: fmt(ct.transactionCosts) });
         totals.push({ label: boldLabel, value: fmt(ct.totalDue), strong: true });
-        return { totals, hero: fmt(ct.totalDue), heroLabel };
+        return { totals, hero: fmt(ct.totalDue) };
     }
 
     const totals: DocTotal[] = [
@@ -181,7 +219,7 @@ function buildTotals(d: ReceiptData, meta: DocRenderMeta): { totals: DocTotal[];
     ];
     if (d.totalTransactionCost > 0) totals.push({ label: 'Transaction fees', value: fmt(d.totalTransactionCost) });
     totals.push({ label: boldLabel, value: fmt(d.grandTotal), strong: true });
-    return { totals, hero: fmt(d.grandTotal), heroLabel };
+    return { totals, hero: fmt(d.grandTotal) };
 }
 
 // The source statement, and (for a mixed document) which source is the
@@ -211,23 +249,34 @@ export function buildDocModel(transactions: ParsedTransaction[], rawMeta: DocRen
     const covering = formatCovering(meta.coveringFrom, meta.coveringTo);
     const active = d.activeTransactions;
 
-    const { totals, hero, heroLabel } = buildTotals(d, meta);
+    const { totals, hero } = buildTotals(d, meta);
     const { statement, minoritySource } = sourceReport(active);
 
     const disclaimerParts = [...baseDisclaimerLines(meta.documentType)];
     const trust = trustDisclaimerLine(meta.dataSource, meta.documentType);
     if (trust) disclaimerParts.push(trust);
 
+    const count = d.isMultiCurrency ? active.length : d.totalTransactionCount;
+    const heroMeta = [
+        `${count} item${count === 1 ? '' : 's'}`,
+        covering || null,
+    ].filter(Boolean).join('  ·  ');
+
     return {
-        typeLabel: TYPE_LABEL[meta.documentType],
-        reference: d.receiptRef,
-        brandName: meta.documentType === 'point_of_sale'
+        wordmark: meta.documentType === 'point_of_sale'
             ? (meta.merchantProfile?.businessName || 'Receipt')
-            : null,
-        heroLabel,
-        heroAmount: hero,
-        contextLine: buildContextLine(meta, covering),
+            : 'M-Track',
+        title: TITLE[meta.documentType],
+        reference: d.receiptRef,
         sourceStatement: statement,
+        metaFields: buildMetaFields(meta, covering),
+        totalLabel: TOTAL_LABEL[meta.documentType],
+        heroAmount: hero,
+        heroSubtitle: meta.documentType === 'on_behalf_of' && d.totalTransactionCost > 0
+            ? 'Includes expenses and fees'
+            : null,
+        heroMeta,
+        sectionLabel: SECTION_LABEL[meta.documentType],
         lines: active.map(t => buildLine(t, meta, minoritySource)),
         totals,
         disclaimer: `${disclaimerParts.join(' ')} Issued ${issuedDate()}.`,
@@ -242,102 +291,142 @@ function esc(s: string): string {
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
 
-export function renderDocHTML(m: DocModel, qrDataUrl: string, geistWoff2B64?: string): string {
-    const lines = m.lines.map(l => {
-        const meta = [l.date, l.detail, l.sourceTag].filter(Boolean).join('  ·  ');
-        // description and reason share one line via inline layout, so the
-        // reason wraps beneath the description when it runs out of room while
-        // the amount, in its own column, never moves.
+export interface DocWebFonts {
+    serifWoff2?: string;
+    sansWoff2?: string;
+}
+
+export function renderDocHTML(m: DocModel, qrDataUrl: string, fonts: DocWebFonts = {}): string {
+    const lineRows = m.lines.map(l => {
+        const sub = [l.detail, l.sourceTag].filter(Boolean).join('  ·  ');
         return `
       <div class="row">
+        <div class="rowDate">${esc(l.date)}</div>
         <div class="rowMain">
           <div class="descLine"><span class="desc">${esc(l.description)}</span>${l.reason ? `<span class="reason"> — ${esc(l.reason)}</span>` : ''}</div>
-          ${meta ? `<div class="sub">${esc(meta)}</div>` : ''}
+          ${sub ? `<div class="sub">${esc(sub)}</div>` : ''}
           ${l.items.map(i => `<div class="item"><span>${esc(i.text)}</span><span class="num">${esc(i.amount)}</span></div>`).join('')}
         </div>
-        <div class="rowAmt"><div class="num amt">${esc(l.amount)}</div></div>
+        <div class="rowAmt num">${esc(l.amount)}</div>
       </div>`;
     }).join('');
 
     const totals = m.totals.map(t => `
       <div class="tot ${t.strong ? 'strong' : ''}">
-        <span>${esc(t.label)}</span><span class="num">${esc(t.value)}</span>
+        <span class="totLabel">${esc(t.label)}</span><span class="num">${esc(t.value)}</span>
       </div>`).join('');
+
+    const twoCol = m.metaFields.length === 2;
+    const metaBlock = m.metaFields.length === 0 ? '' : `
+    <div class="meta ${twoCol ? 'metaCols' : ''}">
+      ${m.metaFields.map(f => `<div class="metaField"><div class="metaLabel">${esc(f.label)}</div><div class="metaValue ${f.strong ? 'strong' : ''}">${esc(f.value)}</div></div>`).join('')}
+    </div>`;
+
+    const serifStack = `${fonts.serifWoff2 ? "'Source Serif 4 Web'," : ''}Georgia,'Times New Roman',serif`;
+    const sansStack = `${fonts.sansWoff2 ? "'Geist Web'," : ''}-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${esc(m.brandName ?? 'M-Track')} ${esc(m.reference)}</title>
+<title>${esc(m.wordmark)} ${esc(m.reference)}</title>
 <style>
-  ${geistWoff2B64
-    ? `@font-face{font-family:'Geist';src:url(data:font/woff2;base64,${geistWoff2B64}) format('woff2');font-weight:100 900;font-style:normal;font-display:swap}`
-    : ''}
+  ${fonts.serifWoff2 ? `@font-face{font-family:'Source Serif 4 Web';src:url(data:font/woff2;base64,${fonts.serifWoff2}) format('woff2');font-weight:200 900;font-style:normal;font-display:swap}` : ''}
+  ${fonts.sansWoff2 ? `@font-face{font-family:'Geist Web';src:url(data:font/woff2;base64,${fonts.sansWoff2}) format('woff2');font-weight:100 900;font-style:normal;font-display:swap}` : ''}
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#F3F4F6;display:flex;justify-content:center;padding:32px 16px;
-    font-family:${geistWoff2B64 ? "'Geist'," : ''}-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    color:${INK};font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-  .doc{background:${PAPER};width:100%;max-width:420px;padding:26px 22px 18px;
-    border:1px solid ${RULE};border-radius:12px;
-    box-shadow:0 1px 3px rgba(0,0,0,.08),0 8px 32px rgba(0,0,0,.06)}
-  /* Everything that could be long wraps. Nothing on this document is allowed
-     to run past its container. */
-  .doc,.doc *{word-wrap:break-word;overflow-wrap:break-word;min-width:0}
-  .head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-    font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:${MUTED}}
-  .brand{font-size:15px;font-weight:700;letter-spacing:0;text-transform:none;color:${INK};margin-bottom:2px}
-  .hero{margin:18px 0 6px}
-  .heroLabel{font-size:11px;color:${MUTED};font-weight:400}
-  .heroAmt{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin-top:3px;color:${INK}}
-  .headRight{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right}
-  .headRight .src{letter-spacing:0;text-transform:none;font-size:9.5px}
-  .ctx{font-size:11px;color:${MUTED};margin-bottom:5px}
-  hr{border:0;border-top:1px solid ${RULE};margin:14px 0}
-  .row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:9px 0;
-    border-bottom:1px solid ${RULE}}
+  body{background:#EDEDED;display:flex;justify-content:center;padding:40px 16px;
+    font-family:${serifStack};color:${INK};font-size:14px;line-height:1.5;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  .page{background:${PAPER};width:100%;max-width:460px;padding:48px 44px 36px}
+  .page,.page *{word-wrap:break-word;overflow-wrap:break-word;min-width:0}
+  .num{font-variant-numeric:tabular-nums lining-nums;font-feature-settings:"tnum" 1,"lnum" 1}
+  .micro{font-family:${sansStack};font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:${MUTED}}
+
+  .head{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+  .wordmark{font-size:17px;font-weight:600;letter-spacing:.01em;color:${INK}}
+  .headRight{font-family:${sansStack};text-align:right;display:flex;flex-direction:column;gap:3px}
+  .ref{font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:${FAINT}}
+  .src{font-size:10px;color:${MUTED};max-width:210px}
+  .title{font-size:25px;font-weight:600;letter-spacing:.005em;line-height:1.15;margin-top:22px;color:${INK}}
+
+  .meta{margin-top:16px}
+  .meta.metaCols{display:grid;grid-template-columns:1fr 1fr;gap:0}
+  .meta.metaCols .metaField:last-child{padding-left:20px;border-left:1px solid ${RULE}}
+  .metaField+.metaField{margin-top:8px}
+  .metaCols .metaField+.metaField{margin-top:0}
+  .metaLabel{font-family:${sansStack};font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:${MUTED};margin-bottom:3px}
+  .metaValue{font-size:13px;color:${INK}}
+  .metaValue.strong{font-weight:600}
+
+  .rule{border:0;border-top:1px solid ${RULE};margin:22px 0}
+  .ruleTight{border:0;border-top:1px solid ${RULE};margin:10px 0}
+
+  .totalBlock{margin:22px 0}
+  .totalLabel{font-family:${sansStack};font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:${MUTED}}
+  .hero{font-size:38px;font-weight:600;letter-spacing:-.01em;line-height:1.1;margin-top:6px;color:${INK}}
+  .heroSub{font-size:12px;color:${MUTED};margin-top:5px}
+  .heroMeta{font-family:${sansStack};font-size:10.5px;color:${MUTED};margin-top:7px}
+
+  .section{font-size:14px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:${INK};margin-bottom:8px}
+  .colHead{display:flex;gap:12px;font-family:${sansStack};font-size:8.5px;letter-spacing:.11em;text-transform:uppercase;color:${FAINT};padding-bottom:6px;border-bottom:1px solid ${RULE};margin-bottom:2px}
+  .colHead .cDate{width:66px;flex-shrink:0}
+  .colHead .cD{flex:1}
+  .colHead .cAmt{flex-shrink:0;text-align:right}
+
+  .row{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid ${RULE}}
   .row:last-of-type{border-bottom:0}
+  .rowDate{font-family:${sansStack};font-size:10px;color:${MUTED};width:66px;flex-shrink:0;padding-top:2px}
   .rowMain{flex:1}
-  .rowAmt{text-align:right;flex-shrink:0}
-  /* description + reason on one line; the reason wraps beneath when long,
-     the amount column is fixed and never shifts. */
-  .descLine{font-size:13px;line-height:1.35}
+  .rowAmt{flex-shrink:0;text-align:right;font-size:13.5px;white-space:nowrap;padding-top:1px}
+  .descLine{font-size:13.5px;line-height:1.35}
   .desc{font-weight:600}
   .reason{font-weight:400}
-  .sub{font-size:10.5px;color:${MUTED};margin-top:2px}
-  .item{display:flex;justify-content:space-between;gap:10px;font-size:10.5px;color:${MUTED};margin-top:2px;padding-left:10px}
-  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
-  .amt{font-weight:600;font-size:13px;white-space:nowrap}
-  .tot{display:flex;justify-content:space-between;gap:14px;font-size:12px;color:${MUTED};padding:3px 0}
-  .tot.strong{color:${INK};font-weight:700;font-size:14px;padding-top:9px;margin-top:5px;border-top:1px solid ${RULE};
-    text-transform:uppercase;letter-spacing:.04em}
-  .disc{font-size:10px;color:${MUTED};margin-top:16px;line-height:1.5}
-  .demo{margin-top:12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:${MUTED};
-    border:1px solid ${RULE};padding:6px 10px;text-align:center}
-  .foot{margin-top:22px;padding-top:14px;border-top:1px solid ${RULE};
-    display:flex;align-items:center;gap:12px}
-  .footText{font-size:10px;color:${MUTED};line-height:1.45}
-  @media print{body{background:#fff;padding:0}.doc{box-shadow:none;max-width:none}}
+  .sub{font-family:${sansStack};font-size:10px;color:${MUTED};margin-top:3px}
+  .item{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:${MUTED};margin-top:3px;padding-left:12px}
+
+  .tot{display:flex;justify-content:space-between;gap:14px;font-size:12.5px;color:${MUTED};padding:3px 0}
+  .tot .totLabel{font-family:${serifStack};letter-spacing:0;text-transform:none;font-size:12.5px;color:${MUTED}}
+  .tot.strong{color:${INK};padding-top:10px;margin-top:6px;border-top:1px solid ${RULE}}
+  .tot.strong .totLabel{font-family:${sansStack};font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:${INK}}
+  .tot.strong .num{font-size:16px;font-weight:600}
+
+  .disc{font-family:${sansStack};font-size:9.5px;color:${MUTED};margin-top:24px;line-height:1.55}
+  .demo{margin-top:14px;font-family:${sansStack};font-size:10px;font-weight:500;letter-spacing:.18em;color:${FAINT};text-align:center}
+  .foot{margin-top:28px;padding-top:16px;border-top:1px solid ${RULE};display:flex;align-items:center;gap:12px}
+  .footText{font-family:${sansStack};font-size:9.5px;color:${MUTED};line-height:1.45}
+  @media print{body{background:#fff;padding:0}.page{max-width:none}}
 </style>
 </head>
 <body>
-  <div class="doc">
-    ${m.brandName ? `<div class="brand">${esc(m.brandName)}</div>` : ''}
+  <div class="page">
     <div class="head">
-      <span>${esc(m.typeLabel)}</span>
-      <div class="headRight"><span>${esc(m.reference)}</span><span class="src">${esc(m.sourceStatement)}</span></div>
+      <span class="wordmark">${esc(m.wordmark)}</span>
+      <span class="headRight">
+        <span class="ref">${esc(m.reference)}</span>
+        <span class="src">${esc(m.sourceStatement)}</span>
+      </span>
+    </div>
+    <div class="title">${esc(m.title)}</div>
+    ${metaBlock}
+
+    <hr class="rule">
+
+    <div class="totalBlock">
+      <div class="totalLabel">${esc(m.totalLabel)}</div>
+      ${m.heroAmount ? `<div class="hero num">${esc(m.heroAmount)}</div>` : `<div class="hero num" style="font-size:20px">Totalled by currency</div>`}
+      ${m.heroSubtitle ? `<div class="heroSub">${esc(m.heroSubtitle)}</div>` : ''}
+      <div class="heroMeta">${esc(m.heroMeta)}</div>
     </div>
 
-    <div class="hero">
-      <div class="heroLabel">${esc(m.heroLabel)}</div>
-      ${m.heroAmount ? `<div class="heroAmt num">${esc(m.heroAmount)}</div>` : ''}
-    </div>
-    ${m.contextLine ? `<div class="ctx">${esc(m.contextLine)}</div>` : ''}
+    <hr class="rule">
 
-    <hr>
-    ${lines}
-    <hr>
+    <div class="section">${esc(m.sectionLabel)}</div>
+    <div class="colHead"><span class="cDate">Date</span><span class="cD">Description</span><span class="cAmt">Amount</span></div>
+    <div class="rows">${lineRows}</div>
 
+    <hr class="ruleTight">
     <div>${totals}</div>
 
     <div class="disc">${esc(m.disclaimer)}</div>
@@ -354,19 +443,16 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string, geistWoff2B64?: st
 
 // ── PDF ──────────────────────────────────────────────────────────────────────
 
-// The document sits inside a rounded, bordered card inset from the page edge
-// with real padding to the content — matching the interactive chat card's
-// framing (rounded-xl ~= 12px, 1px hairline border) rather than starting flush
-// at the margin, which is a big part of why the card reads as a designed
-// document and the old PDF read as a text dump.
-const PAGE_W = 100;              // mm
-const FRAME_INSET = 3.4;         // page edge -> card border
-const FRAME_RADIUS = 3.2;        // the card's 12px, at a ~378px-equivalent width
-const FRAME_PAD = 4;             // card border -> content
-const MARGIN = FRAME_INSET + FRAME_PAD;   // content left / right edge
+// An editorial page: generous margins, no border, no card. Plain white.
+const PAGE_W = 112;              // mm
+const MARGIN = 11;               // generous side / top / bottom margin
 const CONTENT_W = PAGE_W - MARGIN * 2;
-const AMOUNT_COL_W = 26;         // reserved on the right, so a long name never
-const DESC_W = CONTENT_W - AMOUNT_COL_W - 3;   // reaches the amount column
+const DATE_COL_W = 15;           // the itemisation's left Date column
+const AMOUNT_COL_W = 23;         // the itemisation's right Amount column
+const COL_GAP = 3;
+// Width for the description + an inline reason. A standalone (wrapped) reason
+// is given the full width beneath the first line instead — see layout().
+const DESC_W = CONTENT_W - DATE_COL_W - AMOUNT_COL_W - COL_GAP * 2;
 const MAX_PAGE_MM = 5000;        // jsPDF's hard ceiling is ~14400 units; stay inside
 
 function hex(h: string): [number, number, number] {
@@ -379,227 +465,318 @@ const PT_TO_MM = 0.352777;
 function lh(sizePt: number): number { return sizePt * 0.42; }
 
 // Roughly how far a line of type at `sizePt` reaches above / below its baseline,
-// in mm — for stacking two differently-sized elements (a small label, then a
-// big number) without their glyph boxes colliding. jsPDF's text() advances
-// nothing on its own, and lh() only covers a same-size run.
-function ascentMm(sizePt: number): number { return sizePt * PT_TO_MM * 0.78; }
+// in mm — for stacking two differently-sized elements without their glyph boxes
+// colliding. jsPDF's text() advances nothing on its own.
+function ascentMm(sizePt: number): number { return sizePt * PT_TO_MM * 0.80; }
 function descentMm(sizePt: number): number { return sizePt * PT_TO_MM * 0.24; }
 
-// The type scale, matched to ChatReceiptVisual's tiers. Two embedded weights
-// (Geist 400 / 700); the finer gradations the card gets from 500/600 are
-// carried here by size and the INK / MUTED split, same as the card.
+// The type scale. `font` picks the family (serif for everything structural and
+// numeric, sans only for tracked micro-labels); `track` is letter-spacing in mm
+// passed straight to jsPDF's charSpace.
 const TYPE = {
-    brand:      { pt: 15,   bold: true,  color: INK },
-    header:     { pt: 7,    bold: true,  color: MUTED },
-    heroLabel:  { pt: 9,    bold: false, color: MUTED },
-    heroAmount: { pt: 24,   bold: true,  color: INK },
-    context:    { pt: 8,    bold: false, color: MUTED },
-    sourceLine: { pt: 7,    bold: false, color: MUTED },
-    rowTitle:   { pt: 9.5,  bold: true,  color: INK },
-    rowReason:  { pt: 9.5,  bold: false, color: INK },
-    rowSub:     { pt: 7,    bold: false, color: MUTED },
-    amount:     { pt: 9.5,  bold: true,  color: INK },
-    totLabel:   { pt: 8,    bold: false, color: MUTED },
-    totStrong:  { pt: 11.5, bold: true,  color: INK },
-    disclaimer: { pt: 6.5,  bold: false, color: MUTED },
-    footer:     { pt: 6.5,  bold: false, color: MUTED },
+    wordmark:   { pt: 13,   font: 'serif' as const, bold: true,  color: INK,   track: 0 },
+    title:      { pt: 17,   font: 'serif' as const, bold: true,  color: INK,   track: 0.1 },
+    ref:        { pt: 6.5,  font: 'sans'  as const, bold: false, color: FAINT, track: 0.35 },
+    source:     { pt: 7,    font: 'sans'  as const, bold: false, color: MUTED, track: 0 },
+    metaLabel:  { pt: 6,    font: 'sans'  as const, bold: false, color: MUTED, track: 0.35 },
+    metaValue:  { pt: 9,    font: 'serif' as const, bold: false, color: INK,   track: 0 },
+    metaValueStrong: { pt: 9, font: 'serif' as const, bold: true, color: INK,  track: 0 },
+    totalLabel: { pt: 7,    font: 'sans'  as const, bold: false, color: MUTED, track: 0.45 },
+    hero:       { pt: 27,   font: 'serif' as const, bold: true,  color: INK,   track: 0 },
+    heroSub:    { pt: 8,    font: 'serif' as const, bold: false, color: MUTED, track: 0 },
+    heroMeta:   { pt: 7,    font: 'sans'  as const, bold: false, color: MUTED, track: 0 },
+    section:    { pt: 10,   font: 'serif' as const, bold: true,  color: INK,   track: 0.2 },
+    colHead:    { pt: 5.6,  font: 'sans'  as const, bold: false, color: FAINT, track: 0.35 },
+    rowDate:    { pt: 7,    font: 'sans'  as const, bold: false, color: MUTED, track: 0 },
+    rowTitle:   { pt: 9.5,  font: 'serif' as const, bold: true,  color: INK,   track: 0 },
+    rowReason:  { pt: 9.5,  font: 'serif' as const, bold: false, color: INK,   track: 0 },
+    rowSub:     { pt: 6.6,  font: 'sans'  as const, bold: false, color: MUTED, track: 0 },
+    amount:     { pt: 9.5,  font: 'serif' as const, bold: false, color: INK,   track: 0 },
+    totLabel:   { pt: 8.5,  font: 'serif' as const, bold: false, color: MUTED, track: 0 },
+    totValue:   { pt: 8.5,  font: 'serif' as const, bold: false, color: MUTED, track: 0 },
+    totStrongLabel: { pt: 7, font: 'sans' as const, bold: false, color: INK,   track: 0.45 },
+    totStrongValue: { pt: 12.5, font: 'serif' as const, bold: true, color: INK, track: 0 },
+    disclaimer: { pt: 6.2,  font: 'sans'  as const, bold: false, color: MUTED, track: 0 },
+    demo:       { pt: 7,    font: 'sans'  as const, bold: false, color: FAINT, track: 0.6 },
+    footer:     { pt: 6.2,  font: 'sans'  as const, bold: false, color: MUTED, track: 0 },
 } as const;
 type Tier = keyof typeof TYPE;
 
 export interface PdfFontData {
     // base64 TrueType (glyf) instances — jsPDF 4.x parses glyf only.
-    regular: string;
-    bold: string;
+    serifRegular: string;
+    serifBold: string;
+    sans: string;
 }
 
-// Registers Geist on a jsPDF instance and returns the family to use: 'Geist' on
-// success, 'helvetica' if the embed fails for any reason. The fallback is
-// logged, never silent — this function exists so a generic-font regression is
-// observable rather than shipped quietly.
-function registerFont(doc: jsPDF, fonts: PdfFontData): string {
+interface Families { serif: string; sans: string }
+
+// Registers the embedded faces on a jsPDF instance and returns the family names
+// to use, falling back to Helvetica for either family if its embed fails for any
+// reason. The fallback is logged, never silent — this exists so a generic-font
+// regression is observable rather than shipped quietly.
+function registerFonts(doc: jsPDF, fonts: PdfFontData): Families {
+    const out: Families = { serif: 'helvetica', sans: 'helvetica' };
     try {
-        doc.addFileToVFS('Geist-Regular.ttf', fonts.regular);
+        doc.addFileToVFS('SourceSerif4-Regular.ttf', fonts.serifRegular);
+        doc.addFont('SourceSerif4-Regular.ttf', 'SourceSerif4', 'normal');
+        doc.addFileToVFS('SourceSerif4-Bold.ttf', fonts.serifBold);
+        doc.addFont('SourceSerif4-Bold.ttf', 'SourceSerif4', 'bold');
+        doc.setFont('SourceSerif4', 'normal');
+        doc.getTextWidth('0');
+        out.serif = 'SourceSerif4';
+    } catch (err) {
+        if (typeof console !== 'undefined') {
+            console.warn('PDF export: Source Serif 4 embed failed, falling back to Helvetica.', err);
+        }
+    }
+    try {
+        doc.addFileToVFS('Geist-Regular.ttf', fonts.sans);
         doc.addFont('Geist-Regular.ttf', 'Geist', 'normal');
-        doc.addFileToVFS('Geist-Bold.ttf', fonts.bold);
-        doc.addFont('Geist-Bold.ttf', 'Geist', 'bold');
         doc.setFont('Geist', 'normal');
-        doc.getTextWidth('0');   // forces the font to parse; throws here if unusable
-        return 'Geist';
+        doc.getTextWidth('0');
+        out.sans = 'Geist';
     } catch (err) {
         if (typeof console !== 'undefined') {
             console.warn('PDF export: Geist embed failed, falling back to Helvetica.', err);
         }
-        return 'helvetica';
     }
+    return out;
 }
 
-function applyTier(doc: jsPDF, family: string, tier: Tier): number {
+function applyTier(doc: jsPDF, fam: Families, tier: Tier): { pt: number; track: number } {
     const t = TYPE[tier];
     doc.setFontSize(t.pt);
-    doc.setFont(family, t.bold ? 'bold' : 'normal');
+    doc.setFont(t.font === 'serif' ? fam.serif : fam.sans, t.bold ? 'bold' : 'normal');
     doc.setTextColor(...hex(t.color));
-    return t.pt;
+    return { pt: t.pt, track: t.track };
 }
 
-// Every string the layout draws goes through here. jsPDF does not wrap — it
-// runs straight past the page edge — so splitTextToSize against the column
-// width is not optional.
+// Every string the layout draws goes through here or drawLine. jsPDF does not
+// wrap — it runs straight past the page edge — so splitTextToSize against the
+// column width is not optional.
 function drawWrapped(
-    doc: jsPDF, family: string, tier: Tier, text: string,
+    doc: jsPDF, fam: Families, tier: Tier, text: string,
     x: number, y: number, width: number, align: 'left' | 'right' = 'left',
 ): number {
     if (!text) return y;
-    const pt = applyTier(doc, family, tier);
+    const { pt, track } = applyTier(doc, fam, tier);
     for (const part of doc.splitTextToSize(text, width) as string[]) {
-        doc.text(part, align === 'right' ? x + width : x, y, { align });
+        doc.text(part, align === 'right' ? x + width : x, y, { align, charSpace: track });
         y += lh(pt);
     }
     return y;
 }
 
-function drawRule(doc: jsPDF, y: number): number {
+function drawRule(doc: jsPDF, y: number, from = MARGIN, to = PAGE_W - MARGIN): number {
     doc.setDrawColor(...hex(RULE));
     doc.setLineWidth(0.2);
-    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-    return y + 2.4;
+    doc.line(from, y, to, y);
+    return y;
 }
 
 // Run twice: once against a throwaway document to measure the height needed,
 // then for real at that exact height. Identical both times, so the measured
 // height can never disagree with what gets drawn.
-function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null, family: string): number {
-    let y = MARGIN + 3.5;
+function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null, fam: Families): number {
+    let y = MARGIN + 4;
 
-    if (m.brandName) {
-        y = drawWrapped(doc, family, 'brand', m.brandName, MARGIN, y, CONTENT_W);
-        y += 0.5;
+    // ── Header row: wordmark left (serif), reference + source right (sans).
+    //    Each side keeps to its own column and wraps within it, so a long
+    //    business name and a long mixed-source sentence never collide. ──
+    const wmColW = CONTENT_W * 0.46;
+    const rightColW = CONTENT_W * 0.50;
+    const rightX = PAGE_W - MARGIN - rightColW;
+    const wm = applyTier(doc, fam, 'wordmark');
+    let wmY = y;
+    for (const part of doc.splitTextToSize(m.wordmark, wmColW) as string[]) {
+        doc.text(part, MARGIN, wmY, { charSpace: wm.track });
+        wmY += lh(wm.pt);
+    }
+    const wmBottom = wmY - lh(wm.pt) + descentMm(wm.pt);
+    const refY = y - ascentMm(wm.pt) + ascentMm(TYPE.ref.pt);
+    applyTier(doc, fam, 'ref');
+    doc.text(m.reference, PAGE_W - MARGIN, refY, { align: 'right', charSpace: TYPE.ref.track });
+    const srcBottom = drawWrapped(doc, fam, 'source', m.sourceStatement,
+        rightX, refY + lh(TYPE.ref.pt) + 0.6, rightColW, 'right');
+    y = Math.max(wmBottom, srcBottom);
+
+    // ── Title. ──
+    y += 6;
+    const ti = applyTier(doc, fam, 'title');
+    y += ascentMm(ti.pt);
+    for (const part of doc.splitTextToSize(m.title, CONTENT_W) as string[]) {
+        doc.text(part, MARGIN, y, { charSpace: ti.track });
+        y += lh(ti.pt);
+    }
+    y += descentMm(ti.pt);
+
+    // ── Meta block. Two fields -> two columns with a thin divider. ──
+    if (m.metaFields.length > 0) {
+        y += 4;
+        if (m.metaFields.length >= 2) {
+            const colW = (CONTENT_W - 8) / 2;
+            const leftX = MARGIN;
+            const rightX = MARGIN + colW + 8;
+            const startY = y;
+            let ly = drawWrapped(doc, fam, 'metaLabel', m.metaFields[0].label.toUpperCase(), leftX, startY, colW);
+            ly = drawWrapped(doc, fam, m.metaFields[0].strong ? 'metaValueStrong' : 'metaValue', m.metaFields[0].value, leftX, ly + 1.2, colW);
+            let ry = drawWrapped(doc, fam, 'metaLabel', m.metaFields[1].label.toUpperCase(), rightX, startY, colW);
+            ry = drawWrapped(doc, fam, m.metaFields[1].strong ? 'metaValueStrong' : 'metaValue', m.metaFields[1].value, rightX, ry + 1.2, colW);
+            const bottom = Math.max(ly, ry);
+            doc.setDrawColor(...hex(RULE));
+            doc.setLineWidth(0.2);
+            doc.line(MARGIN + colW + 4, startY - ascentMm(TYPE.metaLabel.pt), MARGIN + colW + 4, bottom - lh(TYPE.metaValue.pt) + descentMm(TYPE.metaValue.pt));
+            y = bottom;
+        } else {
+            const f = m.metaFields[0];
+            const ly = drawWrapped(doc, fam, 'metaLabel', f.label.toUpperCase(), MARGIN, y, CONTENT_W);
+            y = drawWrapped(doc, fam, f.strong ? 'metaValueStrong' : 'metaValue', f.value, MARGIN, ly + 1.2, CONTENT_W);
+        }
     }
 
-    // Header row: type label left; reference then the plain-text source
-    // statement stacked top-right.
-    const headerPt = applyTier(doc, family, 'header');
-    doc.text(m.typeLabel, MARGIN, y);
-    doc.text(m.reference, PAGE_W - MARGIN, y, { align: 'right' });
-    const afterHeader = drawWrapped(doc, family, 'sourceLine', m.sourceStatement, MARGIN, y + lh(headerPt) + 0.6, CONTENT_W, 'right');
-    y = Math.max(y + descentMm(headerPt), afterHeader);
+    // ── Rule. ──
+    y += 5;
+    drawRule(doc, y);
+    y += 7;
 
-    // ── Hero block. Stacked explicitly with ascent/descent spacing so the
-    // small label and the large amount never share vertical space. ──
-    const heroLabelPt = TYPE.heroLabel.pt;
-    const heroAmountPt = TYPE.heroAmount.pt;
-
-    y += 5.5;                                    // gap under the header row
-    applyTier(doc, family, 'heroLabel');
-    doc.text(m.heroLabel, MARGIN, y);            // label baseline
-
+    // ── Total block: tracked-caps label, serif hero, subtitle, meta line. ──
+    const tl = applyTier(doc, fam, 'totalLabel');
+    doc.text(m.totalLabel, MARGIN, y, { charSpace: tl.track });
     if (m.heroAmount) {
-        y += descentMm(heroLabelPt) + ascentMm(heroAmountPt) + 1.8;
-        applyTier(doc, family, 'heroAmount');
-        doc.text(m.heroAmount, MARGIN, y);       // amount baseline
-        y += descentMm(heroAmountPt) + 3.2;
+        y += descentMm(tl.pt) + ascentMm(TYPE.hero.pt) + 2.2;
+        const h = applyTier(doc, fam, 'hero');
+        doc.text(m.heroAmount, MARGIN, y, { charSpace: h.track });
+        y += descentMm(h.pt);
     } else {
-        y += descentMm(heroLabelPt) + 3.2;
+        y += descentMm(tl.pt) + ascentMm(TYPE.heroSub.pt) + 2;
+        const h = applyTier(doc, fam, 'heroSub');
+        doc.text('Totalled by currency', MARGIN, y, { charSpace: h.track });
+        y += descentMm(TYPE.heroSub.pt);
     }
+    if (m.heroSubtitle) y = drawWrapped(doc, fam, 'heroSub', m.heroSubtitle, MARGIN, y + 3, CONTENT_W);
+    y = drawWrapped(doc, fam, 'heroMeta', m.heroMeta, MARGIN, y + 3.4, CONTENT_W);
 
-    if (m.contextLine) y = drawWrapped(doc, family, 'context', m.contextLine, MARGIN, y, CONTENT_W);
+    // ── Rule. ──
+    y += 3.5;
+    drawRule(doc, y);
+    y += 7;
 
-    y += 2.5;
-    y = drawRule(doc, y);
+    // ── Itemisation. Serif section label, then a tracked-caps column header
+    //    over a thin rule, then every line as its own row with a hairline
+    //    divider. ──
+    const sec = applyTier(doc, fam, 'section');
+    y += ascentMm(sec.pt);
+    doc.text(m.sectionLabel, MARGIN, y, { charSpace: sec.track });
+    y += descentMm(sec.pt) + 3.4;
 
+    const ch = applyTier(doc, fam, 'colHead');
+    doc.text('DATE', MARGIN, y, { charSpace: ch.track });
+    doc.text('DESCRIPTION', MARGIN + DATE_COL_W + COL_GAP, y, { charSpace: ch.track });
+    doc.text('AMOUNT', PAGE_W - MARGIN, y, { align: 'right', charSpace: ch.track });
+    y += 1.8;
+    drawRule(doc, y);
+    y += 3.6;
+
+    const descX = MARGIN + DATE_COL_W + COL_GAP;
     for (const l of m.lines) {
         const top = y;
 
+        // Date column (sans, muted), wrapping within its narrow column.
+        const dateBottom = drawWrapped(doc, fam, 'rowDate', l.date, MARGIN, top, DATE_COL_W);
+
         // Description, with the reason after an em-dash on the same line when it
-        // fits — otherwise the reason wraps onto its own line beneath, full
-        // width. Never truncated. The amount stays on the first line regardless.
-        const descPt = applyTier(doc, family, 'rowTitle');
+        // fits — otherwise the reason wraps onto its own line(s) beneath,
+        // spanning the full content width (the amount is only ever on the first
+        // line, so nothing collides). Never truncated.
+        const fullW = PAGE_W - MARGIN - descX;
+        const dt = applyTier(doc, fam, 'rowTitle');
         const descW = doc.getTextWidth(l.description);
         const inlineReason = l.reason ? ` — ${l.reason}` : '';
+        applyTier(doc, fam, 'rowReason');
         const reasonFits = !l.reason || descW + doc.getTextWidth(inlineReason) <= DESC_W;
 
-        doc.text(l.description, MARGIN, y);
-        let leftY = y + lh(descPt);
+        applyTier(doc, fam, 'rowTitle');
+        doc.text(l.description, descX, top);
+        let leftY = top + lh(dt.pt);
         if (l.reason && reasonFits) {
-            applyTier(doc, family, 'rowReason');
-            doc.text(inlineReason, MARGIN + descW, y);
+            applyTier(doc, fam, 'rowReason');
+            doc.text(inlineReason, descX + descW, top);
         } else if (l.reason) {
-            leftY = drawWrapped(doc, family, 'rowReason', l.reason, MARGIN, leftY + 0.4, DESC_W);
+            leftY = drawWrapped(doc, fam, 'rowReason', l.reason, descX, leftY + 0.4, fullW);
         }
 
-        const metaLine = [l.date, l.detail, l.sourceTag].filter(Boolean).join('  ·  ');
-        if (metaLine) leftY = drawWrapped(doc, family, 'rowSub', metaLine, MARGIN, leftY + 0.6, DESC_W);
+        const sub = [l.detail, l.sourceTag].filter(Boolean).join('  ·  ');
+        if (sub) leftY = drawWrapped(doc, fam, 'rowSub', sub, descX, leftY + 0.8, fullW);
         for (const it of l.items) {
-            leftY = drawWrapped(doc, family, 'rowSub', `${it.text}${it.amount ? '   ' + it.amount : ''}`, MARGIN + 2, leftY + 0.3, DESC_W - 2);
+            leftY = drawWrapped(doc, fam, 'rowSub', `${it.text}${it.amount ? '   ' + it.amount : ''}`, descX + 2, leftY + 0.4, fullW - 2);
         }
 
-        const rightY = drawWrapped(doc, family, 'amount', l.amount, PAGE_W - MARGIN - AMOUNT_COL_W, top, AMOUNT_COL_W, 'right');
+        const rightY = drawWrapped(doc, fam, 'amount', l.amount, PAGE_W - MARGIN - AMOUNT_COL_W, top, AMOUNT_COL_W, 'right');
 
-        y = Math.max(leftY, rightY) + 2.4;
-        y = drawRule(doc, y - 1.4);
+        y = Math.max(leftY, rightY, dateBottom) + 3;
+        drawRule(doc, y - 1.6);
     }
 
-    y += 2.5;
+    // ── Totals: subtotal + explicit fee rows, then the bold final row. ──
+    y += 3.5;
     for (const t of m.totals) {
-        const tier: Tier = t.strong ? 'totStrong' : 'totLabel';
-        if (t.strong) y += 2;
-        const pt = applyTier(doc, family, tier);
-        const valueW = doc.getTextWidth(t.value);
-        const labelParts = doc.splitTextToSize(t.label, CONTENT_W - valueW - 4) as string[];
-        doc.text(labelParts[0], MARGIN, y);
-        doc.text(t.value, PAGE_W - MARGIN, y, { align: 'right' });
-        y += lh(pt);
-        for (const extra of labelParts.slice(1)) { doc.text(extra, MARGIN, y); y += lh(pt); }
+        if (t.strong) {
+            y += 2.5;
+            drawRule(doc, y - 1.6);
+            y += 2.5;
+            const lab = applyTier(doc, fam, 'totStrongLabel');
+            y += ascentMm(TYPE.totStrongValue.pt);
+            doc.text(t.label.toUpperCase(), MARGIN, y, { charSpace: lab.track });
+            const v = applyTier(doc, fam, 'totStrongValue');
+            doc.text(t.value, PAGE_W - MARGIN, y, { align: 'right', charSpace: v.track });
+            y += descentMm(TYPE.totStrongValue.pt);
+        } else {
+            const { pt } = applyTier(doc, fam, 'totLabel');
+            const valueW = doc.getTextWidth(t.value);
+            const parts = doc.splitTextToSize(t.label, CONTENT_W - valueW - 4) as string[];
+            applyTier(doc, fam, 'totLabel');
+            doc.text(parts[0], MARGIN, y);
+            applyTier(doc, fam, 'totValue');
+            doc.text(t.value, PAGE_W - MARGIN, y, { align: 'right' });
+            y += lh(pt);
+            applyTier(doc, fam, 'totLabel');
+            for (const extra of parts.slice(1)) { doc.text(extra, MARGIN, y); y += lh(pt); }
+        }
     }
 
-    y += 4.5;
-    y = drawWrapped(doc, family, 'disclaimer', m.disclaimer, MARGIN, y, CONTENT_W);
+    // ── Disclaimer. ──
+    y += 7;
+    y = drawWrapped(doc, fam, 'disclaimer', m.disclaimer, MARGIN, y, CONTENT_W);
 
     if (m.isDemo) {
-        y += 3;
-        doc.setDrawColor(...hex(RULE));
-        doc.setLineWidth(0.25);
-        doc.rect(MARGIN, y - 3.3, CONTENT_W, 5.2, 'S');
-        doc.setFontSize(7);
-        doc.setFont(family, 'bold');
-        doc.setTextColor(...hex(MUTED));
-        doc.text(DEMO_LINE, PAGE_W / 2, y, { align: 'center' });
-        y += lh(7) + 2;
+        const dm = applyTier(doc, fam, 'demo');
+        y += 4 + ascentMm(dm.pt);
+        doc.text(DEMO_LINE, PAGE_W / 2, y, { align: 'center', charSpace: dm.track });
+        y += descentMm(dm.pt);
     }
 
-    y += 5;
-    y = drawRule(doc, y);
-    const qrSize = 14;
+    // ── Footer. ──
+    y += 8;
+    drawRule(doc, y);
+    y += 4;
+    const qrSize = 13;
     if (qrDataUrl) doc.addImage(qrDataUrl, 'PNG', MARGIN, y, qrSize, qrSize);
-    applyTier(doc, family, 'footer');
-    doc.text('Made with M-Track', MARGIN + qrSize + 4, y + 5.6);
-    doc.text('mtrack.vercel.app', MARGIN + qrSize + 4, y + 5.6 + lh(TYPE.footer.pt));
+    applyTier(doc, fam, 'footer');
+    doc.text('Made with M-Track', MARGIN + qrSize + 4, y + 5.2);
+    doc.text('mtrack.vercel.app', MARGIN + qrSize + 4, y + 5.2 + lh(TYPE.footer.pt));
     y += qrSize + 1.5;
 
     return y;
-}
-
-function drawFrame(doc: jsPDF, pageH: number): void {
-    doc.setDrawColor(...hex(RULE));
-    doc.setLineWidth(0.25);
-    doc.roundedRect(
-        FRAME_INSET, FRAME_INSET,
-        PAGE_W - FRAME_INSET * 2, pageH - FRAME_INSET * 2,
-        FRAME_RADIUS, FRAME_RADIUS, 'S',
-    );
 }
 
 export interface DrawnString {
     text: string;
     left: number;
     right: number;
-    // Baseline y in mm, plus the approximate top / bottom of the glyph box, so
-    // a test can check both margin overflow and vertical clipping / overlap.
     y: number;
     top: number;
     bottom: number;
-    // The state at draw time, so a test can check the type hierarchy is real
-    // (hero heavier/larger than a row title heavier/larger than a muted sub)
-    // rather than flat.
     sizePt: number;
     bold: boolean;
     color: string;
@@ -607,19 +784,19 @@ export interface DrawnString {
 }
 
 // Every string the PDF layout actually draws, with its measured box in mm.
-// Exists so the overflow bug that once put a disclaimer past both margins can
-// be regression-tested directly — jsPDF does not wrap, so "it looked fine" is
-// not a check. jsPDF assigns text() as an own property per instance, which is
-// why this lives next to the layout. Pass `fonts` to measure with the real
-// embedded typeface rather than Helvetica.
+// Exists so overflow / overlap / a flattened type hierarchy can be
+// regression-tested directly — jsPDF does not wrap, so "it looked fine" is not a
+// check. jsPDF assigns text() as an own property per instance, which is why
+// this lives next to the layout. Pass `fonts` to measure with the real embedded
+// typefaces rather than Helvetica.
 export function measureDrawnStrings(m: DocModel, fonts?: PdfFontData): DrawnString[] {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, 4000] });
-    const family = fonts ? registerFont(doc, fonts) : 'helvetica';
-    doc.setFont(family, 'normal');
+    const fam: Families = fonts ? registerFonts(doc, fonts) : { serif: 'helvetica', sans: 'helvetica' };
+    doc.setFont(fam.serif, 'normal');
     const drawn: DrawnString[] = [];
     const original = doc.text.bind(doc);
     (doc as unknown as { text: unknown }).text = function (
-        text: string | string[], x: number, y: number, opts?: { align?: string },
+        text: string | string[], x: number, y: number, opts?: { align?: string; charSpace?: number },
     ) {
         const sizePt = doc.getFontSize();
         const sizeMm = sizePt * PT_TO_MM;
@@ -627,7 +804,7 @@ export function measureDrawnStrings(m: DocModel, fonts?: PdfFontData): DrawnStri
         const style = String(f?.fontStyle ?? '').toLowerCase();
         const color = (() => { try { return String(doc.getTextColor()); } catch { return ''; } })();
         for (const part of Array.isArray(text) ? text : [String(text)]) {
-            const w = doc.getTextWidth(part);
+            const w = doc.getTextWidth(part) + (opts?.charSpace ?? 0) * Math.max(0, part.length - 1);
             const align = opts?.align ?? 'left';
             const left = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
             drawn.push({
@@ -639,26 +816,27 @@ export function measureDrawnStrings(m: DocModel, fonts?: PdfFontData): DrawnStri
         }
         return original(text, x, y, opts as Parameters<typeof original>[3]);
     };
-    layout(doc, m, null, family);
+    layout(doc, m, null, fam);
     return drawn;
 }
 
 export const PDF_PAGE_WIDTH_MM = PAGE_W;
 export const PDF_MARGIN_MM = MARGIN;
-export const PDF_FRAME_INSET_MM = FRAME_INSET;
 
 export function renderDocPDF(m: DocModel, qrDataUrl: string, fonts?: PdfFontData): Blob {
     // Pass 1 — measure on a tall scratch page so nothing clips while sizing.
     const scratch = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, 4000] });
-    const family = fonts ? registerFont(scratch, fonts) : 'helvetica';
-    scratch.setFont(family, 'normal');
-    const contentBottom = layout(scratch, m, null, family);
+    const fam1: Families = fonts ? registerFonts(scratch, fonts) : { serif: 'helvetica', sans: 'helvetica' };
+    scratch.setFont(fam1.serif, 'normal');
+    const contentBottom = layout(scratch, m, null, fam1);
 
-    const pageH = Math.max(120, Math.min(contentBottom + FRAME_PAD + FRAME_INSET, MAX_PAGE_MM));
+    const pageH = Math.max(120, Math.min(contentBottom + MARGIN, MAX_PAGE_MM));
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, pageH] });
-    const family2 = fonts ? registerFont(doc, fonts) : 'helvetica';
-    doc.setFont(family2, 'normal');
-    drawFrame(doc, pageH);
-    layout(doc, m, qrDataUrl, family2);
+    const fam2: Families = fonts ? registerFonts(doc, fonts) : { serif: 'helvetica', sans: 'helvetica' };
+    doc.setFont(fam2.serif, 'normal');
+    // Plain white page — no border, no card.
+    doc.setFillColor(...hex(PAPER));
+    doc.rect(0, 0, PAGE_W, pageH, 'F');
+    layout(doc, m, qrDataUrl, fam2);
     return doc.output('blob');
 }

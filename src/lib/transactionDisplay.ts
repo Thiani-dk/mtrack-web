@@ -48,6 +48,7 @@ export function fmtPercent(n: number): string {
 // (no transaction needed) as well as from providerChipLabel below.
 export function shortProviderName(provider: string): string {
     if (provider === 'Co-operative Bank') return 'Co-op';
+    if (provider === 'Self-reported') return 'Entered by hand';
     return provider; // 'M-PESA' | 'Unknown' | other bank names as-is
 }
 

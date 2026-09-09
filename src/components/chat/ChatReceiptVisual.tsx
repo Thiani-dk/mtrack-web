@@ -342,7 +342,7 @@ function CategoryList({ data, transactions }: { data: ReceiptData; transactions:
                         onClick={() => setOpen(o => (o === label ? null : label))}
                         className="w-full flex items-center justify-between gap-3 py-1.5 text-left"
                     >
-                        <span className="text-[11px] text-[var(--text-secondary)] truncate">
+                        <span className="text-[11px] text-[var(--text-secondary)]">
                             {label} <span className="text-[var(--text-muted)]">×{data.labelCounts[label]}</span>
                         </span>
                         <span className="text-[11px] font-medium tabular-nums text-[var(--text-primary)] flex-shrink-0">
@@ -362,7 +362,7 @@ function CategoryList({ data, transactions }: { data: ReceiptData; transactions:
                                         <div key={t.transactionCode} className="flex items-center justify-between gap-2 text-[11px]">
                                             <div className="min-w-0 flex-1">
                                                 <span className="text-[var(--text-secondary)]">{fmtTxDate(t)}</span>
-                                                <span className="text-[var(--text-primary)] ml-1.5 truncate">{getRecipientShort(t)}</span>
+                                                <span className="text-[var(--text-primary)] ml-1.5">{getRecipientShort(t)}</span>
                                             </div>
                                             <span className="font-medium text-[var(--text-primary)] tabular-nums flex-shrink-0">
                                                 {fmtCurrency(t.amount, t.currency)}
@@ -381,17 +381,19 @@ function CategoryList({ data, transactions }: { data: ReceiptData; transactions:
 
 // ── Main visual ──────────────────────────────────────────────────────────────
 
+// Kept in step with documentLayout.ts — the live card and the exported
+// document must not disagree on a title or a total label.
 const TYPE_LABEL: Record<DocRenderMeta['documentType'], string> = {
     expense_summary: 'EXPENSE SUMMARY',
     personal_note: 'PERSONAL RECORD',
-    point_of_sale: 'RECEIPT',
+    point_of_sale: 'SALES RECEIPT',
     on_behalf_of: 'REIMBURSEMENT CLAIM',
 };
 const HERO_LABEL: Record<DocRenderMeta['documentType'], string> = {
-    expense_summary: 'Total spent',
-    personal_note: 'Total spent',
-    point_of_sale: 'Total paid',
-    on_behalf_of: 'Total due',
+    expense_summary: 'TOTAL SPENT',
+    personal_note: 'TOTAL',
+    point_of_sale: 'TOTAL PAID',
+    on_behalf_of: 'TOTAL CLAIM',
 };
 
 export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onEditTransaction }: ChatReceiptVisualProps) {
@@ -434,38 +436,69 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
             className="rounded-xl overflow-hidden"
             style={{ background: 'var(--bg-elevated)' }}
         >
-            <div className="p-3">
-                {/* Header: document type left, reference right */}
+            <div className="p-4">
+                {/* Editorial header: serif wordmark left, reference + plain-text
+                    source statement right; then the large serif title. */}
                 <motion.div
                     variants={headerContainer}
                     initial={animateEntrance ? 'hidden' : false}
                     animate="show"
                 >
-                    {meta.documentType === 'point_of_sale' && meta.merchantProfile?.businessName && (
-                        <motion.div variants={headerItem} className="text-sm font-bold text-[var(--text-primary)] mb-1">
-                            {meta.merchantProfile.businessName}
-                        </motion.div>
-                    )}
                     <motion.div variants={headerItem} className="flex items-start justify-between gap-3">
-                        <span className="text-[9px] tracking-wider uppercase text-[var(--text-muted)] pt-0.5">{TYPE_LABEL[meta.documentType]}</span>
-                        <span className="text-right flex flex-col items-end gap-0.5">
+                        <span className="font-serif text-base font-semibold text-[var(--text-primary)] leading-tight">
+                            {meta.documentType === 'point_of_sale' && meta.merchantProfile?.businessName
+                                ? meta.merchantProfile.businessName
+                                : 'M-Track'}
+                        </span>
+                        <span className="text-right flex flex-col items-end gap-0.5 pt-0.5">
                             <span className="text-[9px] tracking-wider uppercase text-[var(--text-muted)]">{data.receiptRef}</span>
-                            <span className="text-[9px] text-[var(--text-muted)]">{sourceStatement}</span>
+                            <span className="text-[9px] text-[var(--text-muted)] max-w-[180px]">{sourceStatement}</span>
                         </span>
                     </motion.div>
+                    <motion.div variants={headerItem} className="font-serif text-lg font-semibold uppercase tracking-wide text-[var(--text-primary)] mt-3">
+                        {TYPE_LABEL[meta.documentType]}
+                    </motion.div>
+
+                    {/* Per-type meta block */}
+                    {meta.documentType === 'on_behalf_of' ? (
+                        <motion.div variants={headerItem} className="flex gap-4 mt-3">
+                            <div>
+                                <div className="text-[8px] tracking-wider uppercase text-[var(--text-muted)]">Prepared for</div>
+                                <div className="text-[11px] font-semibold text-[var(--text-primary)]">{meta.onBehalfOf?.partyName ?? 'Unknown'}</div>
+                            </div>
+                            {meta.onBehalfOf?.purpose && (
+                                <div className="pl-4 border-l border-[var(--border-glass)]">
+                                    <div className="text-[8px] tracking-wider uppercase text-[var(--text-muted)]">Purpose</div>
+                                    <div className="text-[11px] text-[var(--text-primary)]">{meta.onBehalfOf.purpose}</div>
+                                </div>
+                            )}
+                        </motion.div>
+                    ) : (
+                        [meta.documentType === 'point_of_sale' ? meta.merchantProfile?.contact ?? null : null, covering || null]
+                            .filter(Boolean).length > 0 && (
+                            <motion.div variants={headerItem} className="text-[10px] text-[var(--text-muted)] mt-2">
+                                {[
+                                    meta.documentType === 'point_of_sale' ? meta.merchantProfile?.contact ?? null : null,
+                                    covering || null,
+                                ].filter(Boolean).join('  ·  ')}
+                            </motion.div>
+                        )
+                    )}
+
+                    <div className="border-t border-[var(--border-glass)] mt-3 mb-3" />
 
                     {/* Hero: the single largest thing on the document */}
                     <motion.button
                         variants={headerItem}
                         onClick={() => setHeroReplay(k => k + 1)}
-                        className="relative w-full text-left mt-3"
+                        className="relative w-full text-left"
                         whileTap={{ scale: 0.99 }}
                     >
-                        <span className="block text-[11px] text-[var(--text-muted)]">
+                        <span className="block text-[10px] tracking-widest uppercase text-[var(--text-muted)]">
                             {data.isMultiCurrency ? 'Totalled by currency' : heroLabel}
                         </span>
                         {!data.isMultiCurrency && (
-                            <span className="block text-2xl font-bold tabular-nums leading-tight text-[var(--text-primary)]">
+                            <span className="block font-serif text-3xl font-semibold tabular-nums leading-tight text-[var(--text-primary)] mt-1">
                                 <CountUp
                                     value={heroValue}
                                     format={fmt}
@@ -478,19 +511,21 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                         )}
                     </motion.button>
 
-                    {/* One-line context row: the real covering span, never a relative label */}
+                    {claim && fees > 0 && (
+                        <motion.div variants={headerItem} className="text-[10px] text-[var(--text-muted)] mt-1">
+                            Includes expenses and fees
+                        </motion.div>
+                    )}
                     <motion.div variants={headerItem} className="text-[10px] text-[var(--text-muted)] mt-1 mb-2">
-                        {[
-                            meta.documentType === 'on_behalf_of' ? `Prepared for ${meta.onBehalfOf?.partyName ?? 'Unknown'}` : null,
-                            meta.documentType === 'on_behalf_of' ? meta.onBehalfOf?.purpose ?? null : null,
-                            meta.documentType === 'point_of_sale' ? meta.merchantProfile?.contact ?? null : null,
-                            covering || null,
-                        ].filter(Boolean).join('  ·  ')}
+                        {[`${itemCount} item${itemCount === 1 ? '' : 's'}`, covering || null].filter(Boolean).join('  ·  ')}
                     </motion.div>
                 </motion.div>
 
                 {/* Line items */}
                 <div className="mb-2 pt-1 border-t border-[var(--border-glass)]">
+                    <div className="font-serif text-sm font-semibold uppercase tracking-wide text-[var(--text-primary)] pt-1.5 pb-1">
+                        {meta.documentType === 'point_of_sale' ? 'Items' : 'Expenses'}
+                    </div>
                     {capped.map((t, i) => (
                         <TransactionRow
                             key={t.transactionCode}
@@ -567,9 +602,9 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                                     <span className="tabular-nums">{fmt(fees)}</span>
                                 </div>
                             )}
-                            <div className="flex justify-between items-center pt-2 mt-1 border-t border-[var(--border-glass)] text-sm font-bold text-[var(--text-primary)]">
-                                <span className="uppercase tracking-wide text-xs">{heroLabel}</span>
-                                <span className="tabular-nums">{fmt(heroValue)}</span>
+                            <div className="flex justify-between items-baseline pt-2 mt-1 border-t border-[var(--border-glass)] text-[var(--text-primary)]">
+                                <span className="uppercase tracking-widest text-[10px] text-[var(--text-muted)]">{heroLabel}</span>
+                                <span className="font-serif text-base font-semibold tabular-nums">{fmt(heroValue)}</span>
                             </div>
                         </>
                     )}
