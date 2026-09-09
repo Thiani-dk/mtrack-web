@@ -92,6 +92,12 @@ export function getUncertaintyNote(t: ParsedTransaction): string | null {
     return null;
 }
 
+// Prefix for an uncertainty note in the chat card's review surface, where it
+// helps the user catch an extraction error before sending the document. It is
+// deliberately NOT rendered into an exported PDF/HTML — a document handed to a
+// third party should carry no internal data-quality caveats about itself.
+export const CHECK_PREFIX = 'Check: ';
+
 export function needsCheck(t: ParsedTransaction): boolean {
     return getUncertaintyNote(t) !== null;
 }

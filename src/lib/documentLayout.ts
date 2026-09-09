@@ -6,7 +6,7 @@ import {
     type DocRenderMeta, formatCovering, issuedDate, baseDisclaimerLines, trustDisclaimerLine,
     claimTotals, lineItemMismatch, sanitizeDocMeta,
 } from './documentRender';
-import { getUncertaintyNote, fmtTxDate } from './transactionDisplay';
+import { fmtTxDate } from './transactionDisplay';
 
 // One layout for all four document types.
 //
@@ -34,10 +34,6 @@ const PAPER = '#FFFFFF';
 
 const DEMO_LINE = 'SAMPLE, NOT REAL DATA';
 
-// Prefix on any line the parser is not fully sure about. Neutral, not coloured
-// — colour on these documents means verified/self-reported and nothing else.
-export const CHECK_PREFIX = 'Check: ';
-
 export type ChipKind = 'verified' | 'self-reported';
 
 export interface DocLine {
@@ -46,7 +42,6 @@ export interface DocLine {
     sub: string;
     amount: string;
     chip: ChipKind;
-    note: string | null;
     // point_of_sale itemisation, when a line carries it
     items: { text: string; amount: string }[];
 }
@@ -66,6 +61,12 @@ export interface DocModel {
     heroLabel: string;
     heroAmount: string | null;
     contextLine: string;
+    // One line stating the document's provenance, shown near the top, when
+    // every entry shares the same source. null only when the document is
+    // genuinely mixed — that's the one case where the per-row chip earns its
+    // place, so showRowChips is true exactly then.
+    sourceSummary: string | null;
+    showRowChips: boolean;
     // Every included transaction, always. An exported document IS the record —
     // a "+42 more" row makes it unusable as the thing someone files or hands
     // over. The chat card's own entrance-animation grouping is a separate,
@@ -127,9 +128,17 @@ function buildLine(t: ParsedTransaction, meta: DocRenderMeta): DocLine {
         sub: bits.join('  ·  '),
         amount: `${t.type === 'received' ? '+' : ''}${fmtCurrency(t.amount, t.currency)}`,
         chip: chipFor(t),
-        note: (() => { const n = getUncertaintyNote(t); return n ? `${CHECK_PREFIX}${n}` : null; })(),
         items,
     };
+}
+
+// The provenance statement shown near the top of a single-source document,
+// where fifty identical per-row chips would say nothing. null for a mixed
+// document, which keeps the per-row chips instead.
+function sourceSummaryFor(dataSource: DocRenderMeta['dataSource']): string | null {
+    if (dataSource === 'self_reported') return 'All entries self-reported.';
+    if (dataSource === 'sms_verified') return 'All entries verified from payment messages.';
+    return null;
 }
 
 function buildContextLine(meta: DocRenderMeta, covering: string): string {
@@ -201,6 +210,8 @@ export function buildDocModel(transactions: ParsedTransaction[], rawMeta: DocRen
         heroLabel,
         heroAmount: hero,
         contextLine: buildContextLine(meta, covering),
+        sourceSummary: sourceSummaryFor(meta.dataSource),
+        showRowChips: meta.dataSource === 'mixed',
         lines: active.map(t => buildLine(t, meta)),
         totals,
         disclaimer: `${disclaimerParts.join(' ')} Issued ${issuedDate()}.`,
@@ -229,11 +240,10 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
           <div class="desc">${esc(l.description)}</div>
           <div class="sub">${esc(l.sub)}</div>
           ${l.items.map(i => `<div class="item"><span>${esc(i.text)}</span><span class="num">${esc(i.amount)}</span></div>`).join('')}
-          ${l.note ? `<div class="note">${esc(l.note)}</div>` : ''}
         </div>
         <div class="rowAmt">
           <div class="num amt">${esc(l.amount)}</div>
-          <div>${chipHTML(l.chip)}</div>
+          ${m.showRowChips ? `<div>${chipHTML(l.chip)}</div>` : ''}
         </div>
       </div>`).join('');
 
@@ -264,7 +274,8 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
   .hero{margin:18px 0 6px}
   .heroLabel{font-size:11px;color:${MUTED}}
   .heroAmt{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin-top:2px}
-  .ctx{font-size:11px;color:${MUTED};margin-bottom:16px}
+  .ctx{font-size:11px;color:${MUTED};margin-bottom:5px}
+  .src{font-size:11px;color:${MUTED};margin-bottom:5px}
   hr{border:0;border-top:1px solid ${RULE};margin:14px 0}
   .row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:9px 0;
     border-bottom:1px solid ${RULE}}
@@ -305,6 +316,7 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
       ${m.heroAmount ? `<div class="heroAmt num">${esc(m.heroAmount)}</div>` : ''}
     </div>
     ${m.contextLine ? `<div class="ctx">${esc(m.contextLine)}</div>` : ''}
+    ${m.sourceSummary ? `<div class="src">${esc(m.sourceSummary)}</div>` : ''}
 
     <hr>
     ${lines}
@@ -416,6 +428,7 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null): number {
     }
     y += 1.5;
     if (m.contextLine) y = drawWrapped(doc, m.contextLine, MARGIN, y, CONTENT_W, 7, false, MUTED);
+    if (m.sourceSummary) y = drawWrapped(doc, m.sourceSummary, MARGIN, y + 0.6, CONTENT_W, 7, false, MUTED);
 
     y += 2;
     y = drawRule(doc, y);
@@ -429,11 +442,11 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null): number {
         for (const it of l.items) {
             leftY = drawWrapped(doc, `${it.text}${it.amount ? '   ' + it.amount : ''}`, MARGIN + 2, leftY + 0.3, DESC_W - 2, 6.5, false, MUTED);
         }
-        if (l.note) leftY = drawWrapped(doc, l.note, MARGIN, leftY + 0.4, DESC_W, 6.5, false, MUTED);
 
-        // Amount column, right-aligned, with the status chip under it.
+        // Amount column, right-aligned. The status chip goes under it only on a
+        // mixed-source document — otherwise the one-line summary up top says it.
         let rightY = drawWrapped(doc, l.amount, PAGE_W - MARGIN - AMOUNT_COL_W, top, AMOUNT_COL_W, 8.5, true, INK, 'right');
-        rightY = drawChip(doc, l.chip, PAGE_W - MARGIN, rightY + 1.2);
+        if (m.showRowChips) rightY = drawChip(doc, l.chip, PAGE_W - MARGIN, rightY + 1.2);
 
         y = Math.max(leftY, rightY) + 2;
         y = drawRule(doc, y - 1.2);
