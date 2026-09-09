@@ -354,10 +354,19 @@ function hex(h: string): [number, number, number] {
     return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 }
 
+const PT_TO_MM = 0.352777;
+
 // Line height in mm for a given point size, with a little leading.
 function lh(size: number): number {
     return size * 0.42;
 }
+
+// Roughly how far a line of type at `sizePt` reaches above and below its
+// baseline, in mm. Used to stack differently-sized elements — a small label
+// then a big number — without their glyph boxes colliding. jsPDF's own
+// text() advances nothing, and lh() only accounts for a same-size run.
+function ascentMm(sizePt: number): number { return sizePt * PT_TO_MM * 0.78; }
+function descentMm(sizePt: number): number { return sizePt * PT_TO_MM * 0.24; }
 
 // Every string drawn to the page goes through here. jsPDF does not wrap — it
 // draws straight past the page edge — so a long disclaimer or purpose used to
@@ -413,20 +422,38 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null): number {
     }
 
     // Header row: type label left, reference right.
-    doc.setFontSize(6.5);
+    const HEADER_PT = 6.5;
+    doc.setFontSize(HEADER_PT);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...hex(MUTED));
     doc.text(m.typeLabel, MARGIN, y);
     doc.text(m.reference, PAGE_W - MARGIN, y, { align: 'right' });
-    y += lh(6.5) + 4;
+    y += descentMm(HEADER_PT);
 
-    // Hero: the largest thing on the document.
-    y = drawWrapped(doc, m.heroLabel, MARGIN, y, CONTENT_W, 7.5, false, MUTED);
+    // ── Hero block. Stacked explicitly with ascent/descent spacing so the
+    // small label and the large amount never share vertical space — that
+    // collision showed as ghosted text behind the big number. ──
+    const HERO_LABEL_PT = 8;
+    const HERO_AMOUNT_PT = 22;
+
+    y += 5;                                     // gap under the header row
+    doc.setFontSize(HERO_LABEL_PT);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...hex(MUTED));
+    doc.text(m.heroLabel, MARGIN, y);           // label baseline
+
     if (m.heroAmount) {
-        y += 1;
-        y = drawWrapped(doc, m.heroAmount, MARGIN, y, CONTENT_W, 21, true, INK);
+        // Drop far enough that the amount's ascenders clear the label's descenders.
+        y += descentMm(HERO_LABEL_PT) + ascentMm(HERO_AMOUNT_PT) + 1.6;
+        doc.setFontSize(HERO_AMOUNT_PT);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...hex(INK));
+        doc.text(m.heroAmount, MARGIN, y);      // amount baseline
+        y += descentMm(HERO_AMOUNT_PT) + 3;     // clear its descenders, then a gap
+    } else {
+        y += descentMm(HERO_LABEL_PT) + 3;
     }
-    y += 1.5;
+
     if (m.contextLine) y = drawWrapped(doc, m.contextLine, MARGIN, y, CONTENT_W, 7, false, MUTED);
     if (m.sourceSummary) y = drawWrapped(doc, m.sourceSummary, MARGIN, y + 0.6, CONTENT_W, 7, false, MUTED);
 
