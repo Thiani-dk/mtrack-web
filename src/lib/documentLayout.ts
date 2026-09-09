@@ -233,7 +233,7 @@ function chipHTML(kind: ChipKind): string {
     return `<span class="chip" style="background:${bg};color:${fg}">${kind}</span>`;
 }
 
-export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
+export function renderDocHTML(m: DocModel, qrDataUrl: string, geistWoff2B64?: string): string {
     const lines = m.lines.map(l => `
       <div class="row">
         <div class="rowMain">
@@ -259,12 +259,16 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(m.brandName ?? 'M-Track')} ${esc(m.reference)}</title>
 <style>
+  ${geistWoff2B64
+    ? `@font-face{font-family:'Geist';src:url(data:font/woff2;base64,${geistWoff2B64}) format('woff2');font-weight:100 900;font-style:normal;font-display:swap}`
+    : ''}
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#F3F4F6;display:flex;justify-content:center;padding:32px 16px;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    color:${INK};font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
-  .doc{background:${PAPER};width:100%;max-width:420px;padding:28px 24px 20px;
-    box-shadow:0 1px 3px rgba(0,0,0,.08),0 8px 32px rgba(0,0,0,.06);border-radius:6px}
+    font-family:${geistWoff2B64 ? "'Geist'," : ''}-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:${INK};font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .doc{background:${PAPER};width:100%;max-width:420px;padding:26px 22px 18px;
+    border:1px solid ${RULE};border-radius:12px;
+    box-shadow:0 1px 3px rgba(0,0,0,.08),0 8px 32px rgba(0,0,0,.06)}
   /* Everything that could be long wraps. Nothing on this document is allowed
      to run past its container. */
   .doc,.doc *{word-wrap:break-word;overflow-wrap:break-word;min-width:0}
@@ -272,8 +276,8 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
     font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:${MUTED}}
   .brand{font-size:15px;font-weight:700;letter-spacing:0;text-transform:none;color:${INK};margin-bottom:2px}
   .hero{margin:18px 0 6px}
-  .heroLabel{font-size:11px;color:${MUTED}}
-  .heroAmt{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin-top:2px}
+  .heroLabel{font-size:11px;color:${MUTED};font-weight:400}
+  .heroAmt{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin-top:3px;color:${INK}}
   .ctx{font-size:11px;color:${MUTED};margin-bottom:5px}
   .src{font-size:11px;color:${MUTED};margin-bottom:5px}
   hr{border:0;border-top:1px solid ${RULE};margin:14px 0}
@@ -303,7 +307,7 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
   .foot{margin-top:22px;padding-top:14px;border-top:1px solid ${RULE};
     display:flex;align-items:center;gap:12px}
   .footText{font-size:10px;color:${MUTED};line-height:1.45}
-  @media print{body{background:#fff;padding:0}.doc{box-shadow:none;max-width:none;border-radius:0}}
+  @media print{body{background:#fff;padding:0}.doc{box-shadow:none;max-width:none}}
 </style>
 </head>
 <body>
@@ -344,11 +348,20 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string): string {
 
 // ── PDF ──────────────────────────────────────────────────────────────────────
 
-const PAGE_W = 100;      // mm — compact and mobile-appropriate, with room for
-const MARGIN = 7;        // a right-aligned amount column
+// The document sits inside a rounded, bordered card inset from the page edge
+// with real padding to the content — matching the interactive chat card's
+// framing (rounded-xl ~= 12px, 1px hairline border) rather than starting flush
+// at the margin, which is a big part of why the card reads as a designed
+// document and the old PDF read as a text dump.
+const PAGE_W = 100;              // mm
+const FRAME_INSET = 3.4;         // page edge -> card border
+const FRAME_RADIUS = 3.2;        // the card's 12px, at a ~378px-equivalent width
+const FRAME_PAD = 4;             // card border -> content
+const MARGIN = FRAME_INSET + FRAME_PAD;   // content left / right edge
 const CONTENT_W = PAGE_W - MARGIN * 2;
-const AMOUNT_COL_W = 30; // reserved on the right, so a long name can never
-const DESC_W = CONTENT_W - AMOUNT_COL_W - 3;
+const AMOUNT_COL_W = 26;         // reserved on the right, so a long name never
+const DESC_W = CONTENT_W - AMOUNT_COL_W - 3;   // reaches the amount column
+const MAX_PAGE_MM = 5000;        // jsPDF's hard ceiling is ~14400 units; stay inside
 
 function hex(h: string): [number, number, number] {
     return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -356,33 +369,82 @@ function hex(h: string): [number, number, number] {
 
 const PT_TO_MM = 0.352777;
 
-// Line height in mm for a given point size, with a little leading.
-function lh(size: number): number {
-    return size * 0.42;
-}
+// Line height in mm for a run of type at `sizePt`.
+function lh(sizePt: number): number { return sizePt * 0.42; }
 
-// Roughly how far a line of type at `sizePt` reaches above and below its
-// baseline, in mm. Used to stack differently-sized elements — a small label
-// then a big number — without their glyph boxes colliding. jsPDF's own
-// text() advances nothing, and lh() only accounts for a same-size run.
+// Roughly how far a line of type at `sizePt` reaches above / below its baseline,
+// in mm — for stacking two differently-sized elements (a small label, then a
+// big number) without their glyph boxes colliding. jsPDF's text() advances
+// nothing on its own, and lh() only covers a same-size run.
 function ascentMm(sizePt: number): number { return sizePt * PT_TO_MM * 0.78; }
 function descentMm(sizePt: number): number { return sizePt * PT_TO_MM * 0.24; }
 
-// Every string drawn to the page goes through here. jsPDF does not wrap — it
-// draws straight past the page edge — so a long disclaimer or purpose used to
-// overflow both margins. splitTextToSize is not optional.
+// The type scale, matched to ChatReceiptVisual's tiers. Two embedded weights
+// (Geist 400 / 700); the finer gradations the card gets from 500/600 are
+// carried here by size and the INK / MUTED split, same as the card.
+const TYPE = {
+    brand:      { pt: 15,   bold: true,  color: INK },
+    header:     { pt: 7,    bold: true,  color: MUTED },
+    heroLabel:  { pt: 9,    bold: false, color: MUTED },
+    heroAmount: { pt: 24,   bold: true,  color: INK },
+    context:    { pt: 8,    bold: false, color: MUTED },
+    rowTitle:   { pt: 9.5,  bold: true,  color: INK },
+    rowSub:     { pt: 7,    bold: false, color: MUTED },
+    amount:     { pt: 9.5,  bold: true,  color: INK },
+    totLabel:   { pt: 8,    bold: false, color: MUTED },
+    totStrong:  { pt: 11.5, bold: true,  color: INK },
+    disclaimer: { pt: 6.5,  bold: false, color: MUTED },
+    footer:     { pt: 6.5,  bold: false, color: MUTED },
+} as const;
+type Tier = keyof typeof TYPE;
+
+export interface PdfFontData {
+    // base64 TrueType (glyf) instances — jsPDF 4.x parses glyf only.
+    regular: string;
+    bold: string;
+}
+
+// Registers Geist on a jsPDF instance and returns the family to use: 'Geist' on
+// success, 'helvetica' if the embed fails for any reason. The fallback is
+// logged, never silent — this function exists so a generic-font regression is
+// observable rather than shipped quietly.
+function registerFont(doc: jsPDF, fonts: PdfFontData): string {
+    try {
+        doc.addFileToVFS('Geist-Regular.ttf', fonts.regular);
+        doc.addFont('Geist-Regular.ttf', 'Geist', 'normal');
+        doc.addFileToVFS('Geist-Bold.ttf', fonts.bold);
+        doc.addFont('Geist-Bold.ttf', 'Geist', 'bold');
+        doc.setFont('Geist', 'normal');
+        doc.getTextWidth('0');   // forces the font to parse; throws here if unusable
+        return 'Geist';
+    } catch (err) {
+        if (typeof console !== 'undefined') {
+            console.warn('PDF export: Geist embed failed, falling back to Helvetica.', err);
+        }
+        return 'helvetica';
+    }
+}
+
+function applyTier(doc: jsPDF, family: string, tier: Tier): number {
+    const t = TYPE[tier];
+    doc.setFontSize(t.pt);
+    doc.setFont(family, t.bold ? 'bold' : 'normal');
+    doc.setTextColor(...hex(t.color));
+    return t.pt;
+}
+
+// Every string the layout draws goes through here. jsPDF does not wrap — it
+// runs straight past the page edge — so splitTextToSize against the column
+// width is not optional.
 function drawWrapped(
-    doc: jsPDF, text: string, x: number, y: number, width: number,
-    size: number, bold: boolean, color: string, align: 'left' | 'right' = 'left',
+    doc: jsPDF, family: string, tier: Tier, text: string,
+    x: number, y: number, width: number, align: 'left' | 'right' = 'left',
 ): number {
     if (!text) return y;
-    doc.setFontSize(size);
-    doc.setFont('helvetica', bold ? 'bold' : 'normal');
-    doc.setTextColor(...hex(color));
-    const parts = doc.splitTextToSize(text, width) as string[];
-    for (const part of parts) {
+    const pt = applyTier(doc, family, tier);
+    for (const part of doc.splitTextToSize(text, width) as string[]) {
         doc.text(part, align === 'right' ? x + width : x, y, { align });
-        y += lh(size);
+        y += lh(pt);
     }
     return y;
 }
@@ -394,15 +456,14 @@ function drawRule(doc: jsPDF, y: number): number {
     return y + 2.4;
 }
 
-function drawChip(doc: jsPDF, kind: ChipKind, rightEdge: number, y: number): number {
+function drawChip(doc: jsPDF, family: string, kind: ChipKind, rightEdge: number, y: number): number {
     const bg = kind === 'verified' ? CHIP_VERIFIED_BG : CHIP_SELF_BG;
     const fg = kind === 'verified' ? CHIP_VERIFIED_TEXT : CHIP_SELF_TEXT;
     const size = 5.5;
     doc.setFontSize(size);
-    doc.setFont('helvetica', 'bold');
-    const textW = doc.getTextWidth(kind);
+    doc.setFont(family, 'bold');
     const padX = 1.4, boxH = 2.9;
-    const boxW = textW + padX * 2;
+    const boxW = doc.getTextWidth(kind) + padX * 2;
     doc.setFillColor(...hex(bg));
     doc.roundedRect(rightEdge - boxW, y - boxH + 0.7, boxW, boxH, 1.2, 1.2, 'F');
     doc.setTextColor(...hex(fg));
@@ -410,165 +471,165 @@ function drawChip(doc: jsPDF, kind: ChipKind, rightEdge: number, y: number): num
     return y + lh(size);
 }
 
-// The layout is run twice: once against a throwaway document purely to measure
-// the height it needs, then again for real at that exact height. Same code both
-// times, so the measured height can never disagree with what gets drawn.
-function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null): number {
-    let y = 11;
+// Run twice: once against a throwaway document to measure the height needed,
+// then for real at that exact height. Identical both times, so the measured
+// height can never disagree with what gets drawn.
+function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null, family: string): number {
+    let y = MARGIN + 3.5;
 
     if (m.brandName) {
-        y = drawWrapped(doc, m.brandName, MARGIN, y, CONTENT_W, 13, true, INK);
+        y = drawWrapped(doc, family, 'brand', m.brandName, MARGIN, y, CONTENT_W);
         y += 0.5;
     }
 
     // Header row: type label left, reference right.
-    const HEADER_PT = 6.5;
-    doc.setFontSize(HEADER_PT);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...hex(MUTED));
+    const headerPt = applyTier(doc, family, 'header');
     doc.text(m.typeLabel, MARGIN, y);
     doc.text(m.reference, PAGE_W - MARGIN, y, { align: 'right' });
-    y += descentMm(HEADER_PT);
+    y += descentMm(headerPt);
 
     // ── Hero block. Stacked explicitly with ascent/descent spacing so the
-    // small label and the large amount never share vertical space — that
-    // collision showed as ghosted text behind the big number. ──
-    const HERO_LABEL_PT = 8;
-    const HERO_AMOUNT_PT = 22;
+    // small label and the large amount never share vertical space. ──
+    const heroLabelPt = TYPE.heroLabel.pt;
+    const heroAmountPt = TYPE.heroAmount.pt;
 
-    y += 5;                                     // gap under the header row
-    doc.setFontSize(HERO_LABEL_PT);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...hex(MUTED));
-    doc.text(m.heroLabel, MARGIN, y);           // label baseline
+    y += 5.5;                                    // gap under the header row
+    applyTier(doc, family, 'heroLabel');
+    doc.text(m.heroLabel, MARGIN, y);            // label baseline
 
     if (m.heroAmount) {
-        // Drop far enough that the amount's ascenders clear the label's descenders.
-        y += descentMm(HERO_LABEL_PT) + ascentMm(HERO_AMOUNT_PT) + 1.6;
-        doc.setFontSize(HERO_AMOUNT_PT);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(...hex(INK));
-        doc.text(m.heroAmount, MARGIN, y);      // amount baseline
-        y += descentMm(HERO_AMOUNT_PT) + 3;     // clear its descenders, then a gap
+        y += descentMm(heroLabelPt) + ascentMm(heroAmountPt) + 1.8;
+        applyTier(doc, family, 'heroAmount');
+        doc.text(m.heroAmount, MARGIN, y);       // amount baseline
+        y += descentMm(heroAmountPt) + 3.2;
     } else {
-        y += descentMm(HERO_LABEL_PT) + 3;
+        y += descentMm(heroLabelPt) + 3.2;
     }
 
-    if (m.contextLine) y = drawWrapped(doc, m.contextLine, MARGIN, y, CONTENT_W, 7, false, MUTED);
-    if (m.sourceSummary) y = drawWrapped(doc, m.sourceSummary, MARGIN, y + 0.6, CONTENT_W, 7, false, MUTED);
+    if (m.contextLine) y = drawWrapped(doc, family, 'context', m.contextLine, MARGIN, y, CONTENT_W);
+    if (m.sourceSummary) y = drawWrapped(doc, family, 'context', m.sourceSummary, MARGIN, y + 0.6, CONTENT_W);
 
-    y += 2;
+    y += 2.5;
     y = drawRule(doc, y);
 
     for (const l of m.lines) {
         const top = y;
-        // Description column, wrapped inside its own width so it can never
-        // reach the amount column.
-        let leftY = drawWrapped(doc, l.description, MARGIN, y, DESC_W, 8.5, true, INK);
-        if (l.sub) leftY = drawWrapped(doc, l.sub, MARGIN, leftY + 0.4, DESC_W, 6.5, false, MUTED);
+        let leftY = drawWrapped(doc, family, 'rowTitle', l.description, MARGIN, y, DESC_W);
+        if (l.sub) leftY = drawWrapped(doc, family, 'rowSub', l.sub, MARGIN, leftY + 0.6, DESC_W);
         for (const it of l.items) {
-            leftY = drawWrapped(doc, `${it.text}${it.amount ? '   ' + it.amount : ''}`, MARGIN + 2, leftY + 0.3, DESC_W - 2, 6.5, false, MUTED);
+            leftY = drawWrapped(doc, family, 'rowSub', `${it.text}${it.amount ? '   ' + it.amount : ''}`, MARGIN + 2, leftY + 0.3, DESC_W - 2);
         }
 
-        // Amount column, right-aligned. The status chip goes under it only on a
-        // mixed-source document — otherwise the one-line summary up top says it.
-        let rightY = drawWrapped(doc, l.amount, PAGE_W - MARGIN - AMOUNT_COL_W, top, AMOUNT_COL_W, 8.5, true, INK, 'right');
-        if (m.showRowChips) rightY = drawChip(doc, l.chip, PAGE_W - MARGIN, rightY + 1.2);
+        let rightY = drawWrapped(doc, family, 'amount', l.amount, PAGE_W - MARGIN - AMOUNT_COL_W, top, AMOUNT_COL_W, 'right');
+        // The status chip only on a mixed-source document; otherwise the
+        // one-line summary near the top has already said it.
+        if (m.showRowChips) rightY = drawChip(doc, family, l.chip, PAGE_W - MARGIN, rightY + 1.4);
 
-        y = Math.max(leftY, rightY) + 2;
-        y = drawRule(doc, y - 1.2);
+        y = Math.max(leftY, rightY) + 2.4;
+        y = drawRule(doc, y - 1.4);
     }
 
-    y += 2;
+    y += 2.5;
     for (const t of m.totals) {
-        const size = t.strong ? 10 : 7.5;
-        if (t.strong) y += 1.5;
-        doc.setFontSize(size);
-        doc.setFont('helvetica', t.strong ? 'bold' : 'normal');
-        doc.setTextColor(...hex(t.strong ? INK : MUTED));
-        // The label is wrapped against the space left over by the value.
+        const tier: Tier = t.strong ? 'totStrong' : 'totLabel';
+        if (t.strong) y += 2;
+        const pt = applyTier(doc, family, tier);
         const valueW = doc.getTextWidth(t.value);
         const labelParts = doc.splitTextToSize(t.label, CONTENT_W - valueW - 4) as string[];
         doc.text(labelParts[0], MARGIN, y);
         doc.text(t.value, PAGE_W - MARGIN, y, { align: 'right' });
-        y += lh(size);
-        for (const extra of labelParts.slice(1)) {
-            doc.text(extra, MARGIN, y);
-            y += lh(size);
-        }
+        y += lh(pt);
+        for (const extra of labelParts.slice(1)) { doc.text(extra, MARGIN, y); y += lh(pt); }
     }
 
-    y += 4;
-    y = drawWrapped(doc, m.disclaimer, MARGIN, y, CONTENT_W, 6, false, MUTED);
+    y += 4.5;
+    y = drawWrapped(doc, family, 'disclaimer', m.disclaimer, MARGIN, y, CONTENT_W);
 
     if (m.isDemo) {
-        y += 2.5;
+        y += 3;
         doc.setFillColor(...hex(CHIP_SELF_BG));
-        doc.roundedRect(MARGIN, y - 3.2, CONTENT_W, 5, 1, 1, 'F');
+        doc.roundedRect(MARGIN, y - 3.3, CONTENT_W, 5.2, 1, 1, 'F');
         doc.setFontSize(7);
-        doc.setFont('helvetica', 'bold');
+        doc.setFont(family, 'bold');
         doc.setTextColor(...hex(CHIP_SELF_TEXT));
         doc.text(DEMO_LINE, PAGE_W / 2, y, { align: 'center' });
         y += lh(7) + 2;
     }
 
     if (m.signature) {
-        y += 10;
+        y += 11;
         const boxW = (CONTENT_W - 8) / 2;
         doc.setDrawColor(...hex(INK));
         doc.setLineWidth(0.25);
         doc.line(MARGIN, y, MARGIN + boxW, y);
         doc.line(MARGIN + boxW + 8, y, PAGE_W - MARGIN, y);
-        y += 3.2;
-        doc.setFontSize(6.5);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(...hex(MUTED));
+        y += 3.4;
+        applyTier(doc, family, 'footer');
         doc.text('Approved by', MARGIN, y);
         doc.text('Date', MARGIN + boxW + 8, y);
-        y += lh(6.5);
+        y += lh(TYPE.footer.pt);
     }
 
     y += 5;
     y = drawRule(doc, y);
     const qrSize = 14;
     if (qrDataUrl) doc.addImage(qrDataUrl, 'PNG', MARGIN, y, qrSize, qrSize);
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...hex(MUTED));
-    doc.text('Made with M-Track', MARGIN + qrSize + 4, y + 5.5);
-    doc.text('mtrack.vercel.app', MARGIN + qrSize + 4, y + 5.5 + lh(6.5));
-    y += qrSize + 5;
+    applyTier(doc, family, 'footer');
+    doc.text('Made with M-Track', MARGIN + qrSize + 4, y + 5.6);
+    doc.text('mtrack.vercel.app', MARGIN + qrSize + 4, y + 5.6 + lh(TYPE.footer.pt));
+    y += qrSize + 1.5;
 
     return y;
+}
+
+function drawFrame(doc: jsPDF, pageH: number): void {
+    doc.setDrawColor(...hex(RULE));
+    doc.setLineWidth(0.25);
+    doc.roundedRect(
+        FRAME_INSET, FRAME_INSET,
+        PAGE_W - FRAME_INSET * 2, pageH - FRAME_INSET * 2,
+        FRAME_RADIUS, FRAME_RADIUS, 'S',
+    );
 }
 
 export interface DrawnString {
     text: string;
     left: number;
     right: number;
-    // Baseline y in mm, and the approximate top/bottom of the glyph box, so a
-    // test can check both horizontal margins and vertical clipping.
+    // Baseline y in mm, plus the approximate top / bottom of the glyph box, so
+    // a test can check both margin overflow and vertical clipping / overlap.
     y: number;
     top: number;
     bottom: number;
+    // The state at draw time, so a test can check the type hierarchy is real
+    // (hero heavier/larger than a row title heavier/larger than a muted sub)
+    // rather than flat.
+    sizePt: number;
+    bold: boolean;
+    color: string;
+    fontName: string;
 }
 
-// Every string the PDF layout actually draws, with its measured horizontal
-// extent in mm. Exists so the overflow bug that put a disclaimer past both page
-// margins in production can be regression-tested directly: jsPDF does not wrap,
-// so "it looked fine" is not a check. jsPDF assigns `text` as an own property
-// per instance, which is why this has to live next to the layout rather than
-// being patched in from a test.
-export function measureDrawnStrings(m: DocModel): DrawnString[] {
+// Every string the PDF layout actually draws, with its measured box in mm.
+// Exists so the overflow bug that once put a disclaimer past both margins can
+// be regression-tested directly — jsPDF does not wrap, so "it looked fine" is
+// not a check. jsPDF assigns text() as an own property per instance, which is
+// why this lives next to the layout. Pass `fonts` to measure with the real
+// embedded typeface rather than Helvetica.
+export function measureDrawnStrings(m: DocModel, fonts?: PdfFontData): DrawnString[] {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, 4000] });
-    doc.setFont('helvetica', 'normal');
+    const family = fonts ? registerFont(doc, fonts) : 'helvetica';
+    doc.setFont(family, 'normal');
     const drawn: DrawnString[] = [];
     const original = doc.text.bind(doc);
-    const PT_TO_MM = 0.352777;
     (doc as unknown as { text: unknown }).text = function (
         text: string | string[], x: number, y: number, opts?: { align?: string },
     ) {
-        const sizeMm = doc.getFontSize() * PT_TO_MM;
+        const sizePt = doc.getFontSize();
+        const sizeMm = sizePt * PT_TO_MM;
+        const f = doc.getFont();
+        const style = String(f?.fontStyle ?? '').toLowerCase();
+        const color = (() => { try { return String(doc.getTextColor()); } catch { return ''; } })();
         for (const part of Array.isArray(text) ? text : [String(text)]) {
             const w = doc.getTextWidth(part);
             const align = opts?.align ?? 'left';
@@ -576,27 +637,32 @@ export function measureDrawnStrings(m: DocModel): DrawnString[] {
             drawn.push({
                 text: part, left, right: left + w, y,
                 top: y - sizeMm * 0.75, bottom: y + sizeMm * 0.25,
+                sizePt, bold: style.includes('bold'), color,
+                fontName: String(f?.fontName ?? ''),
             });
         }
         return original(text, x, y, opts as Parameters<typeof original>[3]);
     };
-    layout(doc, m, null);
+    layout(doc, m, null, family);
     return drawn;
 }
 
 export const PDF_PAGE_WIDTH_MM = PAGE_W;
 export const PDF_MARGIN_MM = MARGIN;
+export const PDF_FRAME_INSET_MM = FRAME_INSET;
 
-export function renderDocPDF(m: DocModel, qrDataUrl: string): Blob {
-    // Pass 1 — measure. Tall scratch page so nothing is clipped while sizing.
+export function renderDocPDF(m: DocModel, qrDataUrl: string, fonts?: PdfFontData): Blob {
+    // Pass 1 — measure on a tall scratch page so nothing clips while sizing.
     const scratch = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, 4000] });
-    scratch.setFont('helvetica', 'normal');
-    const needed = layout(scratch, m, null);
+    const family = fonts ? registerFont(scratch, fonts) : 'helvetica';
+    scratch.setFont(family, 'normal');
+    const contentBottom = layout(scratch, m, null, family);
 
-    // jsPDF's hard ceiling is 14400 user units; stay well inside it.
-    const height = Math.max(120, Math.min(needed + 4, 5000));
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, height] });
-    doc.setFont('helvetica', 'normal');
-    layout(doc, m, qrDataUrl);
+    const pageH = Math.max(120, Math.min(contentBottom + FRAME_PAD + FRAME_INSET, MAX_PAGE_MM));
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, pageH] });
+    const family2 = fonts ? registerFont(doc, fonts) : 'helvetica';
+    doc.setFont(family2, 'normal');
+    drawFrame(doc, pageH);
+    layout(doc, m, qrDataUrl, family2);
     return doc.output('blob');
 }

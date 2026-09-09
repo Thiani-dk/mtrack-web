@@ -244,14 +244,21 @@ export function computeReceiptData(transactions: ParsedTransaction[]): ReceiptDa
 // shared a row-model builder; both are retired so the design lives in one place
 // and the HTML and PDF can never disagree.
 
+// The Geist font data (~150 KB base64) is split into its own module and pulled
+// in only here, on the first export — so it lands in a lazy chunk instead of
+// weighing down the initial load.
+const geistFonts = () => import('./pdfFontData');
+
 export async function generateReceiptHTML(transactions: ParsedTransaction[], meta: DocRenderMeta, isDemo = false): Promise<string> {
     const model = buildDocModel(transactions, meta, isDemo);
-    return renderDocHTML(model, await buildQRDataUrl());
+    const [{ GEIST_VARIABLE_WOFF2_B64 }, qr] = await Promise.all([geistFonts(), buildQRDataUrl()]);
+    return renderDocHTML(model, qr, GEIST_VARIABLE_WOFF2_B64);
 }
 
 export async function generateReceiptPDF(transactions: ParsedTransaction[], meta: DocRenderMeta, isDemo = false): Promise<Blob> {
     const model = buildDocModel(transactions, meta, isDemo);
-    return renderDocPDF(model, await buildQRDataUrl());
+    const [{ GEIST_REGULAR_TTF_B64, GEIST_BOLD_TTF_B64 }, qr] = await Promise.all([geistFonts(), buildQRDataUrl()]);
+    return renderDocPDF(model, qr, { regular: GEIST_REGULAR_TTF_B64, bold: GEIST_BOLD_TTF_B64 });
 }
 
 // ── Share text ────────────────────────────────────────────────────────────────
