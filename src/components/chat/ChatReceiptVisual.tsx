@@ -6,7 +6,7 @@ import type { ReceiptData, DocRenderMeta } from '../../lib/receiptGenerator';
 import { fmt, fmtCurrency, getRecipientShort, getProviderSuffix, categoryKeyFor } from '../../lib/receiptGenerator';
 import { providerChipLabel } from '../../lib/transactionDisplay';
 import { formatCovering, issuedDate, trustDisclaimerLine, claimTotals, DOC_LINE_CAP, DOC_GROUP_THRESHOLD } from '../../lib/documentRender';
-import { CHIP_VERIFIED_BG, CHIP_VERIFIED_TEXT, CHIP_SELF_BG, CHIP_SELF_TEXT } from '../../lib/documentLayout';
+import { sourceReport, SOURCE_TAG_BY_HAND, SOURCE_TAG_FROM_MESSAGES } from '../../lib/documentLayout';
 import { getUncertaintyNote, fmtTxDate, CHECK_PREFIX } from '../../lib/transactionDisplay';
 import { CountUp } from '../CountUp';
 import { TransactionSkeleton } from './TransactionSkeleton';
@@ -149,29 +149,13 @@ function LabelPicker({ current, onSelect }: { current: string | null; onSelect: 
     );
 }
 
-// ── Status chip — the ONLY colour anywhere in the document surfaces. Same two
-// colour pairs as the HTML and PDF renderers. ──
-function StatusChip({ t }: { t: ParsedTransaction }) {
-    const verified = t.dataSource !== 'self_reported';
-    return (
-        <span
-            className="inline-block rounded-full px-1.5 py-px text-[9px] font-semibold leading-tight whitespace-nowrap"
-            style={{
-                background: verified ? CHIP_VERIFIED_BG : CHIP_SELF_BG,
-                color: verified ? CHIP_VERIFIED_TEXT : CHIP_SELF_TEXT,
-            }}
-        >
-            {verified ? 'verified' : 'self-reported'}
-        </span>
-    );
-}
-
 // ── Transaction row ─────────────────────────────────────────────────────────
 
 function TransactionRow({
-    t, delay, animateEntrance, onLabelChange, onEditTransaction,
+    t, delay, animateEntrance, sourceTag, onLabelChange, onEditTransaction,
 }: {
     t: ParsedTransaction; delay: number; animateEntrance: boolean;
+    sourceTag: string | null;
     onLabelChange?: (label: string | null) => void;
     onEditTransaction?: (patch: Partial<ParsedTransaction>) => void;
 }) {
@@ -180,6 +164,7 @@ function TransactionRow({
     const sign = t.type === 'sent' ? '-' : '+';
     const providerTag = getProviderSuffix(t);
     const uncertaintyNote = getUncertaintyNote(t);
+    const reason = t.purposeLabel || t.receiptLabel || t.merchantCategory || null;
 
     return (
         <motion.div
@@ -193,34 +178,30 @@ function TransactionRow({
                 className="w-full flex items-center justify-between gap-2 py-2 text-left"
             >
                 <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-[var(--text-primary)] truncate">
-                        {getRecipientShort(t)}
+                    {/* Description with the reason after an em-dash; the reason
+                        wraps beneath rather than truncating. */}
+                    <p className="text-xs text-[var(--text-primary)] leading-snug">
+                        <span className="font-medium">{getRecipientShort(t)}</span>
                         {providerTag && <span className="text-[var(--text-muted)] font-normal"> · {providerTag}</span>}
+                        {reason && <span className="font-normal"> — {reason}</span>}
                     </p>
                     <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
-                        {fmtTxDate(t)}
-                        {t.receiptLabel ? ` · ${t.receiptLabel}` : t.merchantCategory ? ` · ${t.merchantCategory}` : ''}
+                        {[fmtTxDate(t), sourceTag].filter(Boolean).join(' · ')}
                     </p>
-                    {t.purposeLabel && (
-                        <p className="text-[10px] text-[var(--text-muted)] mt-0.5 italic truncate">{t.purposeLabel}</p>
-                    )}
                 </div>
                 <div className="flex items-start gap-1 flex-shrink-0">
-                    <div className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                            {uncertaintyNote && (
-                                <span
-                                    aria-label="Needs a check"
-                                    title="Needs a check"
-                                    className="inline-block w-1.5 h-1.5 rounded-full"
-                                    style={{ background: 'var(--text-muted)' }}
-                                />
-                            )}
-                            <span className="text-xs font-semibold tabular-nums text-[var(--text-primary)]">
-                                {sign}{fmtCurrency(t.amount, t.currency)}
-                            </span>
-                        </div>
-                        <div className="mt-1"><StatusChip t={t} /></div>
+                    <div className="flex items-center gap-1">
+                        {uncertaintyNote && (
+                            <span
+                                aria-label="Needs a check"
+                                title="Needs a check"
+                                className="inline-block w-1.5 h-1.5 rounded-full"
+                                style={{ background: 'var(--text-muted)' }}
+                            />
+                        )}
+                        <span className="text-xs font-semibold tabular-nums text-[var(--text-primary)]">
+                            {sign}{fmtCurrency(t.amount, t.currency)}
+                        </span>
                     </div>
                     <ChevronDown className={`w-3 h-3 mt-0.5 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
                 </div>
@@ -438,6 +419,13 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
     const fees = claim ? claim.transactionCosts : data.totalTransactionCost;
     const itemCount = data.totalTransactionCount;
 
+    // Same plain-text source statement + minority-row tagging as the exports.
+    const { statement: sourceStatement, minoritySource } = sourceReport(txs);
+    const rowTag = (t: ParsedTransaction): string | null =>
+        minoritySource != null && t.dataSource === minoritySource
+            ? (minoritySource === 'self_reported' ? SOURCE_TAG_BY_HAND : SOURCE_TAG_FROM_MESSAGES)
+            : null;
+
     return (
         <motion.div
             initial={animateEntrance ? { clipPath: 'inset(0 0 100% 0)' } : false}
@@ -458,9 +446,12 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                             {meta.merchantProfile.businessName}
                         </motion.div>
                     )}
-                    <motion.div variants={headerItem} className="flex items-baseline justify-between gap-3 text-[9px] tracking-wider uppercase text-[var(--text-muted)]">
-                        <span>{TYPE_LABEL[meta.documentType]}</span>
-                        <span>{data.receiptRef}</span>
+                    <motion.div variants={headerItem} className="flex items-start justify-between gap-3">
+                        <span className="text-[9px] tracking-wider uppercase text-[var(--text-muted)] pt-0.5">{TYPE_LABEL[meta.documentType]}</span>
+                        <span className="text-right flex flex-col items-end gap-0.5">
+                            <span className="text-[9px] tracking-wider uppercase text-[var(--text-muted)]">{data.receiptRef}</span>
+                            <span className="text-[9px] text-[var(--text-muted)]">{sourceStatement}</span>
+                        </span>
                     </motion.div>
 
                     {/* Hero: the single largest thing on the document */}
@@ -506,6 +497,7 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                             t={t}
                             delay={TX_START + i * rowStagger}
                             animateEntrance={animateEntrance}
+                            sourceTag={rowTag(t)}
                             onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
                             onEditTransaction={onEditTransaction && (patch => onEditTransaction(t.transactionCode, patch))}
                         />
@@ -540,6 +532,7 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                                                 t={t}
                                                 delay={0}
                                                 animateEntrance={false}
+                                                sourceTag={rowTag(t)}
                                                 onLabelChange={onLabelChange && (label => onLabelChange(t.transactionCode, label))}
                                                 onEditTransaction={onEditTransaction && (patch => onEditTransaction(t.transactionCode, patch))}
                                             />
@@ -588,12 +581,6 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                         Issued {issuedDate()}
                     </p>
 
-                    {claim && (
-                        <div className="pt-4 mt-1 space-y-3 text-[10px] text-[var(--text-muted)]">
-                            <div className="flex items-end gap-2"><span className="flex-1 border-b border-[var(--text-muted)]" /></div>
-                            <div className="flex justify-between"><span>Approved by</span><span>Date</span></div>
-                        </div>
-                    )}
                 </div>
             </div>
         </motion.div>

@@ -129,7 +129,7 @@ function DocumentCard({
                     <p className="text-sm font-bold text-[var(--text-primary)] tabular-nums">{fmtKsh(docTotal(doc))}</p>
                     {(doc.dataSource === 'self_reported' || doc.dataSource === 'mixed') && (
                         <p className="text-[10px] text-[var(--text-muted)]">
-                            {doc.dataSource === 'mixed' ? 'part self-reported' : 'self-reported'}
+                            {doc.dataSource === 'mixed' ? 'part entered by hand' : 'entered by hand'}
                         </p>
                     )}
                 </div>

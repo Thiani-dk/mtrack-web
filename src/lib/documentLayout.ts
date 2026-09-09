@@ -17,15 +17,9 @@ import { fmtTxDate } from './transactionDisplay';
 // can never drift between the two.
 //
 // The look is a fintech statement rather than a thermal receipt: sans-serif,
-// right-aligned tabular figures, and colour reserved entirely for the
-// verified / self-reported status chips. Nothing else on the page is coloured,
-// and there is deliberately no category-composition bar or chart.
-
-// ── Palette. The only two coloured things on the document are the chips. ──
-export const CHIP_VERIFIED_BG = '#E1F5EE';
-export const CHIP_VERIFIED_TEXT = '#0F6E56';
-export const CHIP_SELF_BG = '#FAEEDA';
-export const CHIP_SELF_TEXT = '#854F0B';
+// right-aligned tabular figures, and no colour used as an organising device —
+// data source is stated in plain text, not a coloured chip. There is
+// deliberately no category-composition bar or chart.
 
 const INK = '#111827';
 const MUTED = '#6B7280';
@@ -34,16 +28,21 @@ const PAPER = '#FFFFFF';
 
 const DEMO_LINE = 'SAMPLE, NOT REAL DATA';
 
-export type ChipKind = 'verified' | 'self-reported';
-
 export interface DocLine {
+    date: string;
     description: string;
-    // date, and whatever else explains the line, as one muted second line
-    sub: string;
+    // The purpose / reason. Rendered after an em-dash on the description's line
+    // when it fits; wrapped onto its own line beneath when it doesn't — never
+    // truncated. The amount stays put either way.
+    reason: string | null;
+    // Ref and fee — the quiet trailing metadata line.
+    detail: string;
     amount: string;
-    chip: ChipKind;
     // point_of_sale itemisation, when a line carries it
     items: { text: string; amount: string }[];
+    // On a mixed-source document, a small plain-text tag on the minority-source
+    // rows only — "entered by hand" or "from payment messages". null otherwise.
+    sourceTag: string | null;
 }
 
 export interface DocTotal {
@@ -61,12 +60,12 @@ export interface DocModel {
     heroLabel: string;
     heroAmount: string | null;
     contextLine: string;
-    // One line stating the document's provenance, shown near the top, when
-    // every entry shares the same source. null only when the document is
-    // genuinely mixed — that's the one case where the per-row chip earns its
-    // place, so showRowChips is true exactly then.
-    sourceSummary: string | null;
-    showRowChips: boolean;
+    // One plain-text line stating where every figure came from, always shown
+    // near the top: "Source: all entries from payment messages." /
+    // "Source: all entries entered by hand." / "Source: 18 from payment
+    // messages, 4 entered by hand." No colour, no badge — the per-row tags
+    // (DocLine.sourceTag) carry the mixed case row by row.
+    sourceStatement: string;
     // Every included transaction, always. An exported document IS the record —
     // a "+42 more" row makes it unusable as the thing someone files or hands
     // over. The chat card's own entrance-animation grouping is a separate,
@@ -74,7 +73,6 @@ export interface DocModel {
     lines: DocLine[];
     totals: DocTotal[];
     disclaimer: string;
-    signature: boolean;
     isDemo: boolean;
 }
 
@@ -93,18 +91,18 @@ const HERO_LABEL: Record<DocRenderMeta['documentType'], string> = {
     on_behalf_of: 'Total due',
 };
 
-function chipFor(t: ParsedTransaction): ChipKind {
-    return t.dataSource === 'self_reported' ? 'self-reported' : 'verified';
-}
+// Display words for a transaction's source. The underlying enum values
+// ('sms_verified' / 'self_reported') are unchanged — only the human text.
+const SOURCE_FROM_MESSAGES = 'from payment messages';
+const SOURCE_BY_HAND = 'entered by hand';
 
-function buildLine(t: ParsedTransaction, meta: DocRenderMeta): DocLine {
-    const bits: string[] = [fmtTxDate(t, { day: 'numeric', month: 'short', year: 'numeric' })];
-    if (t.purposeLabel) bits.push(t.purposeLabel);
-    else if (t.receiptLabel) bits.push(t.receiptLabel);
-    else if (t.merchantCategory) bits.push(t.merchantCategory);
-    if (t.transactionCode && !t.codeIsSynthetic) bits.push(`Ref ${t.transactionCode}`);
+function buildLine(t: ParsedTransaction, meta: DocRenderMeta, minoritySource: ParsedTransaction['dataSource'] | null): DocLine {
+    const reason = t.purposeLabel || t.receiptLabel || t.merchantCategory || null;
+
+    const detailBits: string[] = [];
+    if (t.transactionCode && !t.codeIsSynthetic) detailBits.push(`Ref ${t.transactionCode}`);
     if (t.transactionCost != null && t.transactionCost > 0) {
-        bits.push(`Fee ${fmtCurrency(t.transactionCost, t.currency)}`);
+        detailBits.push(`Fee ${fmtCurrency(t.transactionCost, t.currency)}`);
     }
 
     const items: { text: string; amount: string }[] = [];
@@ -123,22 +121,19 @@ function buildLine(t: ParsedTransaction, meta: DocRenderMeta): DocLine {
         }
     }
 
-    return {
-        description: getRecipientShort(t),
-        sub: bits.join('  ·  '),
-        amount: `${t.type === 'received' ? '+' : ''}${fmtCurrency(t.amount, t.currency)}`,
-        chip: chipFor(t),
-        items,
-    };
-}
+    const sourceTag = minoritySource != null && t.dataSource === minoritySource
+        ? (minoritySource === 'self_reported' ? SOURCE_BY_HAND : SOURCE_FROM_MESSAGES)
+        : null;
 
-// The provenance statement shown near the top of a single-source document,
-// where fifty identical per-row chips would say nothing. null for a mixed
-// document, which keeps the per-row chips instead.
-function sourceSummaryFor(dataSource: DocRenderMeta['dataSource']): string | null {
-    if (dataSource === 'self_reported') return 'All entries self-reported.';
-    if (dataSource === 'sms_verified') return 'All entries verified from payment messages.';
-    return null;
+    return {
+        date: fmtTxDate(t, { day: 'numeric', month: 'short', year: 'numeric' }),
+        description: getRecipientShort(t),
+        reason,
+        detail: detailBits.join('  ·  '),
+        amount: `${t.type === 'received' ? '+' : ''}${fmtCurrency(t.amount, t.currency)}`,
+        items,
+        sourceTag,
+    };
 }
 
 function buildContextLine(meta: DocRenderMeta, covering: string): string {
@@ -189,6 +184,27 @@ function buildTotals(d: ReceiptData, meta: DocRenderMeta): { totals: DocTotal[];
     return { totals, hero: fmt(d.grandTotal), heroLabel };
 }
 
+// The source statement, and (for a mixed document) which source is the
+// minority — those rows, and only those, get a small plain-text tag. Exported
+// so the interactive chat card derives exactly the same words as the exports.
+export const SOURCE_TAG_BY_HAND = SOURCE_BY_HAND;
+export const SOURCE_TAG_FROM_MESSAGES = SOURCE_FROM_MESSAGES;
+
+export function sourceReport(active: ParsedTransaction[]): {
+    statement: string;
+    minoritySource: ParsedTransaction['dataSource'] | null;
+} {
+    const byHand = active.filter(t => t.dataSource === 'self_reported').length;
+    const fromMsg = active.length - byHand;
+    if (byHand === 0) return { statement: 'Source: all entries from payment messages.', minoritySource: null };
+    if (fromMsg === 0) return { statement: 'Source: all entries entered by hand.', minoritySource: null };
+    return {
+        statement: `Source: ${fromMsg} ${SOURCE_FROM_MESSAGES}, ${byHand} ${SOURCE_BY_HAND}.`,
+        // Tie goes to tagging the hand-entered rows — that's the flag a reader wants.
+        minoritySource: byHand <= fromMsg ? 'self_reported' : 'sms_verified',
+    };
+}
+
 export function buildDocModel(transactions: ParsedTransaction[], rawMeta: DocRenderMeta, isDemo: boolean): DocModel {
     const meta = sanitizeDocMeta(rawMeta);
     const d = computeReceiptData(transactions);
@@ -196,6 +212,7 @@ export function buildDocModel(transactions: ParsedTransaction[], rawMeta: DocRen
     const active = d.activeTransactions;
 
     const { totals, hero, heroLabel } = buildTotals(d, meta);
+    const { statement, minoritySource } = sourceReport(active);
 
     const disclaimerParts = [...baseDisclaimerLines(meta.documentType)];
     const trust = trustDisclaimerLine(meta.dataSource, meta.documentType);
@@ -210,12 +227,10 @@ export function buildDocModel(transactions: ParsedTransaction[], rawMeta: DocRen
         heroLabel,
         heroAmount: hero,
         contextLine: buildContextLine(meta, covering),
-        sourceSummary: sourceSummaryFor(meta.dataSource),
-        showRowChips: meta.dataSource === 'mixed',
-        lines: active.map(t => buildLine(t, meta)),
+        sourceStatement: statement,
+        lines: active.map(t => buildLine(t, meta, minoritySource)),
         totals,
         disclaimer: `${disclaimerParts.join(' ')} Issued ${issuedDate()}.`,
-        signature: meta.documentType === 'on_behalf_of',
         isDemo,
     };
 }
@@ -227,25 +242,22 @@ function esc(s: string): string {
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
 
-function chipHTML(kind: ChipKind): string {
-    const bg = kind === 'verified' ? CHIP_VERIFIED_BG : CHIP_SELF_BG;
-    const fg = kind === 'verified' ? CHIP_VERIFIED_TEXT : CHIP_SELF_TEXT;
-    return `<span class="chip" style="background:${bg};color:${fg}">${kind}</span>`;
-}
-
 export function renderDocHTML(m: DocModel, qrDataUrl: string, geistWoff2B64?: string): string {
-    const lines = m.lines.map(l => `
+    const lines = m.lines.map(l => {
+        const meta = [l.date, l.detail, l.sourceTag].filter(Boolean).join('  ·  ');
+        // description and reason share one line via inline layout, so the
+        // reason wraps beneath the description when it runs out of room while
+        // the amount, in its own column, never moves.
+        return `
       <div class="row">
         <div class="rowMain">
-          <div class="desc">${esc(l.description)}</div>
-          <div class="sub">${esc(l.sub)}</div>
+          <div class="descLine"><span class="desc">${esc(l.description)}</span>${l.reason ? `<span class="reason"> — ${esc(l.reason)}</span>` : ''}</div>
+          ${meta ? `<div class="sub">${esc(meta)}</div>` : ''}
           ${l.items.map(i => `<div class="item"><span>${esc(i.text)}</span><span class="num">${esc(i.amount)}</span></div>`).join('')}
         </div>
-        <div class="rowAmt">
-          <div class="num amt">${esc(l.amount)}</div>
-          ${m.showRowChips ? `<div>${chipHTML(l.chip)}</div>` : ''}
-        </div>
-      </div>`).join('');
+        <div class="rowAmt"><div class="num amt">${esc(l.amount)}</div></div>
+      </div>`;
+    }).join('');
 
     const totals = m.totals.map(t => `
       <div class="tot ${t.strong ? 'strong' : ''}">
@@ -278,32 +290,30 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string, geistWoff2B64?: st
   .hero{margin:18px 0 6px}
   .heroLabel{font-size:11px;color:${MUTED};font-weight:400}
   .heroAmt{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin-top:3px;color:${INK}}
+  .headRight{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right}
+  .headRight .src{letter-spacing:0;text-transform:none;font-size:9.5px}
   .ctx{font-size:11px;color:${MUTED};margin-bottom:5px}
-  .src{font-size:11px;color:${MUTED};margin-bottom:5px}
   hr{border:0;border-top:1px solid ${RULE};margin:14px 0}
   .row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:9px 0;
     border-bottom:1px solid ${RULE}}
   .row:last-of-type{border-bottom:0}
   .rowMain{flex:1}
   .rowAmt{text-align:right;flex-shrink:0}
-  .desc{font-weight:600;font-size:13px}
+  /* description + reason on one line; the reason wraps beneath when long,
+     the amount column is fixed and never shifts. */
+  .descLine{font-size:13px;line-height:1.35}
+  .desc{font-weight:600}
+  .reason{font-weight:400}
   .sub{font-size:10.5px;color:${MUTED};margin-top:2px}
   .item{display:flex;justify-content:space-between;gap:10px;font-size:10.5px;color:${MUTED};margin-top:2px;padding-left:10px}
-  .note{font-size:10.5px;color:${MUTED};margin-top:3px;font-style:italic}
   .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
   .amt{font-weight:600;font-size:13px;white-space:nowrap}
-  .chip{display:inline-block;margin-top:4px;padding:1px 7px;border-radius:999px;
-    font-size:9px;font-weight:600;letter-spacing:.02em;white-space:nowrap}
   .tot{display:flex;justify-content:space-between;gap:14px;font-size:12px;color:${MUTED};padding:3px 0}
   .tot.strong{color:${INK};font-weight:700;font-size:14px;padding-top:9px;margin-top:5px;border-top:1px solid ${RULE};
     text-transform:uppercase;letter-spacing:.04em}
   .disc{font-size:10px;color:${MUTED};margin-top:16px;line-height:1.5}
-  .demo{margin-top:12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:${CHIP_SELF_TEXT};
-    background:${CHIP_SELF_BG};padding:6px 10px;border-radius:4px;text-align:center}
-  .sig{margin-top:26px;display:flex;gap:24px}
-  .sigBox{flex:1}
-  .sigRule{border-bottom:1px solid ${INK};height:26px}
-  .sigLabel{font-size:10px;color:${MUTED};margin-top:5px}
+  .demo{margin-top:12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:${MUTED};
+    border:1px solid ${RULE};padding:6px 10px;text-align:center}
   .foot{margin-top:22px;padding-top:14px;border-top:1px solid ${RULE};
     display:flex;align-items:center;gap:12px}
   .footText{font-size:10px;color:${MUTED};line-height:1.45}
@@ -313,14 +323,16 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string, geistWoff2B64?: st
 <body>
   <div class="doc">
     ${m.brandName ? `<div class="brand">${esc(m.brandName)}</div>` : ''}
-    <div class="head"><span>${esc(m.typeLabel)}</span><span>${esc(m.reference)}</span></div>
+    <div class="head">
+      <span>${esc(m.typeLabel)}</span>
+      <div class="headRight"><span>${esc(m.reference)}</span><span class="src">${esc(m.sourceStatement)}</span></div>
+    </div>
 
     <div class="hero">
       <div class="heroLabel">${esc(m.heroLabel)}</div>
       ${m.heroAmount ? `<div class="heroAmt num">${esc(m.heroAmount)}</div>` : ''}
     </div>
     ${m.contextLine ? `<div class="ctx">${esc(m.contextLine)}</div>` : ''}
-    ${m.sourceSummary ? `<div class="src">${esc(m.sourceSummary)}</div>` : ''}
 
     <hr>
     ${lines}
@@ -330,12 +342,6 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string, geistWoff2B64?: st
 
     <div class="disc">${esc(m.disclaimer)}</div>
     ${m.isDemo ? `<div class="demo">${DEMO_LINE}</div>` : ''}
-
-    ${m.signature ? `
-    <div class="sig">
-      <div class="sigBox"><div class="sigRule"></div><div class="sigLabel">Approved by</div></div>
-      <div class="sigBox"><div class="sigRule"></div><div class="sigLabel">Date</div></div>
-    </div>` : ''}
 
     <div class="foot">
       <img src="${qrDataUrl}" width="48" height="48" alt="QR code linking to mtrack.vercel.app" />
@@ -388,7 +394,9 @@ const TYPE = {
     heroLabel:  { pt: 9,    bold: false, color: MUTED },
     heroAmount: { pt: 24,   bold: true,  color: INK },
     context:    { pt: 8,    bold: false, color: MUTED },
+    sourceLine: { pt: 7,    bold: false, color: MUTED },
     rowTitle:   { pt: 9.5,  bold: true,  color: INK },
+    rowReason:  { pt: 9.5,  bold: false, color: INK },
     rowSub:     { pt: 7,    bold: false, color: MUTED },
     amount:     { pt: 9.5,  bold: true,  color: INK },
     totLabel:   { pt: 8,    bold: false, color: MUTED },
@@ -456,21 +464,6 @@ function drawRule(doc: jsPDF, y: number): number {
     return y + 2.4;
 }
 
-function drawChip(doc: jsPDF, family: string, kind: ChipKind, rightEdge: number, y: number): number {
-    const bg = kind === 'verified' ? CHIP_VERIFIED_BG : CHIP_SELF_BG;
-    const fg = kind === 'verified' ? CHIP_VERIFIED_TEXT : CHIP_SELF_TEXT;
-    const size = 5.5;
-    doc.setFontSize(size);
-    doc.setFont(family, 'bold');
-    const padX = 1.4, boxH = 2.9;
-    const boxW = doc.getTextWidth(kind) + padX * 2;
-    doc.setFillColor(...hex(bg));
-    doc.roundedRect(rightEdge - boxW, y - boxH + 0.7, boxW, boxH, 1.2, 1.2, 'F');
-    doc.setTextColor(...hex(fg));
-    doc.text(kind, rightEdge - padX, y - 0.6, { align: 'right' });
-    return y + lh(size);
-}
-
 // Run twice: once against a throwaway document to measure the height needed,
 // then for real at that exact height. Identical both times, so the measured
 // height can never disagree with what gets drawn.
@@ -482,11 +475,13 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null, family: strin
         y += 0.5;
     }
 
-    // Header row: type label left, reference right.
+    // Header row: type label left; reference then the plain-text source
+    // statement stacked top-right.
     const headerPt = applyTier(doc, family, 'header');
     doc.text(m.typeLabel, MARGIN, y);
     doc.text(m.reference, PAGE_W - MARGIN, y, { align: 'right' });
-    y += descentMm(headerPt);
+    const afterHeader = drawWrapped(doc, family, 'sourceLine', m.sourceStatement, MARGIN, y + lh(headerPt) + 0.6, CONTENT_W, 'right');
+    y = Math.max(y + descentMm(headerPt), afterHeader);
 
     // ── Hero block. Stacked explicitly with ascent/descent spacing so the
     // small label and the large amount never share vertical space. ──
@@ -507,23 +502,37 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null, family: strin
     }
 
     if (m.contextLine) y = drawWrapped(doc, family, 'context', m.contextLine, MARGIN, y, CONTENT_W);
-    if (m.sourceSummary) y = drawWrapped(doc, family, 'context', m.sourceSummary, MARGIN, y + 0.6, CONTENT_W);
 
     y += 2.5;
     y = drawRule(doc, y);
 
     for (const l of m.lines) {
         const top = y;
-        let leftY = drawWrapped(doc, family, 'rowTitle', l.description, MARGIN, y, DESC_W);
-        if (l.sub) leftY = drawWrapped(doc, family, 'rowSub', l.sub, MARGIN, leftY + 0.6, DESC_W);
+
+        // Description, with the reason after an em-dash on the same line when it
+        // fits — otherwise the reason wraps onto its own line beneath, full
+        // width. Never truncated. The amount stays on the first line regardless.
+        const descPt = applyTier(doc, family, 'rowTitle');
+        const descW = doc.getTextWidth(l.description);
+        const inlineReason = l.reason ? ` — ${l.reason}` : '';
+        const reasonFits = !l.reason || descW + doc.getTextWidth(inlineReason) <= DESC_W;
+
+        doc.text(l.description, MARGIN, y);
+        let leftY = y + lh(descPt);
+        if (l.reason && reasonFits) {
+            applyTier(doc, family, 'rowReason');
+            doc.text(inlineReason, MARGIN + descW, y);
+        } else if (l.reason) {
+            leftY = drawWrapped(doc, family, 'rowReason', l.reason, MARGIN, leftY + 0.4, DESC_W);
+        }
+
+        const metaLine = [l.date, l.detail, l.sourceTag].filter(Boolean).join('  ·  ');
+        if (metaLine) leftY = drawWrapped(doc, family, 'rowSub', metaLine, MARGIN, leftY + 0.6, DESC_W);
         for (const it of l.items) {
             leftY = drawWrapped(doc, family, 'rowSub', `${it.text}${it.amount ? '   ' + it.amount : ''}`, MARGIN + 2, leftY + 0.3, DESC_W - 2);
         }
 
-        let rightY = drawWrapped(doc, family, 'amount', l.amount, PAGE_W - MARGIN - AMOUNT_COL_W, top, AMOUNT_COL_W, 'right');
-        // The status chip only on a mixed-source document; otherwise the
-        // one-line summary near the top has already said it.
-        if (m.showRowChips) rightY = drawChip(doc, family, l.chip, PAGE_W - MARGIN, rightY + 1.4);
+        const rightY = drawWrapped(doc, family, 'amount', l.amount, PAGE_W - MARGIN - AMOUNT_COL_W, top, AMOUNT_COL_W, 'right');
 
         y = Math.max(leftY, rightY) + 2.4;
         y = drawRule(doc, y - 1.4);
@@ -547,27 +556,14 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null, family: strin
 
     if (m.isDemo) {
         y += 3;
-        doc.setFillColor(...hex(CHIP_SELF_BG));
-        doc.roundedRect(MARGIN, y - 3.3, CONTENT_W, 5.2, 1, 1, 'F');
+        doc.setDrawColor(...hex(RULE));
+        doc.setLineWidth(0.25);
+        doc.rect(MARGIN, y - 3.3, CONTENT_W, 5.2, 'S');
         doc.setFontSize(7);
         doc.setFont(family, 'bold');
-        doc.setTextColor(...hex(CHIP_SELF_TEXT));
+        doc.setTextColor(...hex(MUTED));
         doc.text(DEMO_LINE, PAGE_W / 2, y, { align: 'center' });
         y += lh(7) + 2;
-    }
-
-    if (m.signature) {
-        y += 11;
-        const boxW = (CONTENT_W - 8) / 2;
-        doc.setDrawColor(...hex(INK));
-        doc.setLineWidth(0.25);
-        doc.line(MARGIN, y, MARGIN + boxW, y);
-        doc.line(MARGIN + boxW + 8, y, PAGE_W - MARGIN, y);
-        y += 3.4;
-        applyTier(doc, family, 'footer');
-        doc.text('Approved by', MARGIN, y);
-        doc.text('Date', MARGIN + boxW + 8, y);
-        y += lh(TYPE.footer.pt);
     }
 
     y += 5;

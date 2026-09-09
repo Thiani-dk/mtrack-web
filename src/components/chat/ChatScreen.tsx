@@ -215,7 +215,7 @@ const demoPasteCallout = (t: ParsedTransaction): string => {
     const bits = ['the exact amount', 'the date', 'the reference number'];
     if (t.transactionCost != null && t.transactionCost > 0) bits.push(`the Ksh ${t.transactionCost} fee`);
     const list = `${bits.slice(0, -1).join(', ')}, and ${bits[bits.length - 1]}`;
-    return `Notice what came across on its own: ${list}. That line is verified straight from the message now. That's why copying beats typing when you have it.`;
+    return `Notice what came across on its own: ${list}. That line comes straight from the message now. That's why copying beats typing when you have it.`;
 };
 
 // A recap of what the user just did — not a feature list. Only names steps the
