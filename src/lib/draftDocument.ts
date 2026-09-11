@@ -1,5 +1,5 @@
 import type {
-    DocumentType, MerchantProfile, OnBehalfOfContext, ParsedTransaction, TrackedDocument,
+    ActiveModeState, DocumentType, MerchantProfile, OnBehalfOfContext, ParsedTransaction, TrackedDocument,
 } from '../types';
 import { reconcileDocument } from './documentModel';
 
@@ -14,6 +14,9 @@ export function buildDraft(params: {
     // Active Mode sessions set this once, at creation. Everything else leaves
     // it false and gets the ordinary chat-built document.
     capturedViaActiveMode?: boolean;
+    // Active Mode's bucket list. Preserved across saves; omitted leaves
+    // whatever the existing draft already had.
+    activeMode?: ActiveModeState | null;
     documentType: DocumentType;
     merchantProfile: MerchantProfile | null;
     onBehalfOf: OnBehalfOfContext | null;
@@ -35,6 +38,7 @@ export function buildDraft(params: {
         coveringFrom: null,
         coveringTo: null,
         capturedViaActiveMode: params.capturedViaActiveMode ?? false,
+        activeMode: params.activeMode ?? null,
     };
 
     return reconcileDocument({
@@ -45,5 +49,6 @@ export function buildDraft(params: {
         merchantProfile: params.merchantProfile,
         onBehalfOf: params.onBehalfOf,
         transactions: params.transactions,
+        activeMode: params.activeMode !== undefined ? params.activeMode : base.activeMode,
     }, now);
 }

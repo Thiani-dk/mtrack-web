@@ -64,6 +64,7 @@ export function reconcileDocument(doc: TrackedDocument, now: number = Date.now()
         coveringTo,
         // Documents stored before Active Mode existed have no such flag.
         capturedViaActiveMode: doc.capturedViaActiveMode ?? false,
+        activeMode: doc.activeMode ?? null,
         updatedAt: now,
     };
 }

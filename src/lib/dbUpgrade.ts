@@ -61,6 +61,7 @@ export function receiptToDocument(r: StoredReceipt): TrackedDocument {
         coveringTo,
         // Nothing that predates Active Mode came from it.
         capturedViaActiveMode: false,
+        activeMode: null,
     };
 }
 

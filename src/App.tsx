@@ -6,6 +6,7 @@ import { HomeScreen } from './components/HomeScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { AllTimeScreen } from './components/AllTimeScreen';
 import { ChatScreen } from './components/chat/ChatScreen';
+import { ActiveModeScreen } from './components/activeMode/ActiveModeScreen';
 
 export default function App() {
     // Route resolution: on mount, check for a session still 'awaiting_input'
@@ -65,6 +66,7 @@ export default function App() {
                 return (
                     <HomeScreen
                         onSelect={handleHomeSelect}
+                        onActiveModeClick={() => setStep('activeMode')}
                         onDemoClick={handleDemoSelect}
                         onHistoryClick={() => setStep('history')}
                         onAllTimeClick={() => setStep('allTime')}
@@ -83,6 +85,9 @@ export default function App() {
                         }}
                     />
                 );
+
+            case 'activeMode':
+                return <ActiveModeScreen onBack={() => setStep('home')} />;
 
             case 'allTime':
                 return (
@@ -113,6 +118,12 @@ export default function App() {
 
     // The chat screen owns a full-width, two-column desktop layout — it opts
     // out of the max-w-lg phone-frame wrapper the other screens share.
+    // Active Mode owns its own full-height layout for the same reason the chat
+    // does — and, unlike the chat, it has to survive a split-screen viewport.
+    if (step === 'activeMode') {
+        return renderStep();
+    }
+
     if (step === 'chat') {
         return (
             <div className="min-h-screen bg-[var(--bg-base)]">

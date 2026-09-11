@@ -4,6 +4,7 @@ import type { NearDuplicatePair } from '../lib/parsers/nearDuplicates';
 
 export type AppStep =
     | 'home'
+    | 'activeMode'
     | 'history'
     | 'chat'
     | 'allTime';
@@ -67,6 +68,12 @@ export interface OnBehalfOfContext {
     purpose: string | null;
 }
 
+// Mirrors ActiveModeState in lib/activeMode/session.ts, declared here because
+// it is persisted on the document.
+export interface ActiveModeState {
+    buckets: string[];
+}
+
 export interface TrackedDocument {
     id: string;
     createdAt: number;
@@ -85,6 +92,11 @@ export interface TrackedDocument {
     // usable date. Never populated from a relative range selection.
     coveringFrom: number | null;
     coveringTo: number | null;
+    // Active Mode session state that cannot be derived from the transactions:
+    // the bucket names themselves. A bucket a vendor created but has not filed
+    // anything into yet has no transaction to infer it from, and must still be
+    // there after a reload. null for every other document type.
+    activeMode: ActiveModeState | null;
     // Built through Active Mode's rapid capture screen rather than the chat.
     // Drives the bucket-breakdown section in the report, and scopes the
     // direction-default exception. Never set retroactively.

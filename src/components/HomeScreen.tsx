@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
-import { FileText, Share2, X, History as HistoryIcon } from 'lucide-react';
+import { FileText, Share2, X, History as HistoryIcon, Zap } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { HistoryButton } from './HistoryButton';
 import { useAllTimeStats } from '../lib/aggregate/useAllTimeStats';
 
 interface HomeScreenProps {
     onSelect: () => void;
+    onActiveModeClick: () => void;
     onDemoClick: () => void;
     onHistoryClick: () => void;
     onAllTimeClick: () => void;
@@ -25,15 +26,28 @@ const item: Variants = {
     show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 400, damping: 28 } }
 };
 
+type CardAction = 'summary' | 'activeMode';
+
 const CARDS: {
     icon: React.ElementType;
     title: string;
     desc: string;
+    action: CardAction;
 }[] = [
     {
         icon: FileText,
         title: 'Start a summary',
         desc: 'Copy your messages, bring them here, and M-Track will sort, total, and categorise everything into a receipt.',
+        action: 'summary',
+    },
+    {
+        // Its own entry point, not a chat mode. Opening this screen already
+        // answers "what are we putting together", which is the question a
+        // vendor with a queue cannot afford to be asked.
+        icon: Zap,
+        title: 'Track a busy day',
+        desc: 'Fast sale-by-sale tracking for a busy stand. Paste each payment, tap a bucket, keep serving.',
+        action: 'activeMode',
     },
 ];
 
@@ -64,7 +78,7 @@ function dismissReturnNote(): void {
     }
 }
 
-export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeClick }: HomeScreenProps) {
+export function HomeScreen({ onSelect, onActiveModeClick, onDemoClick, onHistoryClick, onAllTimeClick }: HomeScreenProps) {
     const { stats } = useAllTimeStats();
     // Captured once on mount rather than read fresh on every render — keeps
     // the render body pure (no direct Date.now() calls in render).
@@ -157,7 +171,7 @@ export function HomeScreen({ onSelect, onDemoClick, onHistoryClick, onAllTimeCli
                     {CARDS.map((card) => (
                         <motion.div key={card.title} variants={item}>
                             <motion.button
-                                onClick={() => onSelect()}
+                                onClick={() => (card.action === 'activeMode' ? onActiveModeClick() : onSelect())}
                                 className="glass-card glass-card-hover relative w-full text-left overflow-hidden group"
                                 whileHover={{ y: -3 }}
                                 whileTap={{ scale: 0.975 }}
