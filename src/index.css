@@ -185,3 +185,44 @@
         @apply font-sans;
     }
 }
+
+/* ── Active Mode on a constrained viewport ──────────────────────────────────
+   Active Mode's whole premise is running beside an SMS app: in an Android
+   split-screen window, or with the on-screen keyboard eating half the height.
+   Two sizes are the ones that actually bite — roughly 360x400 (narrow portrait
+   split) and 640x280 (landscape split, keyboard-adjacent height loss).
+
+   The rule at every size: the paste field, the bucket chips and the running
+   total stay visible and reachable. The scrolling capture area is the only
+   region allowed to give way; everything else is flex-shrink-0. The outer
+   container is sized in dvh (see the component) so the keyboard shrinking the
+   viewport shrinks the layout with it instead of pushing the bottom controls
+   out of reach. */
+
+@media (max-height: 460px) {
+    .active-mode .am-header { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+    /* The total still reads at a glance, it just stops being a hero. */
+    .active-mode .am-total { font-size: 1.125rem; line-height: 1.5rem; }
+    .active-mode .am-count { font-size: 0.625rem; }
+    .active-mode .am-capture { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+    /* Instructional copy is the first thing to go when space is scarce; the
+       controls it describes are right there. */
+    .active-mode .am-hint { display: none; }
+    .active-mode .am-input { min-height: 2.25rem; }
+}
+
+@media (max-height: 340px) {
+    .active-mode .am-input { min-height: 2rem; }
+    .active-mode .am-total { font-size: 1rem; line-height: 1.25rem; }
+}
+
+/* The chip row scrolls sideways rather than wrapping, at any width. Wrapping
+   would grow the row's height on a narrow split and eat the capture area. */
+.active-mode .am-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Space for the last chip to clear the edge, so it is never half-cut. */
+    scroll-padding-right: 1rem;
+}

@@ -72,6 +72,11 @@ export interface OnBehalfOfContext {
 // it is persisted on the document.
 export interface ActiveModeState {
     buckets: string[];
+    // The capture that has been pasted but not yet filed into a bucket, saved
+    // alongside everything else so a reload triggered while the vendor is
+    // mid-sale does not lose the one sale actually in progress. Filed captures
+    // are already safe as transactions; this is the gap.
+    pending: ParsedTransaction | null;
 }
 
 export interface TrackedDocument {

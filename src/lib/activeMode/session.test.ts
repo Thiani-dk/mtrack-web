@@ -206,3 +206,45 @@ describe('the session as a draft document', () => {
         expect(doc.activeMode).toBeNull();
     });
 });
+
+describe('surviving a backgrounded reload', () => {
+    it('carries the pending, unfiled capture through a save and back', () => {
+        // Everything already filed is safe as a transaction. The one thing that
+        // would otherwise exist only in memory is the sale between the paste
+        // and the bucket tap — which is exactly when a memory-pressure reload
+        // is most painful.
+        const pending = saleFrom(SALE_B);
+        const state = { ...addBucket(emptyActiveModeState(), 'Combo sales').state, pending };
+
+        const doc = buildDraft({
+            sessionId: 'active-3',
+            documentType: 'expense_summary',
+            merchantProfile: null,
+            onBehalfOf: null,
+            transactions: [fileInto(saleFrom(SALE_A), 'Combo sales')],
+            capturedViaActiveMode: true,
+            activeMode: state,
+        });
+
+        const restored = readActiveModeState(doc.activeMode);
+        expect(restored.pending?.transactionCode).toBe(pending.transactionCode);
+        expect(restored.pending?.amount).toBe(pending.amount);
+        // Restored ready to file, not already counted.
+        expect(restored.pending?.bucketLabel).toBeNull();
+        expect(dayTotal(doc.transactions)).toBe(350);
+    });
+
+    it('rebuilds the pending capture date, whatever the store handed back', () => {
+        const pending = saleFrom(SALE_A);
+        const asStored = { ...pending, date: pending.date.toISOString() as unknown as Date };
+        const restored = readActiveModeState({ buckets: [], pending: asStored });
+        expect(restored.pending?.date).toBeInstanceOf(Date);
+        expect(restored.pending?.date.getTime()).toBe(pending.date.getTime());
+    });
+
+    it('has no pending capture when there was none', () => {
+        expect(emptyActiveModeState().pending).toBeNull();
+        expect(readActiveModeState(null).pending).toBeNull();
+        expect(readActiveModeState({ buckets: ['Combo sales'] }).pending).toBeNull();
+    });
+});

@@ -96,7 +96,12 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                 docRef.current = existing;
                 setSessionId(existing.id);
                 setTransactions(existing.transactions.map(t => ({ ...t, date: new Date(t.date) })));
-                setState(readActiveModeState(existing.activeMode));
+                const restored = readActiveModeState(existing.activeMode);
+                setState(restored);
+                // A reload that landed between a paste and a bucket tap: put
+                // the sale back exactly as it was, ready for the tap, rather
+                // than discarding the one thing that was actually in progress.
+                setPending(restored.pending);
             } else {
                 setSessionId(newSessionId());
             }
@@ -116,14 +121,25 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
             transactions,
             existing: docRef.current,
             capturedViaActiveMode: true,
-            activeMode: state,
+            // The unfiled capture rides along in the same debounced write.
+            // Everything already filed is safe as a transaction; this is the
+            // one thing that would otherwise only exist in memory.
+            activeMode: { ...state, pending },
         });
         docRef.current = doc;
         saveDocument(doc);
-    }, [transactions, state, hydrated, sessionId, saveDocument]);
+    }, [transactions, state, pending, hydrated, sessionId, saveDocument]);
 
+    // preventScroll matters here: this fires after every capture, and on a
+    // short split-screen viewport a focus that scrolls would yank the layout
+    // out from under whatever the vendor was about to tap.
+    //
+    // Note what is deliberately absent: there is no visibilitychange or window
+    // focus handler re-focusing this field. A vendor switching back from their
+    // SMS app gets the field as they left it — usually still focused — without
+    // the keyboard being thrown open at them or the view jumping.
     const focusInput = useCallback(() => {
-        inputRef.current?.focus();
+        inputRef.current?.focus({ preventScroll: true });
     }, []);
 
     useEffect(() => {
@@ -194,7 +210,8 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
             transactions: finalTransactions,
             existing: docRef.current,
             capturedViaActiveMode: true,
-            activeMode: state,
+            // Nothing is left pending on a finished document.
+            activeMode: { ...state, pending: null },
         });
         const approved: TrackedDocument = { ...doc, status: 'approved', updatedAt: Date.now() };
 
@@ -237,21 +254,29 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
     }, []);
 
     return (
-        <div className="flex flex-col bg-[var(--bg-base)]" style={{ height: '100dvh' }}>
+        <div
+            className="active-mode flex flex-col bg-[var(--bg-base)] overflow-hidden"
+            // dvh, not vh: vh is the viewport WITHOUT accounting for browser
+            // chrome or the on-screen keyboard, so on a phone it reports more
+            // height than exists and pushes the bottom controls — here, the
+            // paste field and Finish — off screen. That is the specific failure
+            // this screen cannot have, since the paste field is the feature.
+            style={{ height: '100dvh', maxHeight: '100dvh' }}
+        >
             {walkthroughOpen && (
                 <ActiveModeWalkthrough onClose={closeWalkthrough} onSeedBuckets={seedBuckets} />
             )}
             {/* ── Header: the running day, and the way out. ── */}
-            <header className="flex-shrink-0 border-b border-[var(--border-glass)] px-4 py-3">
+            <header className="am-header flex-shrink-0 border-b border-[var(--border-glass)] px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                         <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--accent)]">
                             Active Mode
                         </p>
-                        <p className="text-2xl font-semibold text-[var(--text-primary)] tabular-nums leading-tight">
+                        <p className="am-total text-2xl font-semibold text-[var(--text-primary)] tabular-nums leading-tight">
                             {fmtCurrency(total, currency)}
                         </p>
-                        <p className="text-xs text-[var(--text-muted)]">
+                        <p className="am-count text-xs text-[var(--text-muted)]">
                             {transactions.length} {transactions.length === 1 ? 'sale' : 'sales'} today
                         </p>
                     </div>
@@ -284,7 +309,7 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
             </header>
 
             {/* ── The capture area. Scrolls; the input and chips below do not. ── */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
+            <div className="am-capture flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
                 {pending ? (
                     <div
                         className="rounded-xl border p-3"
@@ -304,7 +329,7 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                         )}
                     </div>
                 ) : (
-                    <p className="text-sm text-[var(--text-muted)]">
+                    <p className="am-hint text-sm text-[var(--text-muted)]">
                         Paste a payment message. It files on paste — then tap a bucket.
                     </p>
                 )}
@@ -335,7 +360,7 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
 
             {/* ── Buckets. Horizontally scrollable, never wrapping. ── */}
             <div className="flex-shrink-0 border-t border-[var(--border-glass)] px-4 py-2">
-                <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'thin' }}>
+                <div className="am-chips gap-2 pb-1" style={{ scrollbarWidth: 'thin' }}>
                     {tallies.map(b => (
                         <button
                             key={b.name}
@@ -402,7 +427,7 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                     rows={2}
                     placeholder="Paste the payment message here"
                     aria-label="Paste a payment message"
-                    className="w-full resize-none rounded-xl border px-3 py-2 text-sm bg-transparent text-[var(--text-primary)] outline-none"
+                    className="am-input w-full resize-none rounded-xl border px-3 py-2 text-sm bg-transparent text-[var(--text-primary)] outline-none"
                     style={{ borderColor: 'var(--border-glass)' }}
                 />
             </div>

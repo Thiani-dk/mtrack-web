@@ -29,13 +29,19 @@ export const UNSORTED = 'Unsorted';
 export type { ActiveModeState };
 
 export function emptyActiveModeState(): ActiveModeState {
-    return { buckets: [UNSORTED] };
+    return { buckets: [UNSORTED], pending: null };
 }
 
 // Tolerates a document stored before a field existed, or one from another flow.
-export function readActiveModeState(state: ActiveModeState | null | undefined): ActiveModeState {
-    const names = state?.buckets ?? [];
-    return { buckets: normaliseBuckets(names) };
+// Dates come back from IndexedDB as Dates already, but a JSON round-trip or an
+// older record can leave a string, so the pending capture's date is rebuilt the
+// same way useDocumentStore rebuilds the transactions'.
+export function readActiveModeState(state: Partial<ActiveModeState> | null | undefined): ActiveModeState {
+    const pending = state?.pending ?? null;
+    return {
+        buckets: normaliseBuckets(state?.buckets ?? []),
+        pending: pending ? { ...pending, date: new Date(pending.date) } : null,
+    };
 }
 
 function normaliseBuckets(names: string[]): string[] {

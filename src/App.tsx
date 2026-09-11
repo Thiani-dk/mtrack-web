@@ -34,6 +34,20 @@ export default function App() {
                 const resumableDraft = drafts
                     .filter(d => sessions.some(s => s.id === d.id))
                     .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+
+                // An Active Mode shift left open resumes too, and for a
+                // stronger reason: the browser may have reloaded the tab on
+                // its own while the vendor was in their SMS app. Landing on
+                // HomeScreen after that looks exactly like having lost the
+                // day's takings. Whichever was touched most recently wins.
+                const activeDraft = drafts
+                    .filter(d => d.capturedViaActiveMode)
+                    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+
+                if (activeDraft && (!resumableDraft || activeDraft.updatedAt >= resumableDraft.updatedAt)) {
+                    setStep('activeMode');
+                    return;
+                }
                 if (resumableDraft) {
                     setResumeSessionId(resumableDraft.id);
                     setStep('chat');
