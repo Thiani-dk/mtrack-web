@@ -13,6 +13,10 @@ export interface DocRenderMeta {
     dataSource: DataSource;
     merchantProfile: MerchantProfile | null;
     onBehalfOf: OnBehalfOfContext | null;
+    // Built through Active Mode. Turns on the bucket-breakdown section; the
+    // document is otherwise an ordinary expense_summary and renders through
+    // exactly the same layout. Optional so every existing caller is unchanged.
+    capturedViaActiveMode?: boolean;
 }
 
 // The context fields carried on the meta are user-supplied too — a business

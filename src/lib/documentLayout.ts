@@ -46,6 +46,19 @@ export interface DocLine {
     // On a mixed-source document, a small plain-text tag on the minority-source
     // rows only — "entered by hand" or "from payment messages". null otherwise.
     sourceTag: string | null;
+    // A quiet "worth a glance" note, joined into the same trailing metadata
+    // line as detail and sourceTag rather than given any visual language of
+    // its own: currently only the Active Mode direction assumption. Plain
+    // words, no chip, no colour — the same convention every other per-row tag
+    // in this document uses.
+    flagNote: string | null;
+}
+
+// One row of the optional bucket breakdown.
+export interface DocBucket {
+    label: string;
+    count: number;
+    value: string;
 }
 
 export interface DocTotal {
@@ -88,6 +101,11 @@ export interface DocModel {
     heroSubtitle: string | null;
     // "4 items  ·  10 Aug – 15 Aug 2026" — count and covering span.
     heroMeta: string;
+    // The Active Mode bucket breakdown, between the hero total and the
+    // itemisation. Empty for every other document — the section is omitted
+    // entirely rather than rendered blank. It is a summary in addition to the
+    // full itemisation below it, never a replacement for it.
+    buckets: DocBucket[];
     // Serif section label above the itemisation: "EXPENSES" / "ITEMS".
     sectionLabel: string;
     // Every included transaction, always. An exported document IS the record —
@@ -153,6 +171,11 @@ function buildLine(t: ParsedTransaction, meta: DocRenderMeta, minoritySource: Pa
         }
     }
 
+    // Active Mode fills in a direction it could not resolve rather than
+    // stopping a vendor mid-rush to ask (see activeMode/direction.ts). The
+    // document says so, quietly, so the assumption is reviewable.
+    const flagNote = t.directionAssumed ? 'money in assumed' : null;
+
     const sourceTag = minoritySource != null && t.dataSource === minoritySource
         ? (minoritySource === 'self_reported' ? SOURCE_BY_HAND : SOURCE_FROM_MESSAGES)
         : null;
@@ -165,6 +188,7 @@ function buildLine(t: ParsedTransaction, meta: DocRenderMeta, minoritySource: Pa
         amount: `${t.type === 'received' ? '+' : ''}${fmtCurrency(t.amount, t.currency)}`,
         items,
         sourceTag,
+        flagNote,
     };
 }
 
@@ -243,6 +267,41 @@ export function sourceReport(active: ParsedTransaction[]): {
     };
 }
 
+// The Active Mode bucket breakdown: one row per bucket that actually has
+// something in it, in descending order of takings, with anything unfiled last
+// under "Unsorted".
+//
+// Returns nothing at all unless this document came from Active Mode AND some
+// transaction carries a bucket — a document with no bucket usage omits the
+// section rather than rendering an empty one. Every transaction still appears
+// individually in the itemisation below regardless; this is a summary on top
+// of that, not instead of it.
+const UNSORTED_BUCKET = 'Unsorted';
+
+function buildBuckets(meta: DocRenderMeta, active: ParsedTransaction[]): DocBucket[] {
+    if (!meta.capturedViaActiveMode) return [];
+    if (!active.some(t => t.bucketLabel)) return [];
+
+    const groups = new Map<string, { count: number; amount: number; currency: string }>();
+    for (const t of active) {
+        const key = t.bucketLabel?.trim() || UNSORTED_BUCKET;
+        const g = groups.get(key) ?? { count: 0, amount: 0, currency: t.currency };
+        g.count += 1;
+        g.amount += t.amount;
+        groups.set(key, g);
+    }
+
+    return [...groups.entries()]
+        .sort(([aName, a], [bName, b]) => {
+            // Unsorted is a leftovers bin, not a category — it sits last
+            // however much is in it.
+            if (aName === UNSORTED_BUCKET) return 1;
+            if (bName === UNSORTED_BUCKET) return -1;
+            return b.amount - a.amount;
+        })
+        .map(([label, g]) => ({ label, count: g.count, value: fmtCurrency(g.amount, g.currency) }));
+}
+
 export function buildDocModel(transactions: ParsedTransaction[], rawMeta: DocRenderMeta, isDemo: boolean): DocModel {
     const meta = sanitizeDocMeta(rawMeta);
     const d = computeReceiptData(transactions);
@@ -276,6 +335,7 @@ export function buildDocModel(transactions: ParsedTransaction[], rawMeta: DocRen
             ? 'Includes expenses and fees'
             : null,
         heroMeta,
+        buckets: buildBuckets(meta, active),
         sectionLabel: SECTION_LABEL[meta.documentType],
         lines: active.map(t => buildLine(t, meta, minoritySource)),
         totals,
@@ -298,7 +358,7 @@ export interface DocWebFonts {
 
 export function renderDocHTML(m: DocModel, qrDataUrl: string, fonts: DocWebFonts = {}): string {
     const lineRows = m.lines.map(l => {
-        const sub = [l.detail, l.sourceTag].filter(Boolean).join('  ·  ');
+        const sub = [l.detail, l.sourceTag, l.flagNote].filter(Boolean).join('  ·  ');
         return `
       <div class="row">
         <div class="rowDate">${esc(l.date)}</div>
@@ -315,6 +375,21 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string, fonts: DocWebFonts
       <div class="tot ${t.strong ? 'strong' : ''}">
         <span class="totLabel">${esc(t.label)}</span><span class="num">${esc(t.value)}</span>
       </div>`).join('');
+
+    // The bucket breakdown. Same typography as the totals block — a serif
+    // micro-label, plain rows, a rule above and below — because it is the same
+    // kind of thing: a summary of figures itemised in full further down.
+    const bucketBlock = m.buckets.length === 0 ? '' : `
+    <hr class="ruleTight">
+    <div class="section">Buckets</div>
+    <div class="bucketRows">
+      ${m.buckets.map(b => `
+      <div class="bucket">
+        <span class="bucketLabel">${esc(b.label)}</span>
+        <span class="bucketCount">${b.count} ${b.count === 1 ? 'item' : 'items'}</span>
+        <span class="num bucketValue">${esc(b.value)}</span>
+      </div>`).join('')}
+    </div>`;
 
     const twoCol = m.metaFields.length === 2;
     const metaBlock = m.metaFields.length === 0 ? '' : `
@@ -369,6 +444,12 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string, fonts: DocWebFonts
   .heroSub{font-size:12px;color:${MUTED};margin-top:5px}
   .heroMeta{font-family:${sansStack};font-size:10.5px;color:${MUTED};margin-top:7px}
 
+  .bucketRows{margin-top:6px}
+  .bucket{display:flex;align-items:baseline;gap:10px;font-size:12.5px;padding:3px 0;color:${INK}}
+  .bucketLabel{flex:1;min-width:0}
+  .bucketCount{font-family:${sansStack};font-size:10px;color:${MUTED};white-space:nowrap}
+  .bucketValue{flex-shrink:0;text-align:right;white-space:nowrap}
+
   .section{font-size:14px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:${INK};margin-bottom:8px}
   .colHead{display:flex;gap:12px;font-family:${sansStack};font-size:8.5px;letter-spacing:.11em;text-transform:uppercase;color:${FAINT};padding-bottom:6px;border-bottom:1px solid ${RULE};margin-bottom:2px}
   .colHead .cDate{width:66px;flex-shrink:0}
@@ -419,6 +500,8 @@ export function renderDocHTML(m: DocModel, qrDataUrl: string, fonts: DocWebFonts
       ${m.heroSubtitle ? `<div class="heroSub">${esc(m.heroSubtitle)}</div>` : ''}
       <div class="heroMeta">${esc(m.heroMeta)}</div>
     </div>
+
+    ${bucketBlock}
 
     <hr class="rule">
 
@@ -662,6 +745,40 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null, fam: Families
     drawRule(doc, y);
     y += 7;
 
+    // ── Bucket breakdown, when this document came from Active Mode and has
+    //    buckets. Between the hero and the itemisation, in the same typography
+    //    as the totals block: a serif section label, then label / count /
+    //    value rows. Omitted entirely when there is nothing to show. ──
+    if (m.buckets.length > 0) {
+        const bsec = applyTier(doc, fam, 'section');
+        y += ascentMm(bsec.pt);
+        doc.text('BUCKETS', MARGIN, y, { charSpace: bsec.track });
+        y += descentMm(bsec.pt) + 2.4;
+        drawRule(doc, y);
+        y += 4.4;
+
+        const countW = 20;
+        const valueX = PAGE_W - MARGIN;
+        for (const b of m.buckets) {
+            // The value first, so the label knows how much room it has and
+            // wraps inside it rather than running through the figure.
+            const { pt } = applyTier(doc, fam, 'totValue');
+            const valueW = doc.getTextWidth(b.value);
+            doc.text(b.value, valueX, y, { align: 'right' });
+
+            applyTier(doc, fam, 'rowSub');
+            doc.text(`${b.count} ${b.count === 1 ? 'item' : 'items'}`,
+                valueX - valueW - 3, y, { align: 'right' });
+
+            const labelW = CONTENT_W - valueW - countW - 6;
+            const labelBottom = drawWrapped(doc, fam, 'totLabel', b.label, MARGIN, y, labelW);
+            y = Math.max(labelBottom, y + lh(pt));
+        }
+        y += 1.6;
+        drawRule(doc, y);
+        y += 7;
+    }
+
     // ── Itemisation. Serif section label, then a tracked-caps column header
     //    over a thin rule, then every line as its own row with a hairline
     //    divider. ──
@@ -717,7 +834,7 @@ function layout(doc: jsPDF, m: DocModel, qrDataUrl: string | null, fam: Families
             leftY = drawWrapped(doc, fam, 'rowReason', l.reason, descX, leftY + 0.4, fullW);
         }
 
-        const sub = [l.detail, l.sourceTag].filter(Boolean).join('  ·  ');
+        const sub = [l.detail, l.sourceTag, l.flagNote].filter(Boolean).join('  ·  ');
         if (sub) leftY = drawWrapped(doc, fam, 'rowSub', sub, descX, leftY + 0.8, fullW);
         for (const it of l.items) {
             leftY = drawWrapped(doc, fam, 'rowSub', `${it.text}${it.amount ? '   ' + it.amount : ''}`, descX + 2, leftY + 0.4, fullW - 2);

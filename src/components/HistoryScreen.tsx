@@ -58,6 +58,7 @@ function metaFor(doc: TrackedDocument): DocRenderMeta {
         dataSource: doc.dataSource,
         merchantProfile: doc.merchantProfile,
         onBehalfOf: doc.onBehalfOf,
+        capturedViaActiveMode: doc.capturedViaActiveMode,
     };
 }
 

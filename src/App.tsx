@@ -87,7 +87,15 @@ export default function App() {
                 );
 
             case 'activeMode':
-                return <ActiveModeScreen onBack={() => setStep('home')} />;
+                return (
+                    <ActiveModeScreen
+                        onBack={() => setStep('home')}
+                        // The finished shift is a document like any other — it
+                        // is viewed and exported through history, not through a
+                        // second viewer built for this screen.
+                        onFinished={() => setStep('history')}
+                    />
+                );
 
             case 'allTime':
                 return (

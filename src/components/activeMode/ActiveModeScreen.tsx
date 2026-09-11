@@ -6,7 +6,7 @@ import {
     findDuplicate, readActiveModeState, UNSORTED,
     type BucketError, type DuplicateWarning,
 } from '../../lib/activeMode/session';
-import { getDrafts } from '../../lib/documentStore';
+import { getDrafts, saveDocument as saveApproved } from '../../lib/documentStore';
 import { buildDraft } from '../../lib/draftDocument';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { fmtCurrency } from '../../lib/receiptGenerator';
@@ -23,6 +23,11 @@ import { fmtCurrency } from '../../lib/receiptGenerator';
 interface ActiveModeScreenProps {
     onBack: () => void;
     onShowWalkthrough?: () => void;
+    // Called once the shift's document has been approved and saved, so the
+    // app can take the vendor to it. The document itself is viewed and
+    // exported through the existing history surface — Active Mode does not
+    // build a second viewer.
+    onFinished?: (documentId: string) => void;
 }
 
 const CAPTURE_ERROR: Record<string, string> = {
@@ -41,7 +46,7 @@ const BUCKET_ERROR: Record<BucketError, string> = {
     reserved: `"${UNSORTED}" is always there — pick another name.`,
 };
 
-export function ActiveModeScreen({ onBack, onShowWalkthrough }: ActiveModeScreenProps) {
+export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: ActiveModeScreenProps) {
     const { saveDocument } = useDocumentStore();
 
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -165,6 +170,39 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough }: ActiveModeScreen
         }
     };
 
+    // Finish moves the session from draft to approved, the same finalisation
+    // step every other document type uses — nothing Active-Mode-specific
+    // happens to the document itself. Anything still pending is filed to
+    // Unsorted first, so the last sale of the day cannot be the one that gets
+    // left behind.
+    const handleFinish = useCallback(async () => {
+        if (!sessionId) return;
+        const finalTransactions = pending ? [...transactions, fileInto(pending, UNSORTED)] : transactions;
+        if (finalTransactions.length === 0) return;
+
+        const doc = buildDraft({
+            sessionId,
+            documentType: 'expense_summary',
+            merchantProfile: null,
+            onBehalfOf: null,
+            transactions: finalTransactions,
+            existing: docRef.current,
+            capturedViaActiveMode: true,
+            activeMode: state,
+        });
+        const approved: TrackedDocument = { ...doc, status: 'approved', updatedAt: Date.now() };
+
+        setPending(null);
+        setTransactions(finalTransactions);
+        docRef.current = approved;
+        saveDocument(approved);
+        // Flush past the store's write debounce before navigating away.
+        await saveApproved(approved);
+
+        if (onFinished) onFinished(approved.id);
+        else onBack();
+    }, [sessionId, pending, transactions, state, saveDocument, onFinished, onBack]);
+
     const handleCreateBucket = () => {
         const { state: next, error } = addBucket(state, newBucketName);
         if (error) {
@@ -203,6 +241,14 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough }: ActiveModeScreen
                             className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                         >
                             <HelpCircle className="w-5 h-5" />
+                        </button>
+                        <button
+                            onClick={handleFinish}
+                            disabled={transactions.length === 0 && !pending}
+                            className="rounded-full px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 whitespace-nowrap"
+                            style={{ background: 'var(--accent)' }}
+                        >
+                            Finish
                         </button>
                         <button
                             onClick={onBack}
