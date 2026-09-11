@@ -35,8 +35,17 @@ const NEGATIVE_CONTEXT =
 interface Candidate {
     amount: number;
     currency: string;
+    // Where the whole "Ksh 5,000" / "5000USD" run sits in the message, so a
+    // caller can take the words around it as that amount's description.
     index: number;
+    length: number;
     score: number;
+}
+
+// One currency-tagged amount, located in the text.
+export interface AmountMatch extends AmountResult {
+    index: number;
+    length: number;
 }
 
 function scoreCandidate(msg: string, matchIndex: number, matchLength: number): number {
@@ -51,15 +60,25 @@ function scoreCandidate(msg: string, matchIndex: number, matchLength: number): n
     return score;
 }
 
-// Every currency-tagged amount in the message, in order — the building block
-// for both the single best amount below and the itemisation in
-// conversationalCapture.
-export function extractAmountCandidates(msg: string): AmountResult[] {
+function confidenceOf(score: number): number {
+    return score >= 2 ? 95 : score === 1 ? 80 : 60;
+}
+
+// Every currency-tagged amount in the message, in order, with its position —
+// the building block for both the single best amount below and the line-item
+// itemisation in conversationalCapture.
+export function extractAmountMatches(msg: string): AmountMatch[] {
     return scanAmounts(msg).map(c => ({
         amount: c.amount,
         currency: c.currency,
-        confidence: c.score >= 2 ? 95 : c.score === 1 ? 80 : 60,
+        confidence: confidenceOf(c.score),
+        index: c.index,
+        length: c.length,
     }));
+}
+
+export function extractAmountCandidates(msg: string): AmountResult[] {
+    return extractAmountMatches(msg).map(({ amount, currency, confidence }) => ({ amount, currency, confidence }));
 }
 
 function scanAmounts(msg: string): Candidate[] {
@@ -81,7 +100,7 @@ function scanAmounts(msg: string): Candidate[] {
 
         const currency = normalizeCurrency(prefix ?? '') ?? normalizeCurrency(suffixCur ?? '') ?? DEFAULT_CURRENCY;
         const score = scoreCandidate(msg, m.index, whole.length);
-        candidates.push({ amount: base * mult, currency, index: m.index, score });
+        candidates.push({ amount: base * mult, currency, index: m.index, length: whole.length, score });
     }
     return candidates;
 }
@@ -94,8 +113,7 @@ export function extractAmount(msg: string): AmountResult | null {
     const best = candidates[0];
     if (best.score < 0) return null;
 
-    const confidence = best.score >= 2 ? 95 : best.score === 1 ? 80 : 60;
-    return { amount: best.amount, currency: best.currency, confidence };
+    return { amount: best.amount, currency: best.currency, confidence: confidenceOf(best.score) };
 }
 
 const FEE_RE = /(?:transaction cost|charge(?:d)?\s*(?:of)?|fee)\s*[,:]?\s*(?:Ksh\.?|KES)?\s*([\d,]+(?:\.\d{1,2})?)/i;

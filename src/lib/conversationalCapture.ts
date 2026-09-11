@@ -1,8 +1,9 @@
-import type { ParsedTransaction } from '../types';
+import type { LineItem, ParsedTransaction } from '../types';
 import { extractRawBlock, finalizeTransaction, deriveSubType } from './parsers';
 import { extractAmount } from './parsers/extractors/amount';
 import { DEFAULT_CURRENCY, detectCurrency } from './parsers/extractors/currency';
 import { parseAmountAnswer } from './parsers/extractors/numeric';
+import { extractLineItems, type ItemisationResult } from './parsers/extractors/lineItems';
 import { extractParties } from './parsers/extractors/parties';
 import { extractCode } from './parsers/extractors/code';
 import { extractDirection } from './parsers/extractors/direction';
@@ -10,7 +11,8 @@ import { parseConversationalDate, type ConversationalDateResult } from './parser
 import { fmtAmountProse, hasUsableDate } from './transactionDisplay';
 import type { DirectionResult } from './parsers/types';
 
-export type { DirectionResult, ConversationalDateResult };
+export type { DirectionResult, ConversationalDateResult, ItemisationResult };
+export { extractLineItems };
 export { parseConversationalDate };
 
 // Conversational entry runs through the SAME classify -> extract -> score
@@ -60,6 +62,11 @@ export interface DescriptionResult {
     // stated none. The caller folds it into the conversation-wide lock.
     detectedCurrency: string | null;
     recipient: string | null;
+    // The itemisation the message carried, when it carried one — four things
+    // with four prices, rather than one vague total. `amount` above is its
+    // total in that case, so a caller that only knows about single amounts is
+    // still correct, just less detailed.
+    itemisation: ItemisationResult | null;
     purposeLabel: string | null;
     date: Date | null;
     dateAmbiguous: boolean;
@@ -148,7 +155,7 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
     const finalizedName =
         finalized && finalized.recipient && finalized.recipient !== 'Unknown' ? finalized.recipient : null;
 
-    const amount = (finalized && finalized.amount > 0 ? finalized.amount : null) ?? amountResult?.amount ?? null;
+    const singleAmount = (finalized && finalized.amount > 0 ? finalized.amount : null) ?? amountResult?.amount ?? null;
 
     // A currency stated anywhere in the sentence counts, whether or not it sat
     // next to the amount the extractor settled on ("I sold it at 5000, USD of
@@ -156,7 +163,22 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
     // the extractors' own KES fallback must not masquerade as a statement.
     const detectedCurrency = detectCurrency(text);
     const currency = detectedCurrency ?? DEFAULT_CURRENCY;
-    const recipient = finalizedName ?? parties.recipient ?? parties.sender ?? extractFreeformName(text);
+
+    // An itemised message answers "how much" and "what" at once. Its total is
+    // the transaction amount — asking for that again is asking for something
+    // already given.
+    //
+    // Unless the items are in different currencies, in which case there is no
+    // total to be had without an exchange rate, and inventing one is worse
+    // than falling back to the ordinary questions.
+    const found = extractLineItems(text);
+    const itemisation = found && !found.mixedCurrency ? found : null;
+    // An itemised message has already said what this was: the items are the
+    // description. Falling through to "what did they buy?" after being handed
+    // a four-line list is the question that started all this.
+    const recipient = finalizedName ?? parties.recipient ?? parties.sender
+        ?? extractFreeformName(text)
+        ?? (itemisation ? itemsSummary(itemisation.items) : null);
 
     // A pasted confirmation that fully parsed already carries a trustworthy
     // date; otherwise the conversational reader has the say. A date is only
@@ -168,6 +190,8 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
         ? (finalized?.dateAmbiguous ?? false)
         : dateResult.confidence === 'needs_clarification' && dateResult.date != null;
 
+    const amount = itemisation ? itemisation.total : singleAmount;
+
     const missing: Array<'amount' | 'recipient' | 'date'> = [];
     if (amount == null || amount <= 0) missing.push('amount');
     if (!recipient) missing.push('recipient');
@@ -178,6 +202,7 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
         currency,
         detectedCurrency,
         recipient,
+        itemisation,
         purposeLabel: extractPurpose(text),
         date,
         dateAmbiguous,
@@ -205,6 +230,87 @@ export function parseAmountReply(text: string): AmountAnswer {
     return { amount: parseAmountAnswer(text), detectedCurrency: detectCurrency(text) };
 }
 
+// ── Slots ────────────────────────────────────────────────────────────────────
+
+// The three things a transaction needs before it can be confirmed.
+export type CaptureSlot = 'date' | 'amount' | 'description';
+
+// What a draft still genuinely lacks, in the order to ask about it.
+//
+// The capture flow used to walk a fixed question list regardless of what had
+// already been said, which is how a message containing four itemised prices
+// was followed by "How much was it?" and "What did they buy?". A question is
+// generated from this and nothing else.
+export function openSlots(draft: {
+    amount: number | null;
+    lineItems?: LineItem[] | null;
+    recipient: string | null;
+    date: Date | null;
+    dateSkipped?: boolean;
+}): CaptureSlot[] {
+    const open: CaptureSlot[] = [];
+    if (!draft.date && !draft.dateSkipped) open.push('date');
+    // An itemisation fills the amount slot with its total.
+    const hasAmount = (draft.amount != null && draft.amount > 0)
+        || (draft.lineItems != null && draft.lineItems.length > 0);
+    if (!hasAmount) open.push('amount');
+    if (!draft.recipient) open.push('description');
+    return open;
+}
+
+// ── Absorbing more than was asked ────────────────────────────────────────────
+
+// The slots a follow-up answer might fill, whichever question prompted it.
+export interface OpenSlots {
+    amount: number | null;
+    lineItems: LineItem[] | null;
+    recipient: string | null;
+    currency: CurrencyLock;
+}
+
+// Folds whatever an answer happens to contain into the slots still empty.
+//
+// Someone asked "when was it?" may well reply "yesterday, the ram was 5000USD
+// too" — and a flow that reads only the field it asked about throws the rest
+// away and then asks for it. Only EMPTY slots are filled: an answer never
+// overwrites something already established, so a stray number in a date reply
+// cannot displace a known amount.
+//
+// Conservative by construction. The amount is only taken from a
+// currency-tagged figure, which is why "around 7pm" in a date answer is not
+// read as seven of anything.
+export function absorbAnswer(current: OpenSlots, text: string): OpenSlots {
+    const next: OpenSlots = { ...current, currency: lockCurrency(current.currency, text) };
+
+    if (!next.lineItems || next.lineItems.length === 0) {
+        const itemisation = extractLineItems(text);
+        if (itemisation) {
+            next.lineItems = itemisation.items;
+            // The itemisation's total is the amount, and it beats a bare figure.
+            next.amount = itemisation.total;
+        }
+    }
+
+    if (next.amount == null || next.amount <= 0) {
+        const found = extractAmount(text);
+        if (found && found.amount > 0) next.amount = found.amount;
+    }
+
+    if (!next.recipient) {
+        const parties = extractParties(text);
+        next.recipient = parties.recipient ?? parties.sender ?? extractFreeformName(text)
+            ?? (next.lineItems && next.lineItems.length > 0 ? itemsSummary(next.lineItems) : null);
+    }
+
+    return next;
+}
+
+// A plain-words list of what the items were, for the places that need one
+// string rather than a list — the transaction's description, mainly.
+export function itemsSummary(items: LineItem[]): string {
+    return items.map(i => i.description).join(', ');
+}
+
 // ── The confirmation sentence ────────────────────────────────────────────────
 
 // What the user is actually being asked to agree to. Lives here, not in the
@@ -218,16 +324,23 @@ export interface ConfirmFields {
     purposeLabel: string | null;
     dateLabel: string | null;
     dateSkipped: boolean;
+    // The itemisation, when there is one. Confirming four stated prices as a
+    // single flattened total throws away detail the user typed out, and leaves
+    // them nothing specific to correct if one line is wrong.
+    lineItems?: LineItem[] | null;
 }
 
 export function buildConfirmSentence(f: ConfirmFields): string {
     const money = (n: number) => fmtAmountProse(n, f.currency.code);
 
-    // Don't imply a direction we haven't resolved — "money in or out?" is
-    // asked separately, right after this line.
-    const lead = f.direction.source === 'unresolved'
-        ? `${money(f.amount ?? 0)}, ${f.recipient}`
-        : `${money(f.amount ?? 0)} ${f.direction.type === 'received' ? 'from' : 'to'} ${f.recipient}`;
+    const items = f.lineItems ?? null;
+    const lead = items && items.length > 0
+        ? `${items.map(i => `${i.description} ${money(i.amount)}`).join(', ')} — total ${money(f.amount ?? 0)}`
+        // Don't imply a direction we haven't resolved — "money in or out?" is
+        // asked separately, right after this line.
+        : f.direction.source === 'unresolved'
+            ? `${money(f.amount ?? 0)}, ${f.recipient}`
+            : `${money(f.amount ?? 0)} ${f.direction.type === 'received' ? 'from' : 'to'} ${f.recipient}`;
 
     const parts = [lead];
     if (f.purposeLabel) parts.push(`for ${f.purposeLabel}`);
@@ -260,6 +373,9 @@ export function buildSelfReportedTransaction(fields: {
     // The resolved direction. Omitted means "nothing was said" -> unresolved,
     // exactly as the SMS path treats a signal-free message. No silent 'sent'.
     direction?: DirectionResult;
+    // The itemisation the user gave, kept on the transaction so the document
+    // renders the breakdown rather than one flattened figure.
+    lineItems?: LineItem[] | null;
 }): ParsedTransaction {
     const direction: DirectionResult = fields.direction ?? { type: 'sent', confidence: 30, source: 'unresolved' };
     const type = direction.type;
@@ -323,7 +439,7 @@ export function buildSelfReportedTransaction(fields: {
         directionUnresolved,
 
         dataSource: 'self_reported',
-        lineItems: null,
+        lineItems: fields.lineItems && fields.lineItems.length > 0 ? fields.lineItems : null,
         purposeLabel: fields.purposeLabel ?? null,
     };
 }
