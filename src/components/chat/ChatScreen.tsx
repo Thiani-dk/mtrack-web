@@ -44,6 +44,9 @@ interface ChatScreenProps {
     // right after mount; not re-checked on later re-renders.
     resumeSessionId?: string | null;
     onBack: () => void;
+    // Offered once, from the demo's closing summary. The demo itself is
+    // otherwise unchanged.
+    onOpenActiveMode?: () => void;
 }
 
 const GREETING = "I'm M-Track. Copy your M-Pesa, Airtel Money, or any transaction confirmation messages and send them here. I'll break down what you spent, spot patterns, and put together a receipt you can download.";
@@ -235,10 +238,14 @@ const demoSummary = (pasteLanded: boolean): string => {
     const pasteClause = pasteLanded
         ? ', copied a real message and watched the details come across on their own,'
         : ',';
-    return `That's it. You just built a claim by tapping through it${pasteClause} labelled what each line was for, and got a document with the fees included in the total.\n\nThe real thing works the same way. Ready to make one?`;
+    return `That's it. You just built a claim by tapping through it${pasteClause} labelled what each line was for, and got a document with the fees included in the total.\n\n`
+        + `There's also an Active Mode for tracking a lot of sales quickly at a stand or on a busy day.\n\n`
+        + `The real thing works the same way. Ready to make one?`;
 };
+// One extra exit, not an extension of this demo's own flow.
 const DEMO_SUMMARY_OPTIONS: ChatOption[] = [
     { id: 'real', label: 'Make a real one', value: 'real' },
+    { id: 'active', label: 'Show me Active Mode', value: 'active' },
     { id: 'back', label: 'Back to start', value: 'back' },
 ];
 
@@ -459,7 +466,7 @@ async function deliverInsights(
     }
 }
 
-export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProps) {
+export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode }: ChatScreenProps) {
     const {
         sessions,
         activeSession,
@@ -809,12 +816,16 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                     setIsDemoSession(false);
                     newSession();
                     setSidebarOpen(false);
+                } else if (value === 'active') {
+                    setDemoFlow(null);
+                    setIsDemoSession(false);
+                    onOpenActiveMode?.();
                 } else {
                     onBack();
                 }
                 break;
         }
-    }, [updateDemoMessage, addDemoMessage, setDemoFlow, addDemoLine, startDemoPurposes, applyDemoPurpose, newSession, onBack]);
+    }, [updateDemoMessage, addDemoMessage, setDemoFlow, addDemoLine, startDemoPurposes, applyDemoPurpose, newSession, onBack, onOpenActiveMode]);
 
     // The "Something else" free-text path. Tapping is always enough to finish
     // the demo; this only runs when the user chose to type instead.

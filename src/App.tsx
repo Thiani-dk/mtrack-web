@@ -107,6 +107,7 @@ export default function App() {
                     <ChatScreen
                         demoMode={chatDemoMode}
                         resumeSessionId={resumeSessionId}
+                        onOpenActiveMode={() => setStep('activeMode')}
                         onBack={() => {
                             setChatDemoMode(false);
                             setResumeSessionId(null);

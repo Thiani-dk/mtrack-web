@@ -10,6 +10,8 @@ import { getDrafts, saveDocument as saveApproved } from '../../lib/documentStore
 import { buildDraft } from '../../lib/draftDocument';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { fmtCurrency } from '../../lib/receiptGenerator';
+import { hasSeenWalkthrough, markWalkthroughSeen } from '../../lib/activeMode/walkthrough';
+import { ActiveModeWalkthrough } from './ActiveModeWalkthrough';
 
 // Active Mode — a dense, non-conversational capture screen.
 //
@@ -62,6 +64,10 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
     const [newBucketName, setNewBucketName] = useState('');
     const [bucketError, setBucketError] = useState<string>('');
     const [hydrated, setHydrated] = useState(false);
+    // Shown automatically the first time only, and on demand from the help
+    // icon forever after — never a one-time wall a returning user is locked
+    // out of.
+    const [walkthroughOpen, setWalkthroughOpen] = useState(() => !hasSeenWalkthrough());
 
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const newBucketRef = useRef<HTMLInputElement>(null);
@@ -121,8 +127,8 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
     }, []);
 
     useEffect(() => {
-        if (hydrated) focusInput();
-    }, [hydrated, focusInput]);
+        if (hydrated && !walkthroughOpen) focusInput();
+    }, [hydrated, walkthroughOpen, focusInput]);
 
     const tallies = bucketTallies(state, transactions);
     const total = dayTotal(transactions);
@@ -217,8 +223,24 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
         focusInput();
     };
 
+    const closeWalkthrough = useCallback(() => {
+        markWalkthroughSeen();
+        setWalkthroughOpen(false);
+        focusInput();
+    }, [focusInput]);
+
+    // Bucket names chosen during the walkthrough are setup, not captured data,
+    // so they carry over. The practice sale does not exist outside the
+    // walkthrough's own state and cannot.
+    const seedBuckets = useCallback((names: string[]) => {
+        setState(prev => names.reduce((acc, name) => addBucket(acc, name).state, prev));
+    }, []);
+
     return (
         <div className="flex flex-col bg-[var(--bg-base)]" style={{ height: '100dvh' }}>
+            {walkthroughOpen && (
+                <ActiveModeWalkthrough onClose={closeWalkthrough} onSeedBuckets={seedBuckets} />
+            )}
             {/* ── Header: the running day, and the way out. ── */}
             <header className="flex-shrink-0 border-b border-[var(--border-glass)] px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
@@ -235,7 +257,7 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
                         <button
-                            onClick={onShowWalkthrough}
+                            onClick={() => { setWalkthroughOpen(true); onShowWalkthrough?.(); }}
                             aria-label="How Active Mode works"
                             title="How Active Mode works"
                             className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)]"

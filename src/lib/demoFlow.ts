@@ -227,9 +227,20 @@ export function buildDemoPasteMessage(fields: {
     amount: number;
     date: Date;
     category: DemoCategory | null;
+    // Which way the money went. The claim demo teaches pasting an expense, so
+    // 'sent' stays the default; Active Mode's practice round teaches pasting a
+    // sale and asks for 'received'. Same generator either way — the code, the
+    // date format and the balance line are what make a practice paste parse
+    // like the real thing, and there must only be one of them.
+    direction?: 'sent' | 'received';
 }): string {
-    const account = fields.category ? DEMO_CATEGORIES[fields.category].account : 'EXPENSES';
     const balance = 8000 + Math.round(fields.amount * 1.847);
+    if (fields.direction === 'received') {
+        return `${fakeMpesaCode()} Confirmed. You have received Ksh${fmtMoney2(fields.amount)} `
+            + `from ${fields.recipient.toUpperCase()} 0712345678 on ${fmtMpesaDateTime(fields.date)}. `
+            + `New M-PESA balance is Ksh${fmtMoney2(balance)}.`;
+    }
+    const account = fields.category ? DEMO_CATEGORIES[fields.category].account : 'EXPENSES';
     return `${fakeMpesaCode()} Confirmed. Ksh${fmtMoney2(fields.amount)} sent to ${fields.recipient.toUpperCase()} `
         + `for account ${account} on ${fmtMpesaDateTime(fields.date)}. New M-PESA balance is Ksh${fmtMoney2(balance)}. `
         + `Transaction cost, Ksh${fmtMoney2(DEMO_PASTE_FEE)}.`;
