@@ -29,13 +29,49 @@ function commaGroup(n: number): string {
 //   100,000-999,999 nearest 100   "Ksh 234,500"
 //   1,000,000+     "X.XM" form    "Ksh 1.2M"
 export function fmtProse(n: number): string {
+    return fmtProseCurrency(n, 'KES');
+}
+
+// How a currency is written in conversational copy. A symbol where one is
+// unambiguous in this context, the ISO code otherwise — never nothing, because
+// an unlabelled figure in a confirmation sentence is exactly how a USD amount
+// came to be accepted as Shillings.
+const PROSE_SYMBOL: Record<string, string> = {
+    KES: 'Ksh', USD: '$', EUR: '€', GBP: '£',
+};
+
+export function currencyProseSymbol(currency: string | null | undefined): string {
+    return PROSE_SYMBOL[(currency ?? 'KES').toUpperCase()] ?? (currency ?? 'KES').toUpperCase();
+}
+
+// A word-like symbol ("Ksh", "USD") takes a space; a punctuation symbol
+// ("$", "£") sits against the digits.
+function joinSymbol(sym: string, digits: string): string {
+    return /[A-Za-z]$/.test(sym) ? `${sym} ${digits}` : `${sym}${digits}`;
+}
+
+// fmtProse, in whichever currency actually applies.
+export function fmtProseCurrency(n: number, currency: string | null | undefined): string {
+    const sym = currencyProseSymbol(currency);
     const abs = Math.abs(n);
-    if (abs < 1000) return `Ksh ${commaGroup(abs)}`;
+    if (abs < 1000) return joinSymbol(sym, commaGroup(abs));
     if (abs < 1_000_000) {
         const unit = abs < 100_000 ? 10 : 100;
-        return `Ksh ${commaGroup(Math.round(abs / unit) * unit)}`;
+        return joinSymbol(sym, commaGroup(Math.round(abs / unit) * unit));
     }
-    return `Ksh ${(abs / 1_000_000).toFixed(1)}M`;
+    return joinSymbol(sym, `${(abs / 1_000_000).toFixed(1)}M`);
+}
+
+// The exact figure, never rounded, with its currency — for the confirmation
+// sentence and anywhere else the user is being asked to agree to a number.
+// fmtProse's rounding is right for an insight ("you spent about Ksh 26,270")
+// and wrong for "Ksh 45,680. Right?" when the amount was 45,678.
+export function fmtAmountProse(n: number, currency: string | null | undefined): string {
+    const abs = Math.abs(n);
+    const digits = Number.isInteger(abs)
+        ? commaGroup(abs)
+        : abs.toFixed(2).replace(/\B(?=(\d{3})+(?!\d)\.)/g, ',');
+    return joinSymbol(currencyProseSymbol(currency), digits);
 }
 
 // Whole-number percentage, no decimals — "63%"

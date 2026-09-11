@@ -3,10 +3,14 @@ import type {
     ChatMessage, ChatOption, ParsedTransaction, SkippedMessage,
     DocumentType, MerchantProfile, OnBehalfOfContext, TrackedDocument,
 } from '../../types';
-import { extractDescription, buildSelfReportedTransaction, parseConversationalDate, type DirectionResult } from '../../lib/conversationalCapture';
+import {
+    extractDescription, buildSelfReportedTransaction, parseConversationalDate,
+    lockCurrency, parseAmountReply, buildConfirmSentence, UNSTATED_CURRENCY,
+    type DirectionResult, type CurrencyLock,
+} from '../../lib/conversationalCapture';
 import { DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
-import { fmtProse, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
+import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { getDocument } from '../../lib/documentStore';
 import { buildDraft } from '../../lib/draftDocument';
@@ -82,7 +86,11 @@ type PendingPrompt =
 
 interface CaptureDraft {
     amount: number | null;
-    currency: string;
+    // The currency for this transaction and whether the user actually said it.
+    // Locked by the first explicit mention anywhere in the conversation and
+    // then left alone; a later message that names no currency is the user
+    // continuing in the one they already gave, not a switch back to KES.
+    currency: CurrencyLock;
     recipient: string | null;
     date: Date | null;
     dateAmbiguous: boolean;
@@ -119,7 +127,7 @@ const UNRESOLVED_DIRECTION: DirectionResult = { type: 'sent', confidence: 30, so
 
 function emptyDraft(): CaptureDraft {
     return {
-        amount: null, currency: 'KES', recipient: null, date: null, dateAmbiguous: false,
+        amount: null, currency: UNSTATED_CURRENCY, recipient: null, date: null, dateAmbiguous: false,
         purposeLabel: null, dateInterpretation: null, dateSkipped: false, direction: UNRESOLVED_DIRECTION,
     };
 }
@@ -166,10 +174,10 @@ function directionQuestionMessage(t: ParsedTransaction): Omit<ChatMessage, 'id' 
     const party = t.merchant ?? t.recipient;
     return {
         role: 'bot', kind: 'direction-question',
-        text: `I couldn't tell which way this one went. ${fmtProse(t.amount)}, ${party}, ${dateLabel}. Money in or out?`,
+        text: `I couldn't tell which way this one went. ${fmtProseCurrency(t.amount, t.currency)}, ${party}, ${dateLabel}. Money in or out?`,
         directionQuestion: {
             transactionCode: t.transactionCode,
-            amountLabel: fmtProse(t.amount),
+            amountLabel: fmtProseCurrency(t.amount, t.currency),
             partyLabel: party,
             dateLabel,
         },
@@ -956,7 +964,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         if (!txn) return;
         addMsg({
             role: 'bot', kind: 'text',
-            text: `What was the ${fmtProse(txn.amount)} to ${txn.merchant ?? txn.recipient} for? Say skip to leave it out.`,
+            text: `What was the ${fmtProseCurrency(txn.amount, txn.currency)} to ${txn.merchant ?? txn.recipient} for? Say skip to leave it out.`,
         });
     }, [isDemoSession, addDemoMessage, addMessage]);
 
@@ -981,7 +989,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         if (!draft.date && !draft.dateSkipped) return;
 
         const txn = buildSelfReportedTransaction({
-            amount: draft.amount, currency: draft.currency, recipient: draft.recipient,
+            amount: draft.amount, currency: draft.currency.code, recipient: draft.recipient,
             // Deliberately undated when the user took the "leave it off" offer.
             date: draft.date ?? UNDATED(),
             dateAmbiguous: draft.dateAmbiguous, purposeLabel: draft.purposeLabel,
@@ -1076,21 +1084,17 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         return 'confirm';
     }, [isDemoSession, addDemoMessage, addMessage]);
 
-    const confirmText = useCallback((draft: CaptureDraft): string => {
-        // Don't imply a direction we haven't resolved — "money in or out?" is
-        // asked separately, right after this line is added.
-        const lead = draft.direction.source === 'unresolved'
-            ? `${fmtProse(draft.amount ?? 0)}, ${draft.recipient}`
-            : `${fmtProse(draft.amount ?? 0)} ${draft.direction.type === 'received' ? 'from' : 'to'} ${draft.recipient}`;
-        const parts = [lead];
-        if (draft.purposeLabel) parts.push(`for ${draft.purposeLabel}`);
-        // 1.5 — the date is never accepted silently. The parser's own reading
-        // of it is echoed here, inside the confirmation that already exists,
-        // rather than as a second question of its own.
-        if (draft.date) parts.push(`on ${draft.dateInterpretation ?? fmtShortDate(draft.date)}`);
-        else if (draft.dateSkipped) parts.push('with no date');
-        return `${parts.join(', ')}. Right?`;
-    }, []);
+    // The sentence itself is built in conversationalCapture, where it can be
+    // tested without rendering a chat.
+    const confirmText = useCallback((draft: CaptureDraft): string => buildConfirmSentence({
+        amount: draft.amount,
+        currency: draft.currency,
+        recipient: draft.recipient,
+        direction: draft.direction,
+        purposeLabel: draft.purposeLabel,
+        dateLabel: draft.date ? (draft.dateInterpretation ?? fmtShortDate(draft.date)) : null,
+        dateSkipped: draft.dateSkipped,
+    }), []);
 
     const advanceAfterField = useCallback((flow: DocFlow, draft: CaptureDraft) => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
@@ -1110,7 +1114,9 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
         const draft: CaptureDraft = {
             ...flow.draft,
             amount: r.amount ?? flow.draft.amount,
-            currency: r.currency,
+            // Folded, never replaced: the first stated currency holds for the
+            // whole transaction, and a silent message does not reset it.
+            currency: lockCurrency(flow.draft.currency, text),
             recipient: r.recipient ?? flow.draft.recipient,
             date: r.date ?? flow.draft.date,
             dateAmbiguous: r.dateAmbiguous,
@@ -1211,7 +1217,12 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                     setDocFlow({ ...flow, dateAttempts: 0 });
                     advanceAfterField(
                         { ...flow, dateAttempts: 0 },
-                        { ...flow.draft, date: d.date, dateAmbiguous: false, dateInterpretation: d.interpretation, dateSkipped: false },
+                        {
+                            ...flow.draft, date: d.date, dateAmbiguous: false,
+                            dateInterpretation: d.interpretation, dateSkipped: false,
+                            // An answer may say more than was asked.
+                            currency: lockCurrency(flow.draft.currency, t),
+                        },
                     );
                     return true;
                 }
@@ -1233,10 +1244,16 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                 return true;
             }
             case 'field-amount': {
-                const cleaned = t.replace(/[,\s]/g, '');
-                const m = cleaned.match(/(\d+(?:\.\d{1,2})?)/);
-                if (!m) { addMsg({ role: 'bot', kind: 'text', text: 'How much, in Ksh?' }); return true; }
-                advanceAfterField(flow, { ...flow.draft, amount: parseFloat(m[1]) });
+                // "100k USD" is 100,000 US Dollars. Reading it as 100 Shillings
+                // is the bug this whole path was rebuilt around.
+                const reply = parseAmountReply(t);
+                const currency = lockCurrency(flow.draft.currency, t);
+                if (reply.amount == null) {
+                    addMsg({ role: 'bot', kind: 'text', text: 'How much was it? A figure is enough.' });
+                    setDocFlow({ ...flow, draft: { ...flow.draft, currency } });
+                    return true;
+                }
+                advanceAfterField(flow, { ...flow.draft, amount: reply.amount, currency });
                 return true;
             }
             case 'field-recipient':
@@ -1244,7 +1261,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack }: ChatScreenProp
                     addMsg({ role: 'bot', kind: 'text', text: flow.documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?' });
                     return true;
                 }
-                advanceAfterField(flow, { ...flow.draft, recipient: t });
+                advanceAfterField(flow, { ...flow.draft, recipient: t, currency: lockCurrency(flow.draft.currency, t) });
                 return true;
             case 'purpose-label': {
                 const [code, ...restQueue] = flow.purposeQueue;
