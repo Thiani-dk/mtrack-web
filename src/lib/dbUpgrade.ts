@@ -33,9 +33,11 @@ function migrateTransaction(t: ParsedTransaction): ParsedTransaction {
         directionSource: legacy.directionSource ?? 'keyword',
         directionDisputed: legacy.directionDisputed ?? false,
         directionUnresolved: legacy.directionUnresolved ?? false,
+        directionAssumed: legacy.directionAssumed ?? false,
         dataSource: 'sms_verified',
         lineItems: null,
         purposeLabel: null,
+        bucketLabel: legacy.bucketLabel ?? null,
     };
 }
 
@@ -57,6 +59,8 @@ export function receiptToDocument(r: StoredReceipt): TrackedDocument {
         onBehalfOf: null,
         coveringFrom,
         coveringTo,
+        // Nothing that predates Active Mode came from it.
+        capturedViaActiveMode: false,
     };
 }
 

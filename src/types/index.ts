@@ -85,6 +85,10 @@ export interface TrackedDocument {
     // usable date. Never populated from a relative range selection.
     coveringFrom: number | null;
     coveringTo: number | null;
+    // Built through Active Mode's rapid capture screen rather than the chat.
+    // Drives the bucket-breakdown section in the report, and scopes the
+    // direction-default exception. Never set retroactively.
+    capturedViaActiveMode: boolean;
 }
 
 export interface ParsedTransaction {
@@ -160,6 +164,14 @@ export interface ParsedTransaction {
     // We could not determine direction. `type` is a neutral guess; the app
     // asks the user rather than acting on it. Forces confidenceLevel 'low'.
     directionUnresolved: boolean;
+    // `type` was filled in by the Active Mode default rather than resolved
+    // from the message — see applyActiveModeDirection. It means the same thing
+    // directionUnresolved means (nothing in the text settled it), but recorded
+    // instead of asked, because a vendor mid-rush cannot be stopped for a
+    // question they answered by opening Active Mode at all. Surfaced as a
+    // quiet marker for later review, never as a blocking prompt. Always false
+    // outside Active Mode, where an unresolved direction is still asked about.
+    directionAssumed: boolean;
 
     // ── unified document model (Phase A) ──
     // 'sms_verified' for anything from the SMS parsing pipeline,
@@ -168,6 +180,12 @@ export interface ParsedTransaction {
     // Itemised breakdown for a point-of-sale line. null when the transaction
     // is a single undifferentiated amount.
     lineItems: LineItem[] | null;
+    // The user-created Active Mode bucket this sale was filed into
+    // ("Combo sales"). Distinct from receiptLabel, which is a fixed preset,
+    // and from purposeLabel, which is free-text prose explaining one line to
+    // one reader. Do not merge them or fall one back to another. null for
+    // anything not captured through Active Mode.
+    bucketLabel: string | null;
     // Free text a person writes to explain one line to one reader
     // ("client lunch at Galitos, met the Kisumu team"). Deliberately separate
     // from receiptLabel, which is a category from a fixed preset — do not

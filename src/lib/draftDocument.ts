@@ -11,6 +11,9 @@ import { reconcileDocument } from './documentModel';
 // current transactions by reconcileDocument; callers never set them.
 export function buildDraft(params: {
     sessionId: string;
+    // Active Mode sessions set this once, at creation. Everything else leaves
+    // it false and gets the ordinary chat-built document.
+    capturedViaActiveMode?: boolean;
     documentType: DocumentType;
     merchantProfile: MerchantProfile | null;
     onBehalfOf: OnBehalfOfContext | null;
@@ -31,6 +34,7 @@ export function buildDraft(params: {
         onBehalfOf: null,
         coveringFrom: null,
         coveringTo: null,
+        capturedViaActiveMode: params.capturedViaActiveMode ?? false,
     };
 
     return reconcileDocument({

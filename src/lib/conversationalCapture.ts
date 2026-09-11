@@ -376,6 +376,8 @@ export function buildSelfReportedTransaction(fields: {
     // The itemisation the user gave, kept on the transaction so the document
     // renders the breakdown rather than one flattened figure.
     lineItems?: LineItem[] | null;
+    // The Active Mode bucket this was filed into, when it was.
+    bucketLabel?: string | null;
 }): ParsedTransaction {
     const direction: DirectionResult = fields.direction ?? { type: 'sent', confidence: 30, source: 'unresolved' };
     const type = direction.type;
@@ -441,5 +443,7 @@ export function buildSelfReportedTransaction(fields: {
         dataSource: 'self_reported',
         lineItems: fields.lineItems && fields.lineItems.length > 0 ? fields.lineItems : null,
         purposeLabel: fields.purposeLabel ?? null,
+        bucketLabel: fields.bucketLabel ?? null,
+        directionAssumed: false,
     };
 }

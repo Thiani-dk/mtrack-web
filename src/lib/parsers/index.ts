@@ -213,6 +213,10 @@ export function finalizeTransaction(r: RawBlockResult, minScore = 40): ParsedTra
         dataSource: 'sms_verified',
         lineItems: null,
         purposeLabel: null,
+        bucketLabel: null,
+        // Resolved from the message, or asked about. Active Mode is the only
+        // place that fills a direction in instead — see applyActiveModeDirection.
+        directionAssumed: false,
     };
 }
 

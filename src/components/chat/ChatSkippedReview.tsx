@@ -241,6 +241,8 @@ function SkippedRow({
             dataSource: 'self_reported',
             lineItems: null,
             purposeLabel: null,
+            bucketLabel: null,
+            directionAssumed: false,
         };
         setShowManualEntry(false);
         commitInclude(transaction);
