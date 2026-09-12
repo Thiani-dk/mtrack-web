@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { launch, openActiveMode, pasteInto, reporter, saleMessage, SHOT_DIR } from './harness.mjs';
+import { launch, openActiveMode, pasteInto, pendingCapture, reporter, saleMessage, SHOT_DIR } from './harness.mjs';
 
 // The whole Active Mode journey, in a real browser, on a fresh profile:
 // HomeScreen -> first-run walkthrough with a real practice capture -> buckets
@@ -75,7 +75,11 @@ check('chosen buckets carried over', (await page.locator('.am-chips').innerText(
 
 // ── 3. Two-action capture ──
 await paste(page, sale('QA01XK9P2L', 350, 'JOHN KAMAU', '12:05'));
-check('paste alone produces a pending capture (action 1)', (await page.locator('.am-capture').innerText()).toLowerCase().includes('tap a bucket'));
+// Read as a value. The substring "tap a bucket" appears in the empty-state
+// hint as well as the pending card; this script only ever distinguished them
+// because a media query hides that hint below 460px, which is an accident of
+// responsive design and not something this assertion should depend on.
+check('paste alone produces a pending capture (action 1)', (await pendingCapture(page))?.amount === 350);
 await page.locator('.am-chips button', { hasText: 'Combo sales' }).click();
 await page.waitForTimeout(150);
 check('one tap files it (action 2)', (await page.locator('.am-total').innerText()).includes('350'));
@@ -137,14 +141,14 @@ await paste(page, sale('QA09XK9P2L', 1250, 'GRACE ATIENO', '12:44'));
 await page.waitForTimeout(200);
 const beforeTotal = (await page.locator('.am-total').innerText()).trim();
 const beforeChips = (await page.locator('.am-chips').innerText()).replace(/\s+/g, ' ');
-check('a capture is pending before the reload', (await page.locator('.am-capture').innerText()).toLowerCase().includes('tap a bucket'));
+check('a capture is pending before the reload', (await pendingCapture(page))?.amount === 1250);
 await page.waitForTimeout(900);   // let the debounced write land
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(900);
 const helpVisible = await page.getByRole('dialog', { name: 'How Active Mode works' }).count();
 check('the walkthrough does not re-trigger on a later open', helpVisible === 0);
-const afterCapture = await page.locator('.am-capture').innerText();
-check('the pending, unfiled capture survives the reload', afterCapture.toLowerCase().includes('tap a bucket') && afterCapture.includes('1,250'), afterCapture.replace(/\n/g, ' ').slice(0, 80));
+check('the pending, unfiled capture survives the reload',
+  (await pendingCapture(page))?.amount === 1250, JSON.stringify(await pendingCapture(page)));
 check('the running total survives the reload', (await page.locator('.am-total').innerText()).trim() === beforeTotal, `${beforeTotal} -> ${(await page.locator('.am-total').innerText()).trim()}`);
 const afterChips = (await page.locator('.am-chips').innerText()).replace(/\s+/g, ' ');
 check('every bucket subtotal and count survives the reload', afterChips === beforeChips, afterChips.slice(0, 120));

@@ -125,6 +125,12 @@ function expectDrawn(drawn: DrawnString[], wanted: string): void {
 
 function expectClean(m: DocModel): DrawnString[] {
     const drawn = draw(m);
+    // A page that draws NOTHING has no collisions and no overflow, so both
+    // checks below would pass it. The guard belongs here rather than at the
+    // call sites: every current caller happens to follow up with a content
+    // assertion, but the next one to forget would be silently vacuous in the
+    // one file whose whole purpose is catching a PDF that renders wrongly.
+    expect(drawn.length, 'the layout drew nothing at all').toBeGreaterThan(0);
     expect(collisions(drawn), 'overlapping text').toEqual([]);
     expect(overflows(drawn), 'text outside the page margins').toEqual([]);
     return drawn;

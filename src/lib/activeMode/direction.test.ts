@@ -74,9 +74,15 @@ describe('inside Active Mode — the scoped exception', () => {
     });
 
     it('re-derives the subType and sender to match money coming in', () => {
-        const t = applyActiveModeDirection(parseAllSMS(UNRESOLVABLE)[0]);
+        const raw = parseAllSMS(UNRESOLVABLE)[0];
+        const t = applyActiveModeDirection(raw);
+
         expect(t.sender).not.toBeNull();
-        expect(t.subType).not.toBe('unknown');
+        // The specific subType, not merely "not unknown" — that accepted any
+        // of the ten values including person_send, the exact opposite of the
+        // money-coming-in this test is named for.
+        expect(t.subType).toBe('person_receive');
+        expect(t.subType).not.toBe(raw.subType);
     });
 
     it('lifts the confidence floor that existed only because a question was open', () => {

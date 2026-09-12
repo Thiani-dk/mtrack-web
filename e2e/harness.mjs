@@ -79,6 +79,16 @@ export function reporter() {
     const results = [];
     return {
         check(name, pass, detail = '') {
+            // A forgotten `await` hands this a Promise, which is truthy, and
+            // the check would report PASS forever while asserting nothing.
+            // Refuse the value rather than trust the caller: the whole class
+            // of mistake becomes impossible instead of merely absent today.
+            if (typeof pass !== 'boolean') {
+                throw new TypeError(
+                    `check("${name}") expected a boolean, got ${pass instanceof Promise ? 'a Promise' : typeof pass}`
+                    + ' — a missing `await` would do exactly this.',
+                );
+            }
             results.push({ name, pass, detail });
             console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
         },
