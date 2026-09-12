@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-    absorbAnswer, buildConfirmSentence, extractDescription, extractLineItems,
-    itemsSummary, lockCurrency, openSlots, parseAmountReply, parseConversationalDate,
-    UNSTATED_CURRENCY, type CaptureSlot, type CurrencyLock,
+    absorbAnswer, buildConfirmSentence, extractDescription, extractLineItems, itemsSummary,
+    openSlots, type CaptureSlot,
 } from './conversationalCapture';
-import type { LineItem } from '../types';
+import {
+    composeDescription, composeDraftAnswer, emptyCaptureDraft, skipDate,
+    type CaptureDraft,
+} from './captureDraft';
 
 // The transcript from the bug report, replayed through the capture logic.
 //
@@ -13,6 +15,12 @@ import type { LineItem } from '../types';
 // read "100k USD" as 100, dropped USD, and asked the user to confirm "Ksh 100
 // to Computer stuff". Everything below asserts on the two things that went
 // wrong — which questions get asked, and what the confirmation actually says.
+//
+// These helpers used to be a hand-written model of ChatScreen's composition,
+// which is how this file stayed green through a production bug it could not
+// express. They now call composeDescription / composeDraftAnswer — the same
+// functions the handlers call — so a divergence between what is tested and
+// what ships is no longer possible.
 
 const FIRST = 'They bought hardware. Computer components. Some ram I sold at 5000USD, '
     + 'AI chip 10k USD, CPU 10k USD, motherboard 7000usd,';
@@ -29,58 +37,20 @@ const QUESTION: Record<CaptureSlot, string> = {
     description: 'What did they buy?',
 };
 
-interface Draft {
-    amount: number | null;
-    lineItems: LineItem[] | null;
-    recipient: string | null;
-    date: Date | null;
-    dateSkipped: boolean;
-    currency: CurrencyLock;
-}
+type Draft = CaptureDraft;
+const emptyDraft = emptyCaptureDraft;
 
-function emptyDraft(): Draft {
-    return { amount: null, lineItems: null, recipient: null, date: null, dateSkipped: false, currency: UNSTATED_CURRENCY };
-}
-
-// Runs the opening free-text message through extraction, exactly as
-// handleDescription does.
+// The opening free-text message, through the production composition.
 function describe1(text: string, prior: Draft = emptyDraft()): Draft {
-    const r = extractDescription(text, NOW);
-    return {
-        ...prior,
-        amount: r.amount ?? prior.amount,
-        lineItems: r.itemisation?.items ?? prior.lineItems,
-        recipient: r.recipient ?? prior.recipient,
-        date: r.date ?? prior.date,
-        currency: lockCurrency(prior.currency, text),
-    };
+    return composeDescription(prior, text, NOW).draft;
 }
 
-// Answers whichever question is currently open, the way the pending-prompt
-// handlers do, and returns the new draft plus the question that was asked.
+// Answers whichever question is currently open, through the same reducer the
+// pending-prompt handlers use, and reports which question was asked.
 function answer(draft: Draft, text: string): { draft: Draft; asked: string | null } {
     const [slot] = openSlots(draft);
     if (!slot) return { draft, asked: null };
-
-    if (slot === 'date') {
-        const d = parseConversationalDate(text, NOW);
-        return {
-            asked: QUESTION.date,
-            draft: { ...draft, ...absorbAnswer(draft, text), date: d.date ?? draft.date },
-        };
-    }
-    if (slot === 'amount') {
-        const reply = parseAmountReply(text);
-        const absorbed = absorbAnswer(draft, text);
-        return {
-            asked: QUESTION.amount,
-            draft: {
-                ...draft, ...absorbed,
-                amount: absorbed.lineItems?.length ? absorbed.amount : (reply.amount ?? absorbed.amount),
-            },
-        };
-    }
-    return { asked: QUESTION.description, draft: { ...draft, ...absorbAnswer(draft, text), recipient: text } };
+    return { asked: QUESTION[slot], draft: composeDraftAnswer(draft, slot, text, NOW).draft };
 }
 
 describe('extracting the first message', () => {
@@ -211,11 +181,21 @@ describe('an answer that says more than was asked', () => {
     });
 
     it('never overwrites a slot that is already filled', () => {
-        const filled = { ...emptyDraft(), amount: 32_000, recipient: 'Parts', currency: { code: 'USD', explicit: true } };
-        const absorbed = absorbAnswer(filled, 'actually Ksh 99 for sweets');
-        expect(absorbed.amount).toBe(32_000);
-        expect(absorbed.recipient).toBe('Parts');
-        expect(absorbed.currency.code).toBe('USD');
+        // Answering the one open question (the date) with a message that also
+        // names an amount, a description and a currency must leave all three
+        // of the already-settled ones exactly as they were.
+        const filled: Draft = {
+            ...emptyDraft(),
+            amount: 32_000, recipient: 'Parts', currency: { code: 'USD', explicit: true },
+        };
+        expect(openSlots(filled)).toEqual(['date']);
+
+        const { draft } = composeDraftAnswer(filled, 'date', 'yesterday, actually Ksh 99 for sweets', NOW);
+        expect(draft.amount).toBe(32_000);
+        expect(draft.recipient).toBe('Parts');
+        expect(draft.currency.code).toBe('USD');
+        // And the slot that WAS asked about is the one that changed.
+        expect(draft.date).toEqual(new Date('2026-09-11T12:00:00'));
     });
 });
 
@@ -360,5 +340,104 @@ describe('every capture mode shares one extraction pipeline', () => {
         const b = extractDescription(MESSAGE, NOW);
         expect(a.itemisation?.items).toEqual(b.itemisation?.items);
         expect(a.itemisation?.total).toBe(420);
+    });
+});
+
+describe('composeDraftAnswer spread order — the absorbAnswer regression', () => {
+    // A NAMED guard for one specific defect, not incidental coverage.
+    //
+    // absorbAnswer takes the whole draft and returns the slots an answer
+    // happened to fill, layered on what was already there. Production once
+    // spread that result AFTER the field the answer was about:
+    //
+    //     { ...draft, date: d.date, ...absorbAnswer(draft, t) }
+    //
+    // which wrote the pre-answer date — null — straight back over the date
+    // just parsed. Every accepted date was discarded and the bot re-asked
+    // "when was that?" forever. Thirty tests in this file stayed green because
+    // they carried their own copy of this composition with the order correct.
+    //
+    // Each assertion below fails if the spread is flipped back.
+
+    it('keeps the date the answer was about, not the null it replaced', () => {
+        const before = emptyDraft();
+        expect(before.date).toBeNull();
+
+        const { draft, accepted } = composeDraftAnswer(before, 'date', 'yesterday', NOW);
+        expect(accepted).toBe(true);
+        expect(draft.date).toEqual(new Date('2026-09-11T12:00:00'));
+        expect(draft.dateInterpretation).toBe('11 September 2026');
+        expect(draft.dateSkipped).toBe(false);
+    });
+
+    it('absorbAnswer returns its four slots and nothing else', () => {
+        // This, not the spread order, is what actually protects the date now.
+        //
+        // The original bug had two halves: absorbAnswer spread its whole input
+        // back out (so its result carried a stale `date`), and the caller
+        // spread that result over the date it had just set. Fixing either half
+        // closes it. Reverting the spread order alone no longer reproduces the
+        // bug precisely because this half holds — so this half needs its own
+        // assertion, or restoring `{ ...current }` inside absorbAnswer would
+        // reintroduce the whole defect with every other test still green.
+        const filled: Draft = { ...emptyDraft(), date: new Date('2026-01-01T12:00:00'), dateSkipped: true };
+        const absorbed = absorbAnswer(filled, 'yesterday');
+
+        expect(Object.keys(absorbed).sort()).toEqual(['amount', 'currency', 'lineItems', 'recipient']);
+        // Spelled out, since the key list above is the whole point.
+        expect('date' in absorbed).toBe(false);
+        expect('dateSkipped' in absorbed).toBe(false);
+        expect('direction' in absorbed).toBe(false);
+    });
+
+    it('closes the date slot, so the question is not asked again', () => {
+        // The user-visible symptom of the bug, stated as a slot fact.
+        const { draft } = composeDraftAnswer(emptyDraft(), 'date', 'yesterday', NOW);
+        expect(openSlots(draft)).not.toContain('date');
+    });
+
+    it('keeps the amount the answer was about, not the null it replaced', () => {
+        // A BARE figure, deliberately. Given "100k USD" both absorbAnswer and
+        // parseAmountReply arrive at 100,000, so the spread order makes no
+        // observable difference and the guard would not bite. A bare "45000"
+        // is the case only parseAmountReply reads — the question supplied the
+        // context free text lacks — so spreading absorbAnswer last puts null
+        // back and this fails.
+        const { draft, accepted } = composeDraftAnswer(emptyDraft(), 'amount', '45000', NOW);
+        expect(accepted).toBe(true);
+        expect(draft.amount).toBe(45_000);
+        expect(openSlots(draft)).not.toContain('amount');
+    });
+
+    it('keeps the description the answer was about, not the null it replaced', () => {
+        const { draft, accepted } = composeDraftAnswer(emptyDraft(), 'description', 'Computer stuff', NOW);
+        expect(accepted).toBe(true);
+        expect(draft.recipient).toBe('Computer stuff');
+        expect(openSlots(draft)).not.toContain('description');
+    });
+
+    it('still absorbs what the answer said beyond the question', () => {
+        // The guard must not be satisfiable by dropping absorbAnswer entirely —
+        // that would trade one bug for another. A date answer that also names
+        // an amount fills both.
+        const { draft } = composeDraftAnswer(emptyDraft(), 'date', 'yesterday, it was Ksh 4,500', NOW);
+        expect(draft.date).toEqual(new Date('2026-09-11T12:00:00'));
+        expect(draft.amount).toBe(4500);
+        expect(draft.currency).toEqual({ code: 'KES', explicit: true });
+    });
+
+    it('leaves the slot untouched when the answer is refused', () => {
+        const { draft, accepted } = composeDraftAnswer(emptyDraft(), 'date', 'no idea', NOW);
+        expect(accepted).toBe(false);
+        expect(draft.date).toBeNull();
+        expect(draft.dateSkipped).toBe(false);
+        expect(openSlots(draft)).toContain('date');
+    });
+
+    it('skipDate closes the slot without inventing a date', () => {
+        const skipped = skipDate(emptyDraft());
+        expect(skipped.date).toBeNull();
+        expect(skipped.dateSkipped).toBe(true);
+        expect(openSlots(skipped)).not.toContain('date');
     });
 });

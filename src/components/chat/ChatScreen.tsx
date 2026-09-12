@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
-    ChatMessage, ChatOption, LineItem, ParsedTransaction, SkippedMessage,
+    ChatMessage, ChatOption, ParsedTransaction, SkippedMessage,
     DocumentType, MerchantProfile, OnBehalfOfContext, TrackedDocument,
 } from '../../types';
+import { buildSelfReportedTransaction, buildConfirmSentence, openSlots } from '../../lib/conversationalCapture';
 import {
-    extractDescription, buildSelfReportedTransaction, parseConversationalDate,
-    lockCurrency, parseAmountReply, buildConfirmSentence, absorbAnswer, openSlots, UNSTATED_CURRENCY,
-    type DirectionResult, type CurrencyLock,
-} from '../../lib/conversationalCapture';
+    composeDescription, composeDraftAnswer, emptyCaptureDraft, skipDate,
+    type CaptureDraft,
+} from '../../lib/captureDraft';
 import { advanceDateRetry, DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
 import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
@@ -87,31 +87,6 @@ type PendingPrompt =
     | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm'
     | 'purpose-label' | 'input';
 
-interface CaptureDraft {
-    amount: number | null;
-    // The itemisation, when the user gave one. Its total IS `amount`, so the
-    // amount slot counts as filled and is never asked about again.
-    lineItems: LineItem[] | null;
-    // The currency for this transaction and whether the user actually said it.
-    // Locked by the first explicit mention anywhere in the conversation and
-    // then left alone; a later message that names no currency is the user
-    // continuing in the one they already gave, not a switch back to KES.
-    currency: CurrencyLock;
-    recipient: string | null;
-    date: Date | null;
-    dateAmbiguous: boolean;
-    purposeLabel: string | null;
-    // The parser's plain-English reading of the date ("13 March 2026"), echoed
-    // back in the confirmation sentence so a date is never silently accepted.
-    dateInterpretation: string | null;
-    // Set once the user has been offered, and taken, "leave the date off" after
-    // repeated unreadable answers. Stops the date question being asked again.
-    dateSkipped: boolean;
-    // Resolved from what the user typed (extractDescription). Starts unresolved
-    // so a capture that never carried a directional word gets asked, not guessed.
-    direction: DirectionResult;
-}
-
 interface DocFlow {
     documentType: DocumentType;
     merchantProfile: MerchantProfile | null;
@@ -134,14 +109,10 @@ interface DocFlow {
     draftDoc: TrackedDocument | null;
 }
 
-const UNRESOLVED_DIRECTION: DirectionResult = { type: 'sent', confidence: 30, source: 'unresolved' };
-
-function emptyDraft(): CaptureDraft {
-    return {
-        amount: null, lineItems: null, currency: UNSTATED_CURRENCY, recipient: null, date: null, dateAmbiguous: false,
-        purposeLabel: null, dateInterpretation: null, dateSkipped: false, direction: UNRESOLVED_DIRECTION,
-    };
-}
+// The draft shape, its empty value and every rule for folding an answer into
+// it live in lib/captureDraft — one implementation, called by these handlers
+// and by the tests alike.
+const emptyDraft = emptyCaptureDraft;
 
 // The guided demo's ephemeral state machine — a parallel to DocFlow that only
 // ever runs in a demo session. Never persisted, never touches IndexedDB.
@@ -1146,24 +1117,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         const flow = docFlowRef.current;
         if (!flow) return;
 
-        const r = extractDescription(text);
-        const draft: CaptureDraft = {
-            ...flow.draft,
-            amount: r.amount ?? flow.draft.amount,
-            // An itemised message fills the amount slot with its total and the
-            // description slot with the items, so neither is asked about again.
-            lineItems: r.itemisation?.items ?? flow.draft.lineItems,
-            // Folded, never replaced: the first stated currency holds for the
-            // whole transaction, and a silent message does not reset it.
-            currency: lockCurrency(flow.draft.currency, text),
-            recipient: r.recipient ?? flow.draft.recipient,
-            date: r.date ?? flow.draft.date,
-            dateAmbiguous: r.dateAmbiguous,
-            dateInterpretation: r.date ? (r.dateResult.interpretation ?? flow.draft.dateInterpretation) : flow.draft.dateInterpretation,
-            purposeLabel: r.purposeLabel ?? flow.draft.purposeLabel,
-            // Keep a direction we resolved on an earlier turn if this one is silent.
-            direction: r.direction.source !== 'unresolved' ? r.direction : flow.draft.direction,
-        };
+        const { draft, extraction: r } = composeDescription(flow.draft, text);
         const describedCount = flow.describedCount + 1;
 
         const fireNudge = () => {
@@ -1246,25 +1200,14 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 return true;
             }
             case 'field-date': {
-                const d = parseConversationalDate(t);
+                const composed = composeDraftAnswer(flow.draft, 'date', t);
+                const d = composed.dateResult!;
 
-                if (d.confidence === 'exact' && d.date) {
+                if (composed.accepted) {
                     // Accepted, but still echoed back inside the confirmation
                     // sentence (see confirmText) before anything is committed.
                     setDocFlow({ ...flow, dateAttempts: 0, lastDateAnswer: null });
-                    advanceAfterField(
-                        { ...flow, dateAttempts: 0, lastDateAnswer: null },
-                        {
-                            ...flow.draft,
-                            // An answer may say more than was asked; anything
-                            // it carries for a still-empty slot is kept. Spread
-                            // before the date fields, never after — the date is
-                            // what this answer was actually about.
-                            ...absorbAnswer(flow.draft, t),
-                            date: d.date, dateAmbiguous: false,
-                            dateInterpretation: d.interpretation, dateSkipped: false,
-                        },
-                    );
+                    advanceAfterField({ ...flow, dateAttempts: 0, lastDateAnswer: null }, composed.draft);
                     return true;
                 }
 
@@ -1281,7 +1224,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                     addMsg({ role: 'bot', kind: 'text', text: DATE_GIVE_UP });
                     advanceAfterField(
                         { ...flow, dateAttempts: 0, lastDateAnswer: null },
-                        { ...flow.draft, date: null, dateAmbiguous: false, dateInterpretation: null, dateSkipped: true },
+                        skipDate(composed.draft),
                     );
                     return true;
                 }
@@ -1290,35 +1233,24 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 return true;
             }
             case 'field-amount': {
-                // "100k USD" is 100,000 US Dollars. Reading it as 100 Shillings
-                // is the bug this whole path was rebuilt around.
-                const reply = parseAmountReply(t);
-                // The answer may itemise rather than give one figure, and may
-                // name anything else still missing.
-                const absorbed = absorbAnswer(flow.draft, t);
-                if (reply.amount == null && absorbed.amount == null) {
+                const composed = composeDraftAnswer(flow.draft, 'amount', t);
+                if (!composed.accepted) {
                     addMsg({ role: 'bot', kind: 'text', text: 'How much was it? A figure is enough.' });
-                    setDocFlow({ ...flow, draft: { ...flow.draft, currency: absorbed.currency } });
+                    setDocFlow({ ...flow, draft: composed.draft });
                     return true;
                 }
-                advanceAfterField(flow, {
-                    ...flow.draft,
-                    ...absorbed,
-                    // A bare figure in reply to "how much" is the amount, even
-                    // when no currency sat next to it — the question supplied
-                    // the context that the extractors require in free text.
-                    amount: absorbed.lineItems?.length ? absorbed.amount : (reply.amount ?? absorbed.amount),
-                });
+                advanceAfterField(flow, composed.draft);
                 return true;
             }
-            case 'field-recipient':
-                if (!t) {
+            case 'field-recipient': {
+                const composed = composeDraftAnswer(flow.draft, 'description', t);
+                if (!composed.accepted) {
                     addMsg({ role: 'bot', kind: 'text', text: flow.documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?' });
                     return true;
                 }
-                // The typed answer is the description, whatever else it carries.
-                advanceAfterField(flow, { ...flow.draft, ...absorbAnswer(flow.draft, t), recipient: t });
+                advanceAfterField(flow, composed.draft);
                 return true;
+            }
             case 'purpose-label': {
                 const [code, ...restQueue] = flow.purposeQueue;
                 const skip = !t || /^(skip|none|n\/?a|no)$/i.test(t);
