@@ -14,6 +14,7 @@ import { useDocumentStore } from '../../lib/useDocumentStore';
 import { fmtCurrency } from '../../lib/receiptGenerator';
 import { hasSeenWalkthrough, markWalkthroughSeen } from '../../lib/activeMode/walkthrough';
 import { useWakeLock } from '../../lib/useWakeLock';
+import { PasteButton } from '../PasteButton';
 import { ActiveModeWalkthrough } from './ActiveModeWalkthrough';
 
 // Active Mode — a dense, non-conversational capture screen.
@@ -651,6 +652,7 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
 
             {/* ── Paste field. Always on screen, always ready. ── */}
             <div className="flex-shrink-0 border-t border-[var(--border-glass)] px-4 py-2 pb-3">
+                <div className="flex items-end gap-2">
                 <textarea
                     ref={inputRef}
                     value={draftText}
@@ -663,6 +665,15 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                     className="am-input w-full resize-none rounded-xl border px-3 py-2 text-sm bg-transparent text-[var(--text-primary)] outline-none"
                     style={{ borderColor: 'var(--border-glass)' }}
                 />
+                {/* One tap instead of long-press-then-Paste. It feeds
+                    runCapture — the same function a manual paste and a typed
+                    line both go through. */}
+                <PasteButton
+                    onText={runCapture}
+                    notePlacement="above"
+                    className="flex-shrink-0 items-end pb-1"
+                />
+                </div>
             </div>
         </div>
     );

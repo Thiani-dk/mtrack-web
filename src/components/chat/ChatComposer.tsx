@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowUp } from 'lucide-react';
+import { PasteButton } from '../PasteButton';
 
 interface ChatComposerProps {
     onSend: (text: string) => void;
@@ -77,6 +78,18 @@ export function ChatComposer({ onSend, disabled = false, placeholder = 'Drop you
                     rows={1}
                     style={{ maxHeight: MAX_HEIGHT_PX }}
                     className="flex-1 resize-none bg-transparent outline-none text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] py-1.5 leading-tight disabled:opacity-50"
+                />
+                {/* Same shared button as Active Mode's. Pasted text lands in
+                    the field exactly as a manual paste would, ready to send —
+                    it is not sent on the user's behalf. */}
+                <PasteButton
+                    onText={text => {
+                        setValue(current => (current.trim() ? `${current}\n${text}` : text));
+                        textareaRef.current?.focus();
+                    }}
+                    disabled={disabled}
+                    notePlacement="above"
+                    className="flex-shrink-0 items-end pb-0.5"
                 />
                 <motion.button
                     onClick={handleSend}
