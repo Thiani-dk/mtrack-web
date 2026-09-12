@@ -118,7 +118,6 @@ const STUB = () => {
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
     // A browser with no Wake Lock at all.
     await page.addInitScript(() => {
-        // eslint-disable-next-line no-undef
         delete Navigator.prototype.wakeLock;
         Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: undefined });
     });
