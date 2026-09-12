@@ -14,6 +14,7 @@ export function ChatBubble({ message, onViewSkipped }: ChatBubbleProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                 className="text-center"
+                data-role="system"
             >
                 <span className="text-xs text-[var(--text-muted)]">{message.text}</span>
             </motion.div>
@@ -28,6 +29,10 @@ export function ChatBubble({ message, onViewSkipped }: ChatBubbleProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+            // Who said it, in the DOM. Nothing else distinguished a bot bubble
+            // from a user one — both carry .whitespace-pre-wrap — so a test
+            // reading "the last thing the bot said" had no way to ask for it.
+            data-role={isUser ? 'user' : 'bot'}
         >
             <div
                 className="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words"

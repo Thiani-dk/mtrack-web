@@ -19,9 +19,19 @@ const page = await ctx.newPage();
 page.on('pageerror', e => check('no uncaught page errors', false, e.message));
 
 const transcript = async () => (await page.locator('main, body').first().innerText()).replace(/\s+/g, ' ');
+// The last thing the BOT said, scoped to bot bubbles only.
+//
+// This used to select `[data-role="bot"], .whitespace-pre-wrap, p` and take the
+// last match in DOM order. Two things were wrong with that: no data-role
+// existed, and .whitespace-pre-wrap is on user bubbles too — so the selector
+// fell through to "every paragraph on the page", which includes PasteButton's
+// status note in the composer, rendered BELOW the transcript. A clipboard
+// failure could therefore outrank the bot's actual last line.
 const lastBotLine = async () => {
-    const lines = await page.locator('[data-role="bot"], .whitespace-pre-wrap, p').allInnerTexts();
-    return lines.filter(Boolean).map(l => l.trim()).filter(Boolean).pop() ?? '';
+    const bubbles = page.locator('[data-role="bot"]');
+    const n = await bubbles.count();
+    if (n === 0) return '';
+    return (await bubbles.nth(n - 1).innerText()).trim();
 };
 
 async function say(text) {
@@ -113,6 +123,40 @@ check('one unreadable answer asks again', !/leave the date off/.test(await trans
 await say('cant remember');
 check('two consecutive unreadable answers still give up on the date',
     /leave the date off/.test(await transcript()), (await lastBotLine()).slice(0, 120));
+
+// ── 4. lastBotLine must not be outranked by the composer ──
+//
+// A permanent guard on the helper itself. PasteButton's failure note is a <p>
+// with role="status", rendered in the composer BELOW the transcript; the
+// previous selector took the last <p> on the page and so returned that instead
+// of the bot's line. The check this protects is #2's "the confirmation carries
+// 4 May 2026", which is the suite's closest guard on the date-discarding bug.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('Sold a laptop for Ksh 45,000');
+await say('4 May 2026');
+await say('Kevin');
+const botLineBefore = await lastBotLine();
+check('a bot confirmation is on screen', /Right\?$/.test(botLineBefore), botLineBefore.slice(0, 90));
+
+// Force a clipboard failure so the status note renders beneath the transcript.
+await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { readText: async () => { throw new Error('NotAllowedError'); } },
+    });
+});
+const pasteBtn = page.getByRole('button', { name: 'Paste from clipboard' });
+if (await pasteBtn.count()) {
+    await pasteBtn.click();
+    await page.waitForTimeout(400);
+    check('the composer status note is rendered', await page.locator('[role="status"]').count() === 1);
+    check('lastBotLine still returns the bot line, not the status note',
+        (await lastBotLine()) === botLineBefore, (await lastBotLine()).slice(0, 90));
+    check('and it is not the clipboard message',
+        !/Couldn.t read the clipboard/.test(await lastBotLine()));
+}
 
 await browser.close();
 finish();
