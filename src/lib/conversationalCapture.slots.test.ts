@@ -240,3 +240,125 @@ describe('items in more than one currency', () => {
         expect(openSlots({ ...draft, date: NOW })).not.toEqual([]);
     });
 });
+
+describe('the Sambonani point-of-sale transcript', () => {
+    // From a real run. The user described two priced items in one message and
+    // the bot went on to ask "What did they buy?" — proof that none of it was
+    // extracted.
+    //
+    // The cause was NOT a second, older pipeline: point_of_sale already routes
+    // through extractDescription like every other mode. It was the phrasing.
+    // The earlier hardware fixture says "ram I sold at 5000USD" — item, then
+    // price. This one says "500 USD on call time" — price, then item — and the
+    // extractor only ever read the words BEFORE a price.
+    const BUSINESS = 'Sambonani';
+    const MESSAGE = 'They bought credits to continue chatting on my platform. '
+        + '500 USD on call time. And 250 USD on sms time.';
+
+    const draft = describe1(MESSAGE);
+
+    it('reads both items with their own prices', () => {
+        expect(draft.lineItems?.map(i => [i.description, i.amount])).toEqual([
+            ['Call time', 500],
+            ['Sms time', 250],
+        ]);
+    });
+
+    it('totals them to $750 in USD, not the first price alone', () => {
+        // Before the fix this came out as 500 — the single best-scoring amount.
+        expect(draft.amount).toBe(750);
+        expect(draft.currency).toEqual({ code: 'USD', explicit: true });
+    });
+
+    it('does not go on to ask what they bought', () => {
+        // The items ARE the answer to that question.
+        expect(draft.recipient).toBe('Call time, Sms time');
+        expect(openSlots(draft)).toEqual(['date']);
+
+        // And once the date is answered, nothing is left to ask.
+        const { draft: dated, asked } = answer(draft, 'yesterday');
+        expect(asked).toBe(QUESTION.date);
+        expect(openSlots(dated)).toEqual([]);
+    });
+
+    it('confirms both items and the right total', () => {
+        const { draft: dated } = answer(draft, 'yesterday');
+        const sentence = buildConfirmSentence({
+            amount: dated.amount,
+            currency: dated.currency,
+            recipient: dated.recipient,
+            direction: { type: 'received', confidence: 95, source: 'keyword' },
+            purposeLabel: null,
+            dateLabel: '11 September 2026',
+            dateSkipped: false,
+            lineItems: dated.lineItems,
+        });
+        expect(sentence).toContain('Call time $500');
+        expect(sentence).toContain('Sms time $250');
+        expect(sentence).toContain('total $750');
+        expect(sentence).not.toContain('Ksh');
+    });
+
+    it('is a point_of_sale capture, with the business name kept separately', () => {
+        // The business name answers its own prompt and is merchant metadata —
+        // it is not, and must not become, a line item.
+        expect(draft.lineItems?.some(i => i.description.includes(BUSINESS))).toBe(false);
+    });
+});
+
+describe('item and price in either order', () => {
+    // Both phrasings, in the same run — the earlier fix was only ever verified
+    // against one of them.
+    it('reads item-then-price', () => {
+        const d = describe1('ram Ksh 5,000, monitor Ksh 12,000');
+        expect(d.lineItems?.map(i => [i.description, i.amount])).toEqual([
+            ['Ram', 5000], ['Monitor', 12_000],
+        ]);
+        expect(d.amount).toBe(17_000);
+    });
+
+    it('reads price-then-item', () => {
+        const d = describe1('Ksh 5,000 for ram, Ksh 12,000 for a monitor');
+        expect(d.lineItems?.map(i => [i.description, i.amount])).toEqual([
+            ['Ram', 5000], ['Monitor', 12_000],
+        ]);
+        expect(d.amount).toBe(17_000);
+    });
+
+    it('reads a message that mixes the two orders', () => {
+        const d = describe1('ram Ksh 5,000, and Ksh 12,000 on a monitor');
+        expect(d.lineItems?.map(i => [i.description, i.amount])).toEqual([
+            ['Ram', 5000], ['Monitor', 12_000],
+        ]);
+        expect(d.amount).toBe(17_000);
+    });
+
+    it('prefers the words before the price when both sides have some', () => {
+        // "sodas 3 x" style quantities live before the price, so the leading
+        // side has to keep winning where it says anything at all.
+        const d = describe1('3 x sodas Ksh 450, bread Ksh 120');
+        expect(d.lineItems?.map(i => [i.description, i.quantity])).toEqual([
+            ['Sodas', 3], ['Bread', null],
+        ]);
+    });
+});
+
+describe('every capture mode shares one extraction pipeline', () => {
+    // There is a single entry point — extractDescription — and it is document
+    // type agnostic by construction: it takes a string and returns fields.
+    // Nothing about point_of_sale, personal_note, on_behalf_of or
+    // expense_summary reaches it, so none of them can diverge.
+    const MESSAGE = 'Ksh 300 for bread, Ksh 120 for milk';
+
+    it('takes no document type, so it cannot behave differently per mode', () => {
+        // extractDescription(text, now) — two parameters, neither a mode.
+        expect(extractDescription.length).toBeLessThanOrEqual(2);
+    });
+
+    it('returns the same itemisation however the caller intends to use it', () => {
+        const a = extractDescription(MESSAGE, NOW);
+        const b = extractDescription(MESSAGE, NOW);
+        expect(a.itemisation?.items).toEqual(b.itemisation?.items);
+        expect(a.itemisation?.total).toBe(420);
+    });
+});

@@ -14,6 +14,9 @@ import { extractAmountMatches } from './amount';
 // currency-tagged amount. A single amount in a sentence is a single
 // transaction, and "Sold a laptop for Ksh 45,000" must stay one, not become a
 // one-item list with a laptop in it.
+//
+// Item and price appear in either order ("ram I sold at 5000USD" / "500 USD on
+// call time"); both are read.
 
 export interface ItemisationResult {
     items: LineItem[];
@@ -46,17 +49,45 @@ const LEADING_NOISE =
     /^(?:\s*(?:some|a|an|the|my|our|his|her|their|also|then|plus|with|and|paid|pay|bought|buy|sold|sell|got|spent|for|on)\b\s*)+/i;
 
 // Sentences before the first item are scene-setting ("They bought hardware.
-// Computer components.") — only the last one is part of the item.
+// Computer components.") — only the last one is part of the item. Likewise,
+// only the FIRST sentence after a price belongs to it.
+function splitSentences(text: string): string[] {
+    return text.split(/(?<=[.!?])\s+/);
+}
+
 function lastSentence(text: string): string {
-    const parts = text.split(/(?<=[.!?])\s+/);
+    const parts = splitSentences(text);
     return parts[parts.length - 1] ?? text;
 }
 
-function cleanDescription(raw: string): string {
-    let out = lastSentence(raw).trim();
+function firstSentence(text: string): string {
+    return splitSentences(text.trim())[0] ?? text;
+}
+
+function tidy(raw: string): string {
+    let out = raw.trim();
     out = out.replace(LEADING_NOISE, '');
     out = out.replace(TRAILING_NOISE, '');
+    // A price can sit mid-sentence, so the words around it keep their
+    // punctuation — strip what is left dangling at either end.
+    out = out.replace(/^[\s,;:—–-]+/, '').replace(/[\s,;:.!?—–-]+$/, '');
     return out.replace(/\s+/g, ' ').trim();
+}
+
+// The words naming the thing this price was for.
+//
+// People write it both ways round. "Some ram I sold at 5000USD" puts the item
+// first; "500 USD on call time" puts the price first. Reading only one side
+// silently dropped every item phrased the other way — and a dropped item is
+// not a visible failure, it is a flow that asks "what did they buy?" about
+// something it was already told.
+//
+// Before wins when it says anything, since that is the more common phrasing
+// and the side that carries a quantity.
+function cleanDescription(before: string, after: string): string {
+    const fromBefore = tidy(lastSentence(before));
+    if (fromBefore) return fromBefore;
+    return tidy(firstSentence(after));
 }
 
 // Give a lowercase word a capital, but leave one that already carries internal
@@ -120,7 +151,10 @@ export function extractLineItems(text: string): ItemisationResult | null {
         if (matches.length !== 1) continue;
 
         const [match] = matches;
-        const description = cleanDescription(segment.slice(0, match.index));
+        const description = cleanDescription(
+            segment.slice(0, match.index),
+            segment.slice(match.index + match.length),
+        );
         if (!description) continue;
 
         const split = splitQuantity(description, match.amount);
