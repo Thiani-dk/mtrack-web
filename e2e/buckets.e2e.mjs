@@ -18,12 +18,19 @@ const chip = name => page.locator(`.am-chips button[data-bucket="${name}"]`);
 
 // Hold a chip past the long-press threshold using real pointer events.
 async function longPress(name, ms = 800) {
-    const box = await chip(name).boundingBox();
+    const target = chip(name);
+    await target.waitFor({ state: 'visible' });
+    await target.scrollIntoViewIfNeeded();
+    // Let any layout settle before measuring — a box read mid-reflow puts the
+    // press somewhere the chip no longer is.
+    await page.waitForTimeout(200);
+    const box = await target.boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(50);
     await page.mouse.down();
     await page.waitForTimeout(ms);
     await page.mouse.up();
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(300);
 }
 
 // Keyed on the panel itself, not its text — its contents change as the
