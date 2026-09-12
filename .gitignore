@@ -26,3 +26,4 @@ dist-ssr
 
 # Screenshots written by the e2e browser checks (npm run test:e2e)
 e2e/screenshots/
+.claude/
