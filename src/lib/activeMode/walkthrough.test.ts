@@ -67,24 +67,53 @@ describe('the practice sale', () => {
 });
 
 describe('the walkthrough copy', () => {
-    it('gives both ways of getting messages across', () => {
-        expect(SCREEN_SHARING_STEPS).toHaveLength(2);
-        const [split, swap] = SCREEN_SHARING_STEPS;
-        expect(split.heading.toLowerCase()).toContain('split screen');
-        expect(split.body.toLowerCase()).toContain('recent apps');
-        // The second path is the one that needs no feature at all.
-        expect(swap.body.toLowerCase()).toContain('copy');
-        expect(swap.body.toLowerCase()).toContain('paste');
+    it('leads with the floating window, then split screen, then swapping apps', () => {
+        // Device testing found the floating window both better-looking and the
+        // most consistent across browsers, so it is the recommendation rather
+        // than an afterthought.
+        expect(SCREEN_SHARING_STEPS).toHaveLength(3);
+        const [floating, split, swap] = SCREEN_SHARING_STEPS;
+
+        expect(floating.heading).toBe('Use a floating window (recommended)');
+        expect(floating.body).toContain('Chromium-based browsers');
+        expect(floating.body).toContain('floating window');
+
+        expect(split.heading).toBe('Or try split screen');
+        expect(split.body).toContain('recent apps');
+
+        // The universal fallback is last, and its wording is untouched.
+        expect(swap.heading).toBe('If not, no problem — just swap between apps');
+        expect(swap.body).toBe(
+            'Leave M-Track open, go to your messages app, copy the payment message, '
+            + 'then come back to M-Track and paste. It only takes a couple of seconds either way, '
+            + 'and it works on any phone.',
+        );
     });
 
-    it('does not promise iPhone users split screen, and presents swapping as universal', () => {
-        const all = SCREEN_SHARING_STEPS.map(s => `${s.heading} ${s.body}`).join(' ').toLowerCase();
-        // Split View is iPad-only; claiming it for a phone sends someone
-        // hunting for a setting that isn't there.
-        expect(all).not.toContain('iphone');
-        expect(all).not.toContain('split view');
-        expect(all).toContain('most android phones');
-        expect(SCREEN_SHARING_STEPS[1].body.toLowerCase()).toContain('works on any phone');
+    it('scopes split screen to the platforms that actually have it', () => {
+        const split = SCREEN_SHARING_STEPS[1];
+        // Simultaneous split screen is an Android feature. Naming iPhone and
+        // iPad explicitly is the honest fix; "most smartphones" would read as
+        // broader and be wrong.
+        expect(split.body).toContain('On Android');
+        expect(split.body).toContain("iPhones don't support this");
+        expect(split.body).toContain('iPads have a similar Split View');
+    });
+
+    it('overstates nothing about any platform', () => {
+        const all = SCREEN_SHARING_STEPS.map(s => `${s.heading} ${s.body}`).join(' ');
+
+        // No blanket claim that every phone can do this.
+        expect(all.toLowerCase()).not.toContain('most smartphones');
+        expect(all.toLowerCase()).not.toContain('all phones');
+        // Split View is named only as the iPad feature it is, never promised to
+        // an iPhone, and never claimed for M-Track itself.
+        expect(all).toMatch(/iPads have a similar Split View/);
+        expect(all).not.toMatch(/iPhones? (?:have|support|can use) Split View/i);
+        // The floating window is scoped to the browsers that have it.
+        expect(SCREEN_SHARING_STEPS[0].body).toMatch(/Most Chromium-based browsers/);
+        // And one method is still presented as working anywhere.
+        expect(all).toContain('it works on any phone');
     });
 
     it('suggests a few buckets without pretending to know the business', () => {

@@ -31,8 +31,16 @@ const dialog = page.getByRole('dialog', { name: 'How Active Mode works' });
 // Step through: what -> sharing -> buckets
 await page.getByRole('button', { name: 'Next' }).click();
 const sharingText = await dialog.innerText();
-check('screen-sharing step gives both paths', /split screen/i.test(sharingText) && /swap between apps/i.test(sharingText));
-check('does not claim Split View for iPhone', !/iphone/i.test(sharingText) && !/split view/i.test(sharingText));
+check('screen-sharing step leads with the floating window',
+    sharingText.indexOf('floating window') < sharingText.indexOf('split screen'));
+check('screen-sharing step offers all three paths',
+    /floating window \(recommended\)/i.test(sharingText)
+    && /Or try split screen/i.test(sharingText)
+    && /swap between apps/i.test(sharingText));
+check('split screen is scoped to the platforms that have it',
+    /On Android/.test(sharingText)
+    && /iPhones don.t support this/.test(sharingText)
+    && /iPads have a similar Split View/.test(sharingText));
 await page.getByRole('button', { name: 'Next' }).click();
 
 // Suggested buckets + add your own

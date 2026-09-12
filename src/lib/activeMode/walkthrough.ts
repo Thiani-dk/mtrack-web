@@ -31,12 +31,18 @@ export function markWalkthroughSeen(): void {
 // because these names are a guess about someone else's business.
 export const SUGGESTED_BUCKETS = ['Combo sales', 'Single item sales', 'Dessert sales'];
 
-// Phone-app instructions, written for someone who does not use the words
-// "split screen" or "recents" about their own phone.
+// Instructions for getting messages across, written for someone who does not
+// use the words "split screen" or "recents" about their own device.
 //
-// Note what is NOT claimed: iPhones do not have Split View — that is iPad
-// only — so switching apps is presented as the method that always works,
-// rather than as a lesser fallback.
+// Ordered by what device testing actually found: the floating window looks
+// meaningfully better and behaves the most consistently across browsers, so it
+// leads as the recommendation. Split screen is second.
+//
+// Note what is NOT claimed. Simultaneous split screen is an Android feature;
+// iPads have their own Split View and iPhones have neither. Widening this to
+// "most smartphones" would read as broader but be wrong, and would send iPhone
+// users hunting for a setting that does not exist — so the platforms are named,
+// and swapping between apps stays the method presented as always working.
 export interface HowToStep {
     heading: string;
     body: string;
@@ -44,11 +50,20 @@ export interface HowToStep {
 
 export const SCREEN_SHARING_STEPS: HowToStep[] = [
     {
-        heading: 'If your phone does split screen (most Android phones do)',
-        body: 'Open your recent apps, press and hold on M-Track, and choose Split screen. '
-            + 'Then open your messages app in the other half. Both stay on screen at once.',
+        heading: 'Use a floating window (recommended)',
+        body: 'Most Chromium-based browsers (Chrome, Brave, and others) let you pop a tab out '
+            + "into a small floating window. Look for it in your browser's menu, then drag it "
+            + 'over your messages app.',
     },
     {
+        heading: 'Or try split screen',
+        body: 'On Android, open your recent apps, press and hold M-Track, and choose Split screen '
+            + "— then open your messages app in the other half. (iPhones don't support this; "
+            + 'iPads have a similar Split View.)',
+    },
+    {
+        // Unchanged wording — it was already accurate and well-written. Only
+        // its position moved, from second to last.
         heading: 'If not, no problem — just swap between apps',
         body: 'Leave M-Track open, go to your messages app, copy the payment message, '
             + 'then come back to M-Track and paste. It only takes a couple of seconds either way, '
