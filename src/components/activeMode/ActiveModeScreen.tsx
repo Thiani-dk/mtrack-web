@@ -516,6 +516,12 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                     <div
                         className="rounded-xl border p-3"
                         style={{ background: 'var(--accent-subtle)', borderColor: 'var(--border-glass-accent)' }}
+                        // The pending capture as a value, not as words. The
+                        // empty-state hint below also contains the phrase "tap
+                        // a bucket", so any test matching on that text cannot
+                        // tell a waiting sale from no sale at all.
+                        data-pending-capture
+                        data-pending-amount={pending.amount}
                     >
                         <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--accent)]">
                             Tap a bucket to file it

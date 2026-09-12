@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { launch, openActiveMode, pasteInto, reporter, saleMessage, SHOT_DIR } from './harness.mjs';
+import { launch, openActiveMode, pasteInto, pendingCapture, reporter, saleMessage, SHOT_DIR } from './harness.mjs';
 
 // Long-press to rename or delete a bucket.
 //
@@ -60,7 +60,11 @@ await chip('Combo sales').click();
 await page.waitForTimeout(150);
 
 const comboBefore = await tallyOf('Combo sales');
-check('two sales filed into Combo sales', /1,050|350/.test(comboBefore), comboBefore);
+// Exact, not /1,050|350/. That alternation also matched the state where only
+// the FIRST of the two sales was filed — and this value is the baseline the
+// rename-preservation check below compares against, so accepting a wrong one
+// here would have that check verify a wrong figure was faithfully preserved.
+check('two sales filed into Combo sales', comboBefore === 'Combo sales Ksh 1,050.00 · 2', comboBefore);
 
 // ── Unsorted has no menu ──
 await longPress('Unsorted');
@@ -99,11 +103,17 @@ check('rename preserves the subtotal and count',
 // ── A long press must not also file a sale ──
 await pasteInto(page, '.am-input', saleMessage('QA03XK9P2L', 150, 'PETER OTIENO', '12:19'));
 const totalBeforeHold = (await page.locator('.am-total').innerText()).trim();
+check('a capture is waiting before the hold', (await pendingCapture(page))?.amount === 150);
 await longPress('Meal deals');
-check('holding a chip does not also file the pending sale',
-    (await page.locator('.am-total').innerText()).trim() === totalBeforeHold
-    && (await page.locator('.am-capture').innerText()).toLowerCase().includes('tap a bucket'),
-    totalBeforeHold);
+// Two distinct failures to rule out, and the old second conjunct ruled out
+// neither: it matched the empty-state hint as readily as the pending card.
+// The sale must not be FILED early (total unchanged) and must not be
+// DISCARDED either (still pending, still the same one).
+const heldPending = await pendingCapture(page);
+check('holding a chip does not file the pending sale early',
+    (await page.locator('.am-total').innerText()).trim() === totalBeforeHold, totalBeforeHold);
+check('and does not discard it either — the same sale is still waiting',
+    heldPending?.amount === 150, JSON.stringify(heldPending));
 
 // ── Delete with contents: confirm, then everything lands in Unsorted ──
 await menuPanel().getByRole('button', { name: 'Delete' }).click();

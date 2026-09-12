@@ -109,6 +109,19 @@ export async function pasteInto(page, selector, text) {
     await page.waitForTimeout(120);
 }
 
+// The capture currently waiting for a bucket, as a value: { amount } or null.
+//
+// Active Mode's empty-state hint reads "...then tap a bucket", and the pending
+// card is headed "Tap a bucket to file it" — so a substring match on "tap a
+// bucket" is true either way and cannot distinguish a waiting sale from none.
+// Two checks in this suite were written that way. Read the state instead.
+export async function pendingCapture(page) {
+    return page.evaluate(() => {
+        const el = document.querySelector('[data-pending-capture]');
+        return el ? { amount: Number(el.dataset.pendingAmount) } : null;
+    });
+}
+
 // A realistic M-Pesa sale confirmation, parsed by the real pipeline.
 export function saleMessage(code, amount, from, hhmm) {
     return `${code} Confirmed. You have received Ksh${amount.toFixed(2)} from ${from} 0712345678 `

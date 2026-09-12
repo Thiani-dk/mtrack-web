@@ -1,4 +1,4 @@
-import { BASE_URL, launch, openActiveMode, reporter, saleMessage } from './harness.mjs';
+import { BASE_URL, launch, openActiveMode, pendingCapture, reporter, saleMessage } from './harness.mjs';
 
 // The one-tap Paste button, in both places it appears.
 //
@@ -55,9 +55,8 @@ async function activeModePage(initScript, arg) {
     await page.getByRole('button', { name: 'Paste from clipboard' }).click();
     await page.waitForTimeout(400);
 
-    const capture = (await page.locator('.am-capture').innerText()).toLowerCase();
     check('one tap produces a pending capture, exactly as a manual paste does',
-        capture.includes('tap a bucket') && capture.includes('350'), capture.replace(/\n/g, ' ').slice(0, 80));
+        (await pendingCapture(page))?.amount === 350, JSON.stringify(await pendingCapture(page)));
 
     check('a successful paste shows no failure line',
         await page.locator('[role="status"]').count() === 0);
@@ -79,12 +78,7 @@ async function activeModePage(initScript, arg) {
     check('a refused clipboard shows one quiet line',
         /Couldn't read the clipboard — try pasting into the field instead\./
             .test(await page.locator('[role="status"]').innerText()));
-    // The empty-state hint contains the words "tap a bucket" too, so the
-    // signal is whether a bucket is actually fileable — chips only enable
-    // when something is pending.
-    const pendingNow = async () => page.evaluate(() =>
-        document.querySelector('.am-chips button[data-bucket]')?.getAttribute('aria-disabled') === 'false');
-    check('and nothing was captured', (await pendingNow()) === false);
+    check('and nothing was captured', (await pendingCapture(page)) === null);
 
     // The fallback the message points at still works.
     await page.evaluate(t => {
@@ -95,7 +89,7 @@ async function activeModePage(initScript, arg) {
         el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
     }, SALE);
     await page.waitForTimeout(300);
-    check('manual pasting into the field is unaffected', (await pendingNow()) === true);
+    check('manual pasting into the field is unaffected', (await pendingCapture(page))?.amount === 350);
     await page.close();
 }
 
@@ -113,8 +107,10 @@ async function activeModePage(initScript, arg) {
         el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
     }, SALE);
     await page.waitForTimeout(300);
+    // The empty-state hint contains "tap a bucket" too, so the old substring
+    // match here passed whether or not the manual paste did anything at all.
     check('and manual pasting works exactly as before',
-        (await page.locator('.am-capture').innerText()).toLowerCase().includes('tap a bucket'));
+        (await pendingCapture(page))?.amount === 350, JSON.stringify(await pendingCapture(page)));
     await page.close();
 }
 
