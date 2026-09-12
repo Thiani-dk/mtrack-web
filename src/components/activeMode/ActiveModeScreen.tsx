@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { HelpCircle, Plus, X } from 'lucide-react';
+import { HelpCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { ActiveModeState, ParsedTransaction, TrackedDocument } from '../../types';
 import {
-    addBucket, bucketTallies, capture, dayTotal, emptyActiveModeState, fileInto,
-    findDuplicate, readActiveModeState, UNSORTED,
+    addBucket, bucketSaleCount, bucketTallies, capture, dayTotal, deleteBucket,
+    emptyActiveModeState, fileInto, findDuplicate, isUnsorted, readActiveModeState,
+    renameBucket, UNSORTED,
     type BucketError, type DuplicateWarning,
 } from '../../lib/activeMode/session';
 import { getDrafts, saveDocument as saveApproved } from '../../lib/documentStore';
+import { StackedPanel } from '../chat/OverlayStack';
 import { buildDraft } from '../../lib/draftDocument';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { fmtCurrency } from '../../lib/receiptGenerator';
@@ -42,6 +44,10 @@ function newSessionId(): string {
     return `active-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// Long enough not to fire on an ordinary tap-to-file, short enough to feel
+// deliberate rather than broken.
+const LONG_PRESS_MS = 500;
+
 const BUCKET_ERROR: Record<BucketError, string> = {
     empty: 'Give it a name first.',
     duplicate: 'You already have a bucket with that name.',
@@ -63,6 +69,13 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
     const [newBucketOpen, setNewBucketOpen] = useState(false);
     const [newBucketName, setNewBucketName] = useState('');
     const [bucketError, setBucketError] = useState<string>('');
+    // The bucket whose long-press menu is open, and which step it is on.
+    // Unsorted never gets one — it is the catch-all that rename and delete
+    // both rely on existing.
+    const [menuBucket, setMenuBucket] = useState<string | null>(null);
+    const [menuMode, setMenuMode] = useState<'actions' | 'rename' | 'confirm-delete'>('actions');
+    const [renameValue, setRenameValue] = useState('');
+    const [menuError, setMenuError] = useState('');
     const [hydrated, setHydrated] = useState(false);
     // Shown automatically the first time only, and on demand from the help
     // icon forever after — never a one-time wall a returning user is locked
@@ -226,6 +239,65 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
         else onBack();
     }, [sessionId, pending, transactions, state, saveDocument, onFinished, onBack]);
 
+    // ── Long-press on a bucket chip ──
+    // A press held for LONG_PRESS_MS opens the menu; a normal tap still files
+    // the pending capture, so the two gestures do not compete. The timer is
+    // cancelled on move as well as on release, or scrolling the chip row
+    // sideways would keep opening menus.
+    const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const longPressFired = useRef(false);
+
+    const cancelLongPress = useCallback(() => {
+        if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+        }
+    }, []);
+
+    const openBucketMenu = useCallback((name: string) => {
+        if (isUnsorted(name)) return;
+        setMenuBucket(name);
+        setMenuMode('actions');
+        setRenameValue(name);
+        setMenuError('');
+    }, []);
+
+    const startLongPress = useCallback((name: string) => {
+        if (isUnsorted(name)) return;
+        longPressFired.current = false;
+        cancelLongPress();
+        longPressTimer.current = setTimeout(() => {
+            longPressFired.current = true;
+            openBucketMenu(name);
+        }, LONG_PRESS_MS);
+    }, [cancelLongPress, openBucketMenu]);
+
+    const closeBucketMenu = useCallback(() => {
+        setMenuBucket(null);
+        setMenuError('');
+        focusInput();
+    }, [focusInput]);
+
+    const handleRenameBucket = () => {
+        if (!menuBucket) return;
+        const result = renameBucket(state, transactions, menuBucket, renameValue);
+        if (result.error) {
+            setMenuError(BUCKET_ERROR[result.error]);
+            return;
+        }
+        setState(result.state);
+        setTransactions(result.transactions);
+        closeBucketMenu();
+    };
+
+    const handleDeleteBucket = () => {
+        if (!menuBucket) return;
+        const result = deleteBucket(state, transactions, menuBucket);
+        setState(result.state);
+        setTransactions(result.transactions);
+        closeBucketMenu();
+    };
+
     const handleCreateBucket = () => {
         const { state: next, error } = addBucket(state, newBucketName);
         if (error) {
@@ -265,6 +337,107 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
         >
             {walkthroughOpen && (
                 <ActiveModeWalkthrough onClose={closeWalkthrough} onSeedBuckets={seedBuckets} />
+            )}
+
+            {/* ── Long-press menu. The app's established overlay: a
+                StackedPanel on the shared OverlayStack (tap-outside closes the
+                top of the stack) wrapping a .glass-panel surface. ── */}
+            {menuBucket && (
+                <StackedPanel
+                    id="active-mode-bucket-menu"
+                    onClose={closeBucketMenu}
+                    className="fixed inset-0 flex items-center justify-center p-4"
+                >
+                    <div data-bucket-menu className="glass-panel rounded-2xl p-4 space-y-2.5 w-full max-w-xs">
+                        <p className="text-[11px] text-[var(--text-muted)] truncate">{menuBucket}</p>
+
+                        {menuMode === 'actions' && (
+                            <div className="space-y-1.5">
+                                <button
+                                    onClick={() => { setMenuMode('rename'); setMenuError(''); }}
+                                    className="w-full flex items-center gap-2 text-xs px-2 py-2 rounded-lg text-left text-[var(--text-primary)]"
+                                    style={{ background: 'var(--bg-elevated)' }}
+                                >
+                                    <Pencil className="w-3.5 h-3.5" /> Rename
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        // An empty bucket has nothing to lose,
+                                        // so it just goes. One with sales in it
+                                        // gets a sentence first.
+                                        if (bucketSaleCount(transactions, menuBucket) === 0) handleDeleteBucket();
+                                        else setMenuMode('confirm-delete');
+                                    }}
+                                    className="w-full flex items-center gap-2 text-xs px-2 py-2 rounded-lg text-left text-[var(--text-primary)]"
+                                    style={{ background: 'var(--bg-elevated)' }}
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                                </button>
+                            </div>
+                        )}
+
+                        {menuMode === 'rename' && (
+                            <div className="space-y-2">
+                                {/* Same tap-type-confirm interaction as
+                                    creating a bucket, down to the Enter and
+                                    Escape keys. */}
+                                <input
+                                    autoFocus
+                                    value={renameValue}
+                                    onChange={e => { setRenameValue(e.target.value); setMenuError(''); }}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter') handleRenameBucket();
+                                        if (e.key === 'Escape') closeBucketMenu();
+                                    }}
+                                    aria-label="Bucket name"
+                                    className="w-full text-xs px-2 py-1.5 rounded-lg outline-none"
+                                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                                />
+                                <div className="flex gap-1.5">
+                                    <button
+                                        onClick={handleRenameBucket}
+                                        className="btn-primary flex-1 text-xs px-2 py-1.5 rounded-lg"
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        onClick={closeBucketMenu}
+                                        className="text-xs px-2 py-1.5 rounded-lg text-[var(--text-muted)]"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {menuMode === 'confirm-delete' && (
+                            <div className="space-y-2">
+                                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                                    {(() => {
+                                        const n = bucketSaleCount(transactions, menuBucket);
+                                        return `Move ${n} ${n === 1 ? 'sale' : 'sales'} to ${UNSORTED} and delete this bucket?`;
+                                    })()}
+                                </p>
+                                <div className="flex gap-1.5">
+                                    <button
+                                        onClick={handleDeleteBucket}
+                                        className="btn-primary flex-1 text-xs px-2 py-1.5 rounded-lg"
+                                    >
+                                        Move and delete
+                                    </button>
+                                    <button
+                                        onClick={closeBucketMenu}
+                                        className="text-xs px-2 py-1.5 rounded-lg text-[var(--text-muted)]"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {menuError && <p className="text-[10px] text-[var(--text-muted)]">{menuError}</p>}
+                    </div>
+                </StackedPanel>
             )}
             {/* ── Header: the running day, and the way out. ── */}
             <header className="am-header flex-shrink-0 border-b border-[var(--border-glass)] px-4 py-3">
@@ -364,13 +537,45 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                     {tallies.map(b => (
                         <button
                             key={b.name}
-                            onClick={() => { commitPending(b.name); focusInput(); }}
-                            disabled={!pending}
-                            className="flex-shrink-0 rounded-full border px-3 py-1.5 text-left disabled:opacity-50"
+                            data-bucket={b.name}
+                            onClick={() => {
+                                // Swallow the click the browser fires after a
+                                // long press, so holding a chip cannot also
+                                // file the pending sale into it.
+                                if (longPressFired.current) { longPressFired.current = false; return; }
+                                commitPending(b.name);
+                                focusInput();
+                            }}
+                            onPointerDown={() => startLongPress(b.name)}
+                            onPointerUp={cancelLongPress}
+                            onPointerLeave={cancelLongPress}
+                            onPointerCancel={cancelLongPress}
+                            onPointerMove={cancelLongPress}
+                            // Keyboard and screen-reader equivalent for the
+                            // same menu — a gesture must never be the only way
+                            // to reach an action.
+                            onContextMenu={e => { e.preventDefault(); openBucketMenu(b.name); }}
+                            // A tap files; press and hold is a separate action,
+                            // so the chip must not be draggable or selectable.
                             style={{
                                 borderColor: pending ? 'var(--border-glass-accent)' : 'var(--border-glass)',
                                 background: pending ? 'var(--accent-subtle)' : 'transparent',
+                                touchAction: 'pan-x',
+                                WebkitUserSelect: 'none',
+                                userSelect: 'none',
+                                // Dimmed when there is nothing to file, but
+                                // still pressable: a disabled button fires no
+                                // pointer events, which would put rename and
+                                // delete out of reach except mid-capture.
+                                opacity: pending ? 1 : 0.5,
                             }}
+                            // Unsorted stays tappable to file into, but has no
+                            // edit affordance at all.
+                            aria-description={isUnsorted(b.name) ? undefined : 'Press and hold to rename or delete'}
+                            className="flex-shrink-0 rounded-full border px-3 py-1.5 text-left"
+                            // Only filing needs a pending capture; the menu
+                            // does not, so the chip stays pressable either way.
+                            aria-disabled={!pending}
                         >
                             <span className="block text-xs font-medium text-[var(--text-primary)] whitespace-nowrap">
                                 {b.name}

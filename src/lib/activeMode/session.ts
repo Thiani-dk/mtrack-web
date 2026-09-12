@@ -71,6 +71,59 @@ export function addBucket(state: ActiveModeState, rawName: string): { state: Act
     return { state: { ...state, buckets: [...state.buckets, name] }, error: null };
 }
 
+// Renames a bucket, moving every sale filed under the old name with it. The
+// subtotal and count are a function of the transactions, so carrying the label
+// across is all it takes for them to follow.
+//
+// Unsorted is not renameable: it is the catch-all the auto-file behaviour and
+// the delete below both depend on, and a renamed one would leave sales with
+// nowhere to land.
+export function renameBucket(
+    state: ActiveModeState, transactions: ParsedTransaction[], from: string, rawTo: string,
+): { state: ActiveModeState; transactions: ParsedTransaction[]; error: BucketError | null } {
+    const to = rawTo.trim().replace(/\s+/g, ' ');
+    const unchanged = { state, transactions };
+    if (isUnsorted(from)) return { ...unchanged, error: 'reserved' };
+    if (!to) return { ...unchanged, error: 'empty' };
+    if (isUnsorted(to)) return { ...unchanged, error: 'reserved' };
+    // Renaming to the same words with different capitalisation is a legitimate
+    // tidy-up, so only a DIFFERENT existing bucket counts as a collision.
+    if (state.buckets.some(b => b.toLowerCase() === to.toLowerCase() && b !== from)) {
+        return { ...unchanged, error: 'duplicate' };
+    }
+    if (!state.buckets.includes(from)) return { ...unchanged, error: 'empty' };
+
+    return {
+        state: { ...state, buckets: state.buckets.map(b => (b === from ? to : b)) },
+        transactions: transactions.map(t => (bucketOf(t) === from ? { ...t, bucketLabel: to } : t)),
+        error: null,
+    };
+}
+
+// Removes a bucket. Its sales are NOT removed with it — they move to Unsorted,
+// the same place an unfiled capture goes. Deleting a category is a change of
+// mind about how the day was organised, never a decision to throw away money
+// that was actually taken.
+export function deleteBucket(
+    state: ActiveModeState, transactions: ParsedTransaction[], name: string,
+): { state: ActiveModeState; transactions: ParsedTransaction[]; moved: number } {
+    if (isUnsorted(name) || !state.buckets.includes(name)) {
+        return { state, transactions, moved: 0 };
+    }
+    const affected = transactions.filter(t => bucketOf(t) === name);
+    return {
+        state: { ...state, buckets: state.buckets.filter(b => b !== name) },
+        transactions: transactions.map(t => (bucketOf(t) === name ? fileInto(t, UNSORTED) : t)),
+        moved: affected.length,
+    };
+}
+
+// How many sales a delete would move — what the confirmation has to state, and
+// zero for a bucket that can just go.
+export function bucketSaleCount(transactions: ParsedTransaction[], name: string): number {
+    return transactions.filter(t => bucketOf(t) === name).length;
+}
+
 export interface BucketTally {
     name: string;
     total: number;

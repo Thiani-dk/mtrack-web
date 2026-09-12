@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-    addBucket, bucketOf, bucketTallies, capture, captureFromPaste, captureFromTyped,
-    dayTotal, emptyActiveModeState, fileInto, findDuplicate, readActiveModeState, UNSORTED,
+    addBucket, bucketOf, bucketSaleCount, bucketTallies, capture, captureFromPaste,
+    captureFromTyped, dayTotal, deleteBucket, emptyActiveModeState, fileInto, findDuplicate,
+    readActiveModeState, renameBucket, UNSORTED,
 } from './session';
 import { buildDraft } from '../draftDocument';
 import type { ParsedTransaction } from '../../types';
@@ -246,5 +247,103 @@ describe('surviving a backgrounded reload', () => {
         expect(emptyActiveModeState().pending).toBeNull();
         expect(readActiveModeState(null).pending).toBeNull();
         expect(readActiveModeState({ buckets: ['Combo sales'] }).pending).toBeNull();
+    });
+});
+
+describe('renaming a bucket', () => {
+    const base = addBucket(addBucket(emptyActiveModeState(), 'Combo sales').state, 'Dessert sales').state;
+    const filed = [
+        fileInto(saleFrom(SALE_A), 'Combo sales'),
+        fileInto(saleFrom(SALE_B), 'Combo sales'),
+    ];
+
+    it('carries the subtotal and count across untouched', () => {
+        const before = bucketTallies(base, filed).find(t => t.name === 'Combo sales');
+        const r = renameBucket(base, filed, 'Combo sales', 'Meal deals');
+        expect(r.error).toBeNull();
+
+        const after = bucketTallies(r.state, r.transactions).find(t => t.name === 'Meal deals');
+        expect(after?.count).toBe(before?.count);
+        expect(after?.total).toBe(before?.total);
+        expect(bucketTallies(r.state, r.transactions).map(t => t.name)).not.toContain('Combo sales');
+    });
+
+    it('moves every filed sale onto the new label', () => {
+        const r = renameBucket(base, filed, 'Combo sales', 'Meal deals');
+        expect(r.transactions.every(t => t.bucketLabel === 'Meal deals')).toBe(true);
+        // Nothing was dropped or duplicated.
+        expect(r.transactions).toHaveLength(filed.length);
+        expect(dayTotal(r.transactions)).toBe(dayTotal(filed));
+    });
+
+    it('refuses a blank name, a collision, or anything involving Unsorted', () => {
+        expect(renameBucket(base, filed, 'Combo sales', '  ').error).toBe('empty');
+        expect(renameBucket(base, filed, 'Combo sales', 'Dessert sales').error).toBe('duplicate');
+        expect(renameBucket(base, filed, 'Combo sales', UNSORTED).error).toBe('reserved');
+        // Unsorted itself is not renameable — rename and delete both depend on
+        // it being there.
+        expect(renameBucket(base, filed, UNSORTED, 'Leftovers').error).toBe('reserved');
+    });
+
+    it('allows a pure capitalisation fix', () => {
+        const r = renameBucket(base, filed, 'Combo sales', 'Combo Sales');
+        expect(r.error).toBeNull();
+        expect(r.state.buckets).toContain('Combo Sales');
+    });
+
+    it('leaves the other buckets alone', () => {
+        const mixed = [...filed, fileInto(saleFrom(SALE_A), 'Dessert sales')];
+        const r = renameBucket(base, mixed, 'Combo sales', 'Meal deals');
+        expect(bucketSaleCount(r.transactions, 'Dessert sales')).toBe(1);
+    });
+});
+
+describe('deleting a bucket', () => {
+    const base = addBucket(addBucket(emptyActiveModeState(), 'Combo sales').state, 'Dessert sales').state;
+
+    it('removes an empty one outright', () => {
+        const r = deleteBucket(base, [], 'Dessert sales');
+        expect(r.moved).toBe(0);
+        expect(r.state.buckets).toEqual([UNSORTED, 'Combo sales']);
+    });
+
+    it('never destroys a sale — it moves them to Unsorted', () => {
+        const filed = [
+            fileInto(saleFrom(SALE_A), 'Combo sales'),
+            fileInto(saleFrom(SALE_B), 'Combo sales'),
+        ];
+        const r = deleteBucket(base, filed, 'Combo sales');
+
+        expect(r.moved).toBe(2);
+        expect(r.state.buckets).not.toContain('Combo sales');
+        // Every sale is still here, and still adds up to the same day.
+        expect(r.transactions).toHaveLength(filed.length);
+        expect(dayTotal(r.transactions)).toBe(dayTotal(filed));
+
+        const unsorted = bucketTallies(r.state, r.transactions).find(t => t.name === UNSORTED);
+        expect(unsorted?.count).toBe(2);
+        expect(unsorted?.total).toBe(dayTotal(filed));
+    });
+
+    it('adds to whatever was already in Unsorted rather than replacing it', () => {
+        const filed = [saleFrom(SALE_A), fileInto(saleFrom(SALE_B), 'Combo sales')];
+        const r = deleteBucket(base, filed, 'Combo sales');
+        const unsorted = bucketTallies(r.state, r.transactions).find(t => t.name === UNSORTED);
+        expect(unsorted?.count).toBe(2);
+        expect(unsorted?.total).toBe(dayTotal(filed));
+    });
+
+    it('reports how many sales a delete would move, for the confirmation', () => {
+        const filed = [fileInto(saleFrom(SALE_A), 'Combo sales')];
+        expect(bucketSaleCount(filed, 'Combo sales')).toBe(1);
+        expect(bucketSaleCount(filed, 'Dessert sales')).toBe(0);
+    });
+
+    it('refuses to remove Unsorted', () => {
+        const filed = [saleFrom(SALE_A)];
+        const r = deleteBucket(base, filed, UNSORTED);
+        expect(r.state.buckets).toContain(UNSORTED);
+        expect(r.moved).toBe(0);
+        expect(r.transactions).toEqual(filed);
     });
 });

@@ -40,6 +40,7 @@ server or the browser is not there.
 | Script | What it covers |
 | --- | --- |
 | `e2e/journey.e2e.mjs` | The full Active Mode journey: HomeScreen → first-run walkthrough with a real practice capture → buckets created on the fly → paste-and-file in two actions → auto-file to Unsorted → duplicate warning → mid-paste reload → Finish, with the on-screen figures checked against the document actually written to IndexedDB. |
+| `e2e/buckets.e2e.mjs` | Long-press to rename or delete an Active Mode bucket: that holding a chip opens the menu without also firing the tap that files a sale, that Unsorted has no such menu, and that deleting a bucket with sales in it moves them to Unsorted rather than taking them with it. |
 | `e2e/viewport.e2e.mjs` | Layout at the constrained sizes Active Mode has to survive — 360×400, 640×280 and 360×210 (split screen with the keyboard open) — asserting the paste field, chip row, running total and Finish are all on screen, the `dvh` container tracks the viewport, and the chip row scrolls sideways with its last chip fully reachable. |
 
 These exist because they catch a class of bug the unit suite structurally
