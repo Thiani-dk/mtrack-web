@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { HelpCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { HelpCircle, Lightbulb, Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { ActiveModeState, ParsedTransaction, TrackedDocument } from '../../types';
 import {
     addBucket, bucketSaleCount, bucketTallies, capture, dayTotal, deleteBucket,
@@ -13,6 +13,7 @@ import { buildDraft } from '../../lib/draftDocument';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { fmtCurrency } from '../../lib/receiptGenerator';
 import { hasSeenWalkthrough, markWalkthroughSeen } from '../../lib/activeMode/walkthrough';
+import { useWakeLock } from '../../lib/useWakeLock';
 import { ActiveModeWalkthrough } from './ActiveModeWalkthrough';
 
 // Active Mode — a dense, non-conversational capture screen.
@@ -77,6 +78,14 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
     const [renameValue, setRenameValue] = useState('');
     const [menuError, setMenuError] = useState('');
     const [hydrated, setHydrated] = useState(false);
+    // A one-line explanation of the screen-awake indicator, shown on tap
+    // rather than sitting on screen permanently.
+    const [wakeNoteOpen, setWakeNoteOpen] = useState(false);
+
+    // The screen stays on for as long as this screen is open, and is handed
+    // back the moment it unmounts. Nothing to show where the API does not
+    // exist — see useWakeLock.
+    const wakeLock = useWakeLock(true);
     // Shown automatically the first time only, and on demand from the help
     // icon forever after — never a one-time wall a returning user is locked
     // out of.
@@ -454,6 +463,19 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                         </p>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
+                        {wakeLock.supported && (
+                            <button
+                                onClick={() => setWakeNoteOpen(o => !o)}
+                                aria-label="Screen stays on"
+                                title="Screen stays on"
+                                aria-pressed={wakeNoteOpen}
+                                data-wake-lock={wakeLock.state}
+                                className="p-2 rounded-lg"
+                                style={{ color: wakeLock.state === 'held' ? 'var(--accent)' : 'var(--text-muted)' }}
+                            >
+                                <Lightbulb className="w-5 h-5" />
+                            </button>
+                        )}
                         <button
                             onClick={() => { setWalkthroughOpen(true); onShowWalkthrough?.(); }}
                             aria-label="How Active Mode works"
@@ -479,6 +501,12 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                         </button>
                     </div>
                 </div>
+                {wakeNoteOpen && wakeLock.supported && (
+                    <p className="mt-1.5 text-[11px] text-[var(--text-muted)] leading-snug">
+                        Your screen will stay on while this is open, so you don't have to keep
+                        tapping it awake.
+                    </p>
+                )}
             </header>
 
             {/* ── The capture area. Scrolls; the input and chips below do not. ── */}
