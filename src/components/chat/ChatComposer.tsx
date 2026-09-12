@@ -89,6 +89,10 @@ export function ChatComposer({ onSend, disabled = false, placeholder = 'Drop you
                     }}
                     disabled={disabled}
                     notePlacement="above"
+                    // The composer's button has no walkthrough of its own, so
+                    // it introduces itself once. Active Mode's does not — its
+                    // walkthrough already covers it.
+                    firstRunTip
                     className="flex-shrink-0 items-end pb-0.5"
                 />
                 <motion.button

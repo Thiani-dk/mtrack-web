@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-    CLIPBOARD_FAILURE_MESSAGE, isClipboardReadSupported, readClipboardText,
+    CLIPBOARD_FAILURE_MESSAGE, dismissPasteTip, hasSeenPasteTip,
+    isClipboardReadSupported, PASTE_TIP_MESSAGE, readClipboardText,
 } from './clipboardRead';
 
 // Clipboard reading is patchy and refusable, and the manual fallback —
@@ -51,5 +52,45 @@ describe('reading', () => {
             "Couldn't read the clipboard — try pasting into the field instead.",
         );
         expect(CLIPBOARD_FAILURE_MESSAGE).toContain('pasting into the field');
+    });
+});
+
+describe('the composer tip, shown once', () => {
+    beforeEach(() => {
+        const store = new Map<string, string>();
+        vi.stubGlobal('localStorage', {
+            getItem: (k: string) => store.get(k) ?? null,
+            setItem: (k: string, v: string) => { store.set(k, v); },
+        });
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('is unseen at first and seen once dismissed', () => {
+        expect(hasSeenPasteTip()).toBe(false);
+        dismissPasteTip();
+        expect(hasSeenPasteTip()).toBe(true);
+    });
+
+    it('never reappears once dismissed', () => {
+        dismissPasteTip();
+        dismissPasteTip();
+        expect(hasSeenPasteTip()).toBe(true);
+    });
+
+    it('stays quiet rather than repeating when storage is unavailable', () => {
+        vi.stubGlobal('localStorage', {
+            getItem: () => { throw new Error('blocked'); },
+            setItem: () => { throw new Error('blocked'); },
+        });
+        // A tip is a nicety; one that reappears every single session is worse
+        // than one nobody ever gets. Note this is the opposite call to the
+        // Active Mode walkthrough, which shows itself when storage fails —
+        // that one explains the whole screen, this one labels a button.
+        expect(hasSeenPasteTip()).toBe(true);
+        expect(() => dismissPasteTip()).not.toThrow();
+    });
+
+    it('is one short line', () => {
+        expect(PASTE_TIP_MESSAGE).toBe('Tip: tap here to paste a copied message directly.');
     });
 });

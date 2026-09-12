@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-    buildPracticeSaleMessage, hasSeenWalkthrough, markWalkthroughSeen,
-    PRACTICE_AMOUNT, PRACTICE_SENDER, SCREEN_SHARING_STEPS, SUGGESTED_BUCKETS,
+    buildPracticeSaleMessage, capabilityLines, detectCapabilities, hasSeenWalkthrough,
+    markWalkthroughSeen, PASTE_BUTTON_LINE, PRACTICE_AMOUNT, PRACTICE_SENDER,
+    SCREEN_SHARING_STEPS, SUGGESTED_BUCKETS, WAKE_LOCK_LINE,
 } from './walkthrough';
 import { captureFromPaste } from './session';
 
@@ -118,5 +119,46 @@ describe('the walkthrough copy', () => {
 
     it('suggests a few buckets without pretending to know the business', () => {
         expect(SUGGESTED_BUCKETS).toEqual(['Combo sales', 'Single item sales', 'Dessert sales']);
+    });
+});
+
+describe('the device-capability lines', () => {
+    it('mentions the screen staying on only where Wake Lock exists', () => {
+        expect(capabilityLines({ wakeLock: true, clipboardRead: false })).toEqual([WAKE_LOCK_LINE]);
+        expect(capabilityLines({ wakeLock: false, clipboardRead: false })).toEqual([]);
+    });
+
+    it('mentions the Paste button only where clipboard reading exists', () => {
+        // The button is not rendered without it, and pointing at a control
+        // that is not on screen sends someone hunting for nothing.
+        expect(capabilityLines({ wakeLock: false, clipboardRead: true })).toEqual([PASTE_BUTTON_LINE]);
+    });
+
+    it('shows both where both exist, screen first', () => {
+        expect(capabilityLines({ wakeLock: true, clipboardRead: true }))
+            .toEqual([WAKE_LOCK_LINE, PASTE_BUTTON_LINE]);
+    });
+
+    it('says nothing at all on a device with neither', () => {
+        // The walkthrough step is then skipped entirely rather than rendering
+        // an empty heading.
+        expect(capabilityLines({ wakeLock: false, clipboardRead: false })).toHaveLength(0);
+    });
+
+    it('keeps both lines to a sentence', () => {
+        // The walkthrough gains two useful lines, not a chapter.
+        for (const line of [WAKE_LOCK_LINE, PASTE_BUTTON_LINE]) {
+            expect(line.length).toBeLessThan(130);
+            expect(line.split('. ').filter(Boolean).length).toBeLessThanOrEqual(2);
+        }
+    });
+
+    it('reads the real APIs when asked about this device', () => {
+        const caps = detectCapabilities();
+        expect(typeof caps.wakeLock).toBe('boolean');
+        expect(typeof caps.clipboardRead).toBe('boolean');
+        // In a plain Node test environment neither API exists, so nothing
+        // would be claimed.
+        expect(capabilityLines(caps)).toEqual([]);
     });
 });

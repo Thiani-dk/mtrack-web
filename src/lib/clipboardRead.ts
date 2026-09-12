@@ -56,3 +56,31 @@ export async function readClipboardText(
 // is what the person should do next.
 export const CLIPBOARD_FAILURE_MESSAGE =
     "Couldn't read the clipboard — try pasting into the field instead.";
+
+// ── First-appearance tip ─────────────────────────────────────────────────────
+
+// The chat composer's Paste button is not covered by Active Mode's
+// walkthrough, so it gets one small, dismissible line the first time it is
+// seen. Once dismissed it never returns — a tip that keeps coming back is
+// noise, and this one sits next to a conversation it must never interrupt.
+const PASTE_TIP_KEY = 'mtrack-paste-tip-dismissed';
+
+export const PASTE_TIP_MESSAGE = 'Tip: tap here to paste a copied message directly.';
+
+export function hasSeenPasteTip(): boolean {
+    try {
+        return localStorage.getItem(PASTE_TIP_KEY) === '1';
+    } catch {
+        // Storage unavailable. Treat it as seen: a tip is a nicety, and one
+        // that reappears every session is worse than one nobody ever gets.
+        return true;
+    }
+}
+
+export function dismissPasteTip(): void {
+    try {
+        localStorage.setItem(PASTE_TIP_KEY, '1');
+    } catch {
+        // Nothing to do.
+    }
+}

@@ -1,4 +1,6 @@
 import { buildDemoPasteMessage } from '../demoFlow';
+import { isClipboardReadSupported } from '../clipboardRead';
+import { isWakeLockSupported } from '../wakeLock';
 
 // The first-run walkthrough's content and its one piece of persisted state.
 //
@@ -86,4 +88,36 @@ export function buildPracticeSaleMessage(now: Date = new Date()): string {
         category: null,
         direction: 'received',
     });
+}
+
+// ── What this device can actually do ──────────────────────────────────────────
+
+// Two short lines about conveniences that only exist on some devices, so they
+// are assembled from what the current one actually supports. Describing a
+// screen-awake feature to someone whose browser has no Wake Lock, or pointing
+// at a Paste button that was never rendered, is worse than staying quiet: it
+// sends them looking for something that is not there.
+export interface DeviceCapabilities {
+    wakeLock: boolean;
+    clipboardRead: boolean;
+}
+
+export function detectCapabilities(): DeviceCapabilities {
+    return { wakeLock: isWakeLockSupported(), clipboardRead: isClipboardReadSupported() };
+}
+
+export const WAKE_LOCK_LINE =
+    "Your screen stays on by itself while this is open, so it won't dim on you mid-rush.";
+
+export const PASTE_BUTTON_LINE =
+    'The Paste button next to the message box pulls in a copied message in one tap — '
+    + 'no long-press needed.';
+
+// The lines worth showing on this device, in order. Empty when it supports
+// neither, in which case the walkthrough step is skipped entirely.
+export function capabilityLines(caps: DeviceCapabilities): string[] {
+    const lines: string[] = [];
+    if (caps.wakeLock) lines.push(WAKE_LOCK_LINE);
+    if (caps.clipboardRead) lines.push(PASTE_BUTTON_LINE);
+    return lines;
 }

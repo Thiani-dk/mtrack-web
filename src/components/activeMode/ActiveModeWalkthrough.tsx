@@ -3,7 +3,8 @@ import { Check, Copy, X } from 'lucide-react';
 import type { ParsedTransaction } from '../../types';
 import { bucketTallies, capture, fileInto, readActiveModeState } from '../../lib/activeMode/session';
 import {
-    buildPracticeSaleMessage, SCREEN_SHARING_STEPS, SUGGESTED_BUCKETS,
+    buildPracticeSaleMessage, capabilityLines, detectCapabilities,
+    SCREEN_SHARING_STEPS, SUGGESTED_BUCKETS,
 } from '../../lib/activeMode/walkthrough';
 import { fmtCurrency } from '../../lib/receiptGenerator';
 
@@ -32,6 +33,11 @@ export function ActiveModeWalkthrough({ onClose, onSeedBuckets }: ActiveModeWalk
     const [chosen, setChosen] = useState<string[]>([]);
     const [ownName, setOwnName] = useState('');
     const [copied, setCopied] = useState(false);
+    // Only ever mentions what this device actually has. A line about the
+    // screen staying on, or about a Paste button that was never rendered,
+    // sends someone looking for something that is not there.
+    const [capabilities] = useState(detectCapabilities);
+    const deviceLines = capabilityLines(capabilities);
 
     // Practice state. Local, throwaway, never persisted.
     const practiceMessage = useMemo(() => buildPracticeSaleMessage(), []);
@@ -137,6 +143,23 @@ export function ActiveModeWalkthrough({ onClose, onSeedBuckets }: ActiveModeWalk
                                     <p className="mt-1 text-sm text-[var(--text-secondary)] leading-relaxed">{s.body}</p>
                                 </div>
                             ))}
+
+                            {/* Two conveniences that only exist on some
+                                devices, so the list is built from what this
+                                one supports — and skipped entirely when it
+                                supports neither. */}
+                            {deviceLines.length > 0 && (
+                                <div data-device-lines className="pt-1 space-y-1.5">
+                                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--accent)]">
+                                        While you're working
+                                    </p>
+                                    {deviceLines.map(line => (
+                                        <p key={line} className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                                            {line}
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
                         </>
                     )}
 

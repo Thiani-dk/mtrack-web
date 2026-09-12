@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react';
-import { ClipboardPaste } from 'lucide-react';
+import { ClipboardPaste, X } from 'lucide-react';
 import {
-    CLIPBOARD_FAILURE_MESSAGE, isClipboardReadSupported, readClipboardText,
+    CLIPBOARD_FAILURE_MESSAGE, dismissPasteTip, hasSeenPasteTip,
+    isClipboardReadSupported, PASTE_TIP_MESSAGE, readClipboardText,
 } from '../lib/clipboardRead';
 
 // One Paste button, used by Active Mode's capture field and by the chat
@@ -23,26 +24,64 @@ interface PasteButtonProps {
     notePlacement?: 'below' | 'above';
     disabled?: boolean;
     className?: string;
+    // Show the one-time "tap here to paste" line the first time this button is
+    // ever seen. Only the chat composer asks for it — Active Mode's own
+    // walkthrough already covers the button there, and two explanations of the
+    // same control is one too many.
+    firstRunTip?: boolean;
 }
 
-export function PasteButton({ onText, notePlacement = 'below', disabled = false, className = '' }: PasteButtonProps) {
+export function PasteButton({
+    onText, notePlacement = 'below', disabled = false, className = '', firstRunTip = false,
+}: PasteButtonProps) {
     const [failed, setFailed] = useState(false);
+    const [tipOpen, setTipOpen] = useState(() => firstRunTip && !hasSeenPasteTip());
     // Checked at render rather than once at module load, so a browser that
     // gains the API (or a test that stubs it) is not stuck with a stale answer.
     const supported = isClipboardReadSupported();
 
+    const closeTip = useCallback(() => {
+        setTipOpen(open => {
+            if (open) dismissPasteTip();
+            return false;
+        });
+    }, []);
+
     const handleClick = useCallback(async () => {
         // Inside the click, which is the user gesture both platforms require.
         const result = await readClipboardText();
+        // Using the button is the best possible acknowledgement of the tip.
+        closeTip();
         if (result.failure) {
             setFailed(true);
             return;
         }
         setFailed(false);
         onText(result.text);
-    }, [onText]);
+    }, [onText, closeTip]);
 
     if (!supported) return null;
+
+    const tip = tipOpen ? (
+        <div
+            role="note"
+            data-paste-tip
+            className="flex items-start gap-1.5 rounded-lg px-2 py-1.5 max-w-[15rem]"
+            style={{ background: 'var(--accent-subtle)' }}
+        >
+            <span className="text-[10px] text-[var(--text-secondary)] leading-snug">
+                {PASTE_TIP_MESSAGE}
+            </span>
+            <button
+                type="button"
+                onClick={closeTip}
+                aria-label="Dismiss tip"
+                className="flex-shrink-0 text-[var(--text-muted)]"
+            >
+                <X className="w-3 h-3" />
+            </button>
+        </div>
+    ) : null;
 
     const note = failed ? (
         <p role="status" className="text-[10px] text-[var(--text-muted)] leading-snug max-w-[14rem]">
@@ -65,6 +104,7 @@ export function PasteButton({ onText, notePlacement = 'below', disabled = false,
                 Paste
             </button>
             {note}
+            {tip}
         </div>
     );
 }
