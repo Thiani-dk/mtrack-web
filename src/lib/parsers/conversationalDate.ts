@@ -308,3 +308,57 @@ export function parseConversationalDate(input: string, now: Date = new Date()): 
 
     return ask(DATE_REASON_UNREADABLE);
 }
+
+// ── Retry policy ─────────────────────────────────────────────────────────────
+
+// Whether an answer actually moved things forward.
+//
+// A reading that exists and is in range counts, even when we still have to ask
+// which way to read it: "4/5/2026" is a real date, and "is that 4 May or 5
+// April?" is a question with an answer. What does NOT count is an answer that
+// left us with no usable date at all — unreadable text, or a date resolved and
+// then rejected by the bounds rules.
+export function isProductiveDateAnswer(result: ConversationalDateResult): boolean {
+    if (result.confidence === 'exact') return true;
+    return result.confidence === 'needs_clarification' && result.date != null;
+}
+
+export interface DateRetryState {
+    // Consecutive answers that produced nothing usable.
+    attempts: number;
+    // The previous answer verbatim, so an identical repeat is not mistaken for
+    // a fresh attempt at the question.
+    lastAnswer: string | null;
+}
+
+export const NO_DATE_RETRIES: DateRetryState = { attempts: 0, lastAnswer: null };
+
+function sameAnswer(a: string | null, b: string): boolean {
+    return a != null && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+// Folds one answer into the retry state and says whether to give up on the date.
+//
+// The cap exists to stop an infinite loop when someone keeps typing things no
+// parser can read. It was never meant to discard a fresh, valid date just
+// because it was the second thing they typed — which is exactly what it did
+// when "4/5/2025" (too old) was followed by "4/5/2026" (real, in range, and
+// merely ambiguous): the second answer was never given its own hearing.
+//
+// So the counter tracks consecutive unproductive answers, and a productive one
+// resets it. Repeating the same text verbatim is not productive however it
+// parses, or answering the disambiguation question with the same ambiguous
+// string would loop forever.
+export function advanceDateRetry(
+    state: DateRetryState,
+    answer: string,
+    result: ConversationalDateResult,
+    maxAttempts: number,
+): { state: DateRetryState; giveUp: boolean } {
+    const productive = isProductiveDateAnswer(result) && !sameAnswer(state.lastAnswer, answer);
+    const attempts = productive ? 0 : state.attempts + 1;
+    return {
+        state: { attempts, lastAnswer: answer },
+        giveUp: !productive && attempts >= maxAttempts,
+    };
+}

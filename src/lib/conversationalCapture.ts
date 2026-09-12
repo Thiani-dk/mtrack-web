@@ -280,7 +280,17 @@ export interface OpenSlots {
 // currency-tagged figure, which is why "around 7pm" in a date answer is not
 // read as seven of anything.
 export function absorbAnswer(current: OpenSlots, text: string): OpenSlots {
-    const next: OpenSlots = { ...current, currency: lockCurrency(current.currency, text) };
+    // Built field by field rather than by spreading `current`. Callers pass
+    // the whole capture draft (structurally a superset), and spreading it
+    // would carry every other field back out — so a caller that then spread
+    // the result over a freshly-set date would silently restore the old one.
+    // Returning exactly these four keys makes that impossible.
+    const next: OpenSlots = {
+        amount: current.amount,
+        lineItems: current.lineItems,
+        recipient: current.recipient,
+        currency: lockCurrency(current.currency, text),
+    };
 
     if (!next.lineItems || next.lineItems.length === 0) {
         const itemisation = extractLineItems(text);

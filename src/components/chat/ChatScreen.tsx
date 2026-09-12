@@ -8,7 +8,7 @@ import {
     lockCurrency, parseAmountReply, buildConfirmSentence, absorbAnswer, openSlots, UNSTATED_CURRENCY,
     type DirectionResult, type CurrencyLock,
 } from '../../lib/conversationalCapture';
-import { DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
+import { advanceDateRetry, DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
 import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
@@ -120,9 +120,14 @@ interface DocFlow {
     draft: CaptureDraft;
     describedCount: number;
     nudgeShown: boolean;
-    // Unreadable-date answers so far on the line being captured. Capped so the
-    // clarification question can never loop.
+    // Consecutive answers that produced no usable date on the line being
+    // captured. Capped so the clarification question can never loop — but it
+    // counts failures, not replies, so a fresh valid date is never discarded
+    // just for arriving second. See advanceDateRetry.
     dateAttempts: number;
+    // The previous date answer verbatim: repeating the same text is not a
+    // fresh attempt, however it parses.
+    lastDateAnswer: string | null;
     // Transaction codes still awaiting a guided purpose label (on_behalf_of).
     purposeQueue: string[];
     // The persisted draft TrackedDocument backing this flow (id === session id).
@@ -569,6 +574,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             describedCount: 0,
             nudgeShown: false,
             dateAttempts: 0,
+            lastDateAnswer: null,
             purposeQueue: [],
             draftDoc: null,
         });
@@ -610,6 +616,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 describedCount: 0,
                 nudgeShown: true,
                 dateAttempts: 0,
+                lastDateAnswer: null,
                 purposeQueue: [],
                 draftDoc: doc,
             });
@@ -938,7 +945,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
 
         const base = {
             merchantProfile: null, onBehalfOf: null, draft: emptyDraft(),
-            describedCount: 0, nudgeShown: false, dateAttempts: 0, purposeQueue: [] as string[], draftDoc: null,
+            describedCount: 0, nudgeShown: false, dateAttempts: 0, lastDateAnswer: null,
+            purposeQueue: [] as string[], draftDoc: null,
         };
         if (value === 'own') {
             setDocFlow({ ...base, documentType: 'expense_summary', pending: 'input' });
@@ -1243,33 +1251,41 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 if (d.confidence === 'exact' && d.date) {
                     // Accepted, but still echoed back inside the confirmation
                     // sentence (see confirmText) before anything is committed.
-                    setDocFlow({ ...flow, dateAttempts: 0 });
+                    setDocFlow({ ...flow, dateAttempts: 0, lastDateAnswer: null });
                     advanceAfterField(
-                        { ...flow, dateAttempts: 0 },
+                        { ...flow, dateAttempts: 0, lastDateAnswer: null },
                         {
-                            ...flow.draft, date: d.date, dateAmbiguous: false,
-                            dateInterpretation: d.interpretation, dateSkipped: false,
+                            ...flow.draft,
                             // An answer may say more than was asked; anything
-                            // it carries for a still-empty slot is kept.
+                            // it carries for a still-empty slot is kept. Spread
+                            // before the date fields, never after — the date is
+                            // what this answer was actually about.
                             ...absorbAnswer(flow.draft, t),
+                            date: d.date, dateAmbiguous: false,
+                            dateInterpretation: d.interpretation, dateSkipped: false,
                         },
                     );
                     return true;
                 }
 
-                // Not settled. Ask the parser's own question, but never more
-                // than twice — past that, offer to leave the date off rather
-                // than loop or let a wrong date through.
-                const attempts = flow.dateAttempts + 1;
-                if (attempts >= MAX_DATE_ATTEMPTS) {
+                // Not settled. Ask the parser's own question — but the cap
+                // counts consecutive answers that produced nothing usable, not
+                // replies. A fresh date that merely needs disambiguating gets
+                // its own hearing however many attempts came before it; the
+                // cap still guards against a real loop of unreadable answers.
+                const retry = advanceDateRetry(
+                    { attempts: flow.dateAttempts, lastAnswer: flow.lastDateAnswer },
+                    t, d, MAX_DATE_ATTEMPTS,
+                );
+                if (retry.giveUp) {
                     addMsg({ role: 'bot', kind: 'text', text: DATE_GIVE_UP });
                     advanceAfterField(
-                        { ...flow, dateAttempts: 0 },
+                        { ...flow, dateAttempts: 0, lastDateAnswer: null },
                         { ...flow.draft, date: null, dateAmbiguous: false, dateInterpretation: null, dateSkipped: true },
                     );
                     return true;
                 }
-                setDocFlow({ ...flow, dateAttempts: attempts });
+                setDocFlow({ ...flow, dateAttempts: retry.state.attempts, lastDateAnswer: retry.state.lastAnswer });
                 addMsg({ role: 'bot', kind: 'text', text: d.reason ?? DATE_PROMPT });
                 return true;
             }
