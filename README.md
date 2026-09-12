@@ -1,5 +1,59 @@
 # React + TypeScript + Vite
 
+## Tests
+
+```sh
+npm test        # unit tests (vitest) — fast, no browser, runs anywhere
+npm run test:e2e   # browser checks — needs a dev server and a Chromium (see below)
+```
+
+`npm test` is the standard run. It covers the parsing pipeline, document layout
+(including a standing text-overlap regression test) and Active Mode's session
+logic, all in plain Node.
+
+### Browser checks (`npm run test:e2e`) — manual / CI-optional
+
+`e2e/` drives the real app in a headless browser. It is **not** part of
+`npm test`, because it needs two things the unit suite does not:
+
+1. **A running dev server.** Start one first:
+   ```sh
+   npm run dev                 # then, in another terminal:
+   npm run test:e2e
+   ```
+   It defaults to `http://localhost:5173/`. Vite takes the next free port when
+   that one is busy, so if it did, point the checks at the right one:
+   ```sh
+   E2E_BASE_URL=http://localhost:5174/ npm run test:e2e
+   ```
+
+2. **A Chromium binary.** `playwright-core` is a small dev dependency that
+   ships no browser, so the checks use whichever Chromium is already on the
+   machine — a Playwright-managed one under `~/.cache/ms-playwright`, or an
+   installed Chrome. If there is neither, install one with
+   `npx playwright install chromium`, or point at an existing binary with
+   `CHROME_PATH=/path/to/chrome`.
+
+Both scripts exit non-zero on failure and say exactly what was missing if the
+server or the browser is not there.
+
+| Script | What it covers |
+| --- | --- |
+| `e2e/journey.e2e.mjs` | The full Active Mode journey: HomeScreen → first-run walkthrough with a real practice capture → buckets created on the fly → paste-and-file in two actions → auto-file to Unsorted → duplicate warning → mid-paste reload → Finish, with the on-screen figures checked against the document actually written to IndexedDB. |
+| `e2e/viewport.e2e.mjs` | Layout at the constrained sizes Active Mode has to survive — 360×400, 640×280 and 360×210 (split screen with the keyboard open) — asserting the paste field, chip row, running total and Finish are all on screen, the `dvh` container tracks the viewport, and the chip row scrolls sideways with its last chip fully reachable. |
+
+These exist because they catch a class of bug the unit suite structurally
+cannot: wiring. Focus behaviour, persistence timing, app routing after a
+backgrounded reload, and whether what a vendor sees matches what was saved.
+Two real bugs found this way — landing on HomeScreen instead of Active Mode
+after a reload, and the constrained-viewport layout — were invisible to
+`npm test`.
+
+Screenshots land in `e2e/screenshots/` (gitignored).
+
+---
+
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
