@@ -170,7 +170,17 @@ check('switching back does not jump the scroll position', afterSwitch.scroll ===
 // ── 11. Finish and check the report ──
 await page.locator('.am-chips button', { hasText: 'Drinks' }).click();
 await page.waitForTimeout(200);
+// The on-screen chip row, parsed into { bucket -> {count, total} }. This is
+// what the vendor saw; the document must agree with it.
 const finalChips = (await page.locator('.am-chips').innerText()).replace(/\s+/g, ' ');
+const screenBuckets = await page.evaluate(() => {
+  const out = {};
+  for (const b of document.querySelectorAll('.am-chips button[data-bucket]')) {
+    const m = b.innerText.replace(/\s+/g, ' ').match(/([\d,]+\.\d{2}) · (\d+)/);
+    if (m) out[b.dataset.bucket] = { total: Number(m[1].replace(/,/g, '')), count: Number(m[2]) };
+  }
+  return out;
+});
 const finalTotal = (await page.locator('.am-total').innerText()).trim();
 const finalCount = (await page.locator('.am-header').innerText()).match(/(\d+) sales/)[1];
 await page.getByRole('button', { name: 'Finish' }).click();
@@ -184,11 +194,71 @@ const doc = await page.evaluate(async () => {
   for (const t of d.transactions) { const k = t.bucketLabel || 'Unsorted'; buckets[k] = buckets[k] || { count: 0, total: 0 }; buckets[k].count++; buckets[k].total += t.amount; }
   return { status: d.status, type: d.documentType, active: d.capturedViaActiveMode, n: d.transactions.length, total: d.transactions.reduce((s, t) => s + t.amount, 0), buckets, pending: d.activeMode?.pending ?? null, bucketNames: d.activeMode?.buckets };
 });
+
+// The bucket breakdown as the REPORT renders it — buildDocModel's own output,
+// not the test's arithmetic over the same array. `buckets` above is a test-side
+// regrouping of d.transactions and is kept only as the raw-record baseline to
+// compare this against; on its own it could never disagree with itself.
+const reportBuckets = await page.evaluate(async () => {
+  const [{ buildDocModel }, { computeReceiptData }] = await Promise.all([
+    import('/src/lib/documentLayout.ts'),
+    import('/src/lib/receiptGenerator.ts'),
+  ]);
+  const db = await new Promise((res, rej) => { const r = indexedDB.open('mtrack-db'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const all = await new Promise((res, rej) => { const t = db.transaction('documents', 'readonly'); const q = t.objectStore('documents').getAll(); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+  const d = all.filter(x => x.capturedViaActiveMode).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const txns = d.transactions.map(t => ({ ...t, date: new Date(t.date) }));
+  const model = buildDocModel(txns, {
+    documentType: d.documentType, coveringFrom: d.coveringFrom, coveringTo: d.coveringTo,
+    dataSource: d.dataSource, merchantProfile: d.merchantProfile, onBehalfOf: d.onBehalfOf,
+    capturedViaActiveMode: d.capturedViaActiveMode,
+  }, false);
+  return {
+    rows: model.buckets.map(b => ({ label: b.label, count: b.count, value: b.value })),
+    heroAmount: model.heroAmount,
+    lineCount: model.lines.length,
+    grandTotal: computeReceiptData(txns).grandTotal,
+  };
+});
 check('Finish produces an approved expense_summary from Active Mode', doc && doc.status === 'approved' && doc.type === 'expense_summary' && doc.active === true, JSON.stringify({ status: doc?.status, type: doc?.type }));
 check('every captured sale is in the document', String(doc.n) === finalCount, `${doc.n} vs ${finalCount} on screen`);
 check('the document total matches the screen total', `Ksh ${doc.total.toFixed(2).replace(/\B(?=(\d{3})+(?!\d)\.)/g, ',')}` === finalTotal, `${doc.total} vs ${finalTotal}`);
-check('bucket subtotals sum to the document total', Math.abs(Object.values(doc.buckets).reduce((s, b) => s + b.total, 0) - doc.total) < 0.005);
-check('bucket counts sum to the itemisation length', Object.values(doc.buckets).reduce((s, b) => s + b.count, 0) === doc.n);
+// ── The bucket breakdown, checked against three independent sources ──
+// The renderer's own rows vs the raw IndexedDB records, vs the chip row the
+// vendor actually saw, vs an independently-computed grand total. None of these
+// is the test re-summing the same array and comparing it with itself.
+const parseMoney = v => Number(String(v).replace(/[^\d.]/g, ''));
+
+check('the report renders a bucket row for every bucket that has sales',
+  reportBuckets.rows.length === Object.keys(doc.buckets).length,
+  `${JSON.stringify(reportBuckets.rows.map(r => r.label))} vs ${JSON.stringify(Object.keys(doc.buckets))}`);
+
+check('each rendered bucket subtotal and count matches the stored transactions',
+  reportBuckets.rows.every(r => {
+    const raw = doc.buckets[r.label];
+    return raw && r.count === raw.count && Math.abs(parseMoney(r.value) - raw.total) < 0.005;
+  }),
+  JSON.stringify({ rendered: reportBuckets.rows, stored: doc.buckets }));
+
+check('each rendered bucket matches the chip row the vendor saw',
+  reportBuckets.rows.every(r => {
+    const chip = screenBuckets[r.label];
+    return chip && r.count === chip.count && Math.abs(parseMoney(r.value) - chip.total) < 0.005;
+  }),
+  JSON.stringify({ rendered: reportBuckets.rows, onScreen: screenBuckets }));
+
+check('the rendered bucket subtotals sum to the independently-computed grand total',
+  Math.abs(reportBuckets.rows.reduce((s, r) => s + parseMoney(r.value), 0) - reportBuckets.grandTotal) < 0.005,
+  `${reportBuckets.rows.reduce((s, r) => s + parseMoney(r.value), 0)} vs ${reportBuckets.grandTotal}`);
+
+check('the rendered bucket counts account for every itemised row',
+  reportBuckets.rows.reduce((s, r) => s + r.count, 0) === reportBuckets.lineCount
+  && reportBuckets.lineCount === doc.n,
+  `counts=${reportBuckets.rows.reduce((s, r) => s + r.count, 0)} lines=${reportBuckets.lineCount} stored=${doc.n}`);
+
+check('the hero total on the report is the stored total',
+  Math.abs(parseMoney(reportBuckets.heroAmount) - doc.total) < 0.005,
+  `${reportBuckets.heroAmount} vs ${doc.total}`);
 check('nothing is left pending on a finished document', doc.pending === null);
 console.log('\nOn-screen chips: ' + finalChips);
 console.log('Document buckets: ' + JSON.stringify(doc.buckets));
