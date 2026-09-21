@@ -9,6 +9,7 @@ import { extractCode } from './parsers/extractors/code';
 import { extractDirection } from './parsers/extractors/direction';
 import { parseConversationalDate, type ConversationalDateResult } from './parsers/conversationalDate';
 import { normalizeForKeywords } from './parsers/fuzzy';
+import { hasTransactionVerb } from './parsers/classify';
 import { fmtAmountProse, hasUsableDate } from './transactionDisplay';
 import type { DirectionResult } from './parsers/types';
 
@@ -100,6 +101,16 @@ export interface DescriptionResult {
     // 'partial'— some fields present, ask for the rest one at a time
     // 'none'   — nothing usable, start the questions from scratch
     confidence: 'high' | 'partial' | 'none';
+    // Whether the message reads like a transaction description at all — a
+    // transaction verb, however spelled. A message with the shape but no
+    // fields ("bought bacon") was understood in outline and earns the ordinary
+    // targeted question; one with neither is what the honest "I didn't follow"
+    // fallback exists for. See zeroUnderstanding.ts.
+    hasTransactionShape: boolean;
+    // Whether the message carried a number at all. One with no cue word around
+    // it is not an amount ("3100" on its own), but it is plainly an attempt at
+    // one, and answering it with "I didn't follow" would be wrong.
+    hasNumber: boolean;
     missing: Array<'amount' | 'recipient' | 'date'>;
 }
 
@@ -227,6 +238,8 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
         dateResult,
         direction,
         confidence: missing.length === 0 ? 'high' : missing.length >= 3 ? 'none' : 'partial',
+        hasTransactionShape: hasTransactionVerb(text),
+        hasNumber: /\d/.test(text),
         missing,
     };
 }

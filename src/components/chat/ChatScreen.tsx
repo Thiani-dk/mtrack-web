@@ -9,6 +9,7 @@ import {
     type CaptureDraft,
 } from '../../lib/captureDraft';
 import { advanceDateRetry, DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
+import { advanceZeroUnderstanding, understoodNothing } from '../../lib/zeroUnderstanding';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
 import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
@@ -85,7 +86,7 @@ const EFFICIENCY_NUDGE =
 type PendingPrompt =
     | 'mode' | 'business-name' | 'party-name' | 'purpose'
     | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm'
-    | 'purpose-label' | 'input';
+    | 'purpose-label' | 'zero-escape' | 'input';
 
 interface DocFlow {
     documentType: DocumentType;
@@ -103,6 +104,10 @@ interface DocFlow {
     // The previous date answer verbatim: repeating the same text is not a
     // fresh attempt, however it parses.
     lastDateAnswer: string | null;
+    // Consecutive messages this flow made nothing whatsoever of. Capped, so
+    // "I couldn't pick anything out of that" cannot be said forever — the
+    // third time, the user is offered a way out instead. See zeroUnderstanding.
+    zeroAttempts: number;
     // Transaction codes still awaiting a guided purpose label (on_behalf_of).
     purposeQueue: string[];
     // The persisted draft TrackedDocument backing this flow (id === session id).
@@ -546,6 +551,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             nudgeShown: false,
             dateAttempts: 0,
             lastDateAnswer: null,
+            zeroAttempts: 0,
             purposeQueue: [],
             draftDoc: null,
         });
@@ -588,6 +594,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 nudgeShown: true,
                 dateAttempts: 0,
                 lastDateAnswer: null,
+                zeroAttempts: 0,
                 purposeQueue: [],
                 draftDoc: doc,
             });
@@ -917,7 +924,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         const base = {
             merchantProfile: null, onBehalfOf: null, draft: emptyDraft(),
             describedCount: 0, nudgeShown: false, dateAttempts: 0, lastDateAnswer: null,
-            purposeQueue: [] as string[], draftDoc: null,
+            zeroAttempts: 0, purposeQueue: [] as string[], draftDoc: null,
         };
         if (value === 'own') {
             setDocFlow({ ...base, documentType: 'expense_summary', pending: 'input' });
@@ -1127,10 +1134,35 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             }
         };
 
+        // Nothing at all came out of that message. Say so, rather than falling
+        // through to the next question in the sequence — "How much was it?"
+        // after understanding none of a message implies the rest of it landed,
+        // and it didn't. Checked against THIS message's extraction, not the
+        // accumulated draft, and only when every field came back empty: a
+        // message that named a thing without a price is partial understanding
+        // and keeps its ordinary targeted question.
+        const zero = advanceZeroUnderstanding({ consecutive: flow.zeroAttempts }, understoodNothing(r));
+        if (zero.response) {
+            if (zero.response.kind === 'escape') {
+                setDocFlow({ ...flow, draft, zeroAttempts: 0, pending: 'zero-escape', describedCount });
+                addMsg({
+                    role: 'bot', kind: 'options',
+                    text: zero.response.text, options: zero.response.options,
+                });
+            } else {
+                setDocFlow({
+                    ...flow, draft, zeroAttempts: zero.state.consecutive,
+                    pending: 'input', describedCount,
+                });
+                addMsg({ role: 'bot', kind: 'text', text: zero.response.text });
+            }
+            return;
+        }
+
         // A date the parser refused outright (in the future, or older than the
         // 12-month window) is never carried into the draft — say why and ask again.
         if (!draft.date && !draft.dateSkipped && r.dateResult.confidence === 'invalid') {
-            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount });
+            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount, zeroAttempts: 0 });
             addMsg({ role: 'bot', kind: 'text', text: `${r.dateResult.reason} When was it?` });
             fireNudge();
             return;
@@ -1142,7 +1174,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         // couldn't work out a date from that" would imply they'd tried.
         if (!draft.date && !draft.dateSkipped && r.dateResult.confidence === 'needs_clarification' && r.dateResult.reason) {
             const attempted = r.dateResult.reason !== DATE_REASON_UNREADABLE;
-            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount });
+            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount, zeroAttempts: 0 });
             addMsg({ role: 'bot', kind: 'text', text: attempted ? r.dateResult.reason : DATE_PROMPT });
             fireNudge();
             return;
@@ -1151,7 +1183,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         // Phase C5 — a day/month flip on a reimbursement claim can sink the
         // whole submission, so escalate it before doing anything else.
         if (draft.date && draft.dateAmbiguous && flow.documentType === 'on_behalf_of') {
-            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount });
+            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount, zeroAttempts: 0 });
             addMsg({ role: 'bot', kind: 'text', text: OBO_AMBIGUOUS_DATE_PROMPT });
             fireNudge();
             return;
@@ -1161,7 +1193,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         // message filled stays filled, and only a genuinely empty slot earns a
         // question.
         const next = askNextField(draft, flow.documentType);
-        setDocFlow({ ...flow, draft, pending: next, describedCount });
+        setDocFlow({ ...flow, draft, pending: next, describedCount, zeroAttempts: 0 });
         if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
         fireNudge();
     }, [isDemoSession, addDemoMessage, addMessage, askNextField, confirmText, setDocFlow]);
@@ -1179,6 +1211,32 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             case 'mode':
                 addMsg({ role: 'bot', kind: 'text', text: "Tap one of the options above so I know what we're making." });
                 return true;
+            // The way out offered after two failed "I didn't follow" turns.
+            // Three options, all of which end the loop rather than asking in
+            // the same shape a third time.
+            case 'zero-escape': {
+                if (/^paste/i.test(t)) {
+                    setDocFlow({ ...flow, pending: 'input', zeroAttempts: 0 });
+                    addMsg({
+                        role: 'bot', kind: 'text',
+                        text: 'Go ahead — paste the M-PESA message itself and I will read it from there.',
+                    });
+                    return true;
+                }
+                if (/^skip/i.test(t)) {
+                    // Keep whatever the flow has and move on to the first slot
+                    // that is genuinely still open, one plain question at a time.
+                    advanceAfterField({ ...flow, zeroAttempts: 0 }, flow.draft);
+                    return true;
+                }
+                if (/^start over|^restart/i.test(t)) {
+                    setDocFlow({ ...flow, draft: emptyDraft(), pending: 'input', zeroAttempts: 0 });
+                    addMsg({ role: 'bot', kind: 'text', text: 'Cleared. What did you spend on?' });
+                    return true;
+                }
+                addMsg({ role: 'bot', kind: 'text', text: 'Tap one of the options above and we will take it from there.' });
+                return true;
+            }
             case 'business-name':
                 if (!t) { addMsg({ role: 'bot', kind: 'text', text: POS_NAME_PROMPT }); return true; }
                 setDocFlow({ ...flow, merchantProfile: { businessName: t, contact: null }, pending: 'input' });
@@ -1589,6 +1647,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         }
         switch (docFlow?.pending) {
             case 'mode': return 'Tap an option above...';
+            case 'zero-escape': return 'Tap an option above...';
             case 'business-name': return 'Business name...';
             case 'party-name': return 'Who it was for...';
             case 'purpose': return "What it was for, or 'skip'...";

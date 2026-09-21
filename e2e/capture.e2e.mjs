@@ -158,5 +158,57 @@ if (await pasteBtn.count()) {
         !/Couldn.t read the clipboard/.test(await lastBotLine()));
 }
 
+// ── 5. The bacon-and-groceries message, from the screenshot ──
+//
+// Three items, three amounts, not one currency token, one typo and one merged
+// word. It extracted nothing and the bot replied "How much was it?". Replayed
+// through the real chat because the bug was only ever visible as which
+// question came next.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('hi so, i spent quite a lot today. i boought somebacon and pork cuts for 3100, '
+    + 'then i rode a bus to a neighborhood where i bought tomatoes, ginger, chapati, onions, '
+    + 'and garlic at 400. then i bought airtime worth 30');
+
+const afterBacon = await transcript();
+check('the bot does not ask for an amount it was already given',
+    !/How much was it\?/.test(afterBacon), afterBacon.slice(-160));
+check('nor asks what was bought', !/What did they buy\?|Who was it paid to\?/.test(afterBacon));
+check('and never claims it understood nothing',
+    !/couldn.t pick anything out/i.test(afterBacon));
+check('the three amounts and their total are on screen',
+    /3,100/.test(afterBacon) && /400/.test(afterBacon) && /3,530/.test(afterBacon),
+    afterBacon.slice(-200));
+
+// ── 6. A genuinely unparseable message gets an honest answer ──
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('zxcv qwer asdf');
+const firstMiss = await lastBotLine();
+check('says plainly that it did not follow, rather than asking for one field',
+    /couldn.t pick anything out/i.test(firstMiss), firstMiss.slice(0, 120));
+check('and does not ask "How much was it?" about it', !/How much was it\?/.test(firstMiss));
+
+await say('qwer zxcv asdf');
+const secondMiss = await lastBotLine();
+check('the second time is worded differently', secondMiss !== firstMiss, secondMiss.slice(0, 120));
+
+await say('asdf qwer zxcv');
+const thirdMiss = await transcript();
+check('the third offers a way out instead of asking again',
+    /Paste the message instead/.test(thirdMiss) && /Skip this one/.test(thirdMiss),
+    thirdMiss.slice(-200));
+
+// ── 7. A merely-incomplete message still gets its targeted question ──
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('bought bacon');
+const incomplete = await transcript();
+check('an item with no price is still asked about specifically',
+    !/couldn.t pick anything out/i.test(incomplete), incomplete.slice(-160));
+
 await browser.close();
 finish();
