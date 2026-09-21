@@ -8,9 +8,10 @@ export type { AmountResult };
 // ("5000USD", "10k USD"), and the shorthand multiplier belongs to the number
 // (see numeric.ts) rather than to whichever caller happens to read it.
 //
-// A currency token on one side or the other is still required. Every bare
-// number in a payment message is something else — a balance, a reference, a
-// date — so matching those would cost far more than it gained.
+// A currency token on one side or the other is required by default. Every bare
+// number in an SMS is something else — a balance, a reference, a date — so
+// matching those would cost far more than it gained. Typed input is the
+// opposite case and opts in; see AmountScanOptions below.
 const NUMBER_SOURCE = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?`;
 // A multiplier ends where a letter does not follow, or where a currency code
 // runs straight on from it ("100kUSD").
@@ -31,6 +32,51 @@ const POSITIVE_CONTEXT =
     /\b(sent|paid|received|bought|give|withdraw|transfer(?:red)?|of|you have (?:sent|paid|received))\b/i;
 const NEGATIVE_CONTEXT =
     /\b(balance|transaction cost|transact within the day|limit|charge|fee|avail(?:able)?\s*bal|fuliza|outstanding|interest)\b/i;
+
+// ── Bare numbers, for typed input only ───────────────────────────────────────
+
+// M-Pesa always writes the code ("Ksh1,000.00"), so requiring one costs SMS
+// nothing. People typing do not: "i bought somebacon and pork cuts for 3100,
+// ... at 400 ... airtime worth 30" carries three amounts and not one currency
+// token, and the requirement silently reduced that whole message to nothing —
+// no amounts, so no itemisation, so a flow that asked "How much was it?" about
+// a message that had already said so three times.
+//
+// So a bare number counts, but only where the sentence itself marks it as
+// money: a cue word immediately before it, or a Kenyan "/=" immediately after.
+// This is opt-in (`allowBare`) and off by default — the SMS pipeline keeps the
+// strict rule, where bare numbers really are balances, reference numbers and
+// dates.
+export interface AmountScanOptions {
+    allowBare?: boolean;
+}
+
+// "for 3100", "at 400", "worth 30", "spent 2000", "cost 750", "@ 120".
+const MONEY_CUE_RE =
+    /\b(?:for|at|worth|of|each|cost|costs|costing|spent|spend|spending|paid|pay|paying|sold|sell|selling|bought|buy|buying|gave|give|sent|send|received|receive|got|charged|totall?ing|total|around|about|roughly|approx(?:imately)?)\s*$|@\s*$/i;
+
+// A trailing "/=" is how a Kenyan price is written without naming Shillings.
+const TRAILING_SLASH_RE = /^\s*\/=/;
+
+// Numbers a cue word can sit next to that are still not money.
+const NOT_MONEY_AFTER_RE = /^\s*(?:am|pm|a\.m\.|p\.m\.|o'clock|hrs?|%|x\b|×|pcs?\b|pieces?\b|st\b|nd\b|rd\b|th\b)/i;
+
+// Inside a date, a time or a ratio ("12/09/2026", "at 7:30", "2024-09-11").
+const DATE_CHAR_BEFORE_RE = /[/:\-.]$/;
+const DATE_CHAR_AFTER_RE = /^[/:]/;
+
+function isBareMoney(msg: string, index: number, length: number): boolean {
+    const before = msg.slice(Math.max(0, index - 24), index);
+    const after = msg.slice(index + length);
+
+    // "12/09/2026", "7:30" — a number wedged into a date or a time, however
+    // money-ish the words around it are.
+    if (DATE_CHAR_BEFORE_RE.test(before) || DATE_CHAR_AFTER_RE.test(after)) return false;
+    // "around 7pm" is a time, "3 x" is a quantity, "20%" is a rate.
+    if (NOT_MONEY_AFTER_RE.test(after)) return false;
+
+    return MONEY_CUE_RE.test(before) || TRAILING_SLASH_RE.test(after);
+}
 
 interface Candidate {
     amount: number;
@@ -67,8 +113,8 @@ function confidenceOf(score: number): number {
 // Every currency-tagged amount in the message, in order, with its position —
 // the building block for both the single best amount below and the line-item
 // itemisation in conversationalCapture.
-export function extractAmountMatches(msg: string): AmountMatch[] {
-    return scanAmounts(msg).map(c => ({
+export function extractAmountMatches(msg: string, opts: AmountScanOptions = {}): AmountMatch[] {
+    return scanAmounts(msg, opts).map(c => ({
         amount: c.amount,
         currency: c.currency,
         confidence: confidenceOf(c.score),
@@ -77,11 +123,11 @@ export function extractAmountMatches(msg: string): AmountMatch[] {
     }));
 }
 
-export function extractAmountCandidates(msg: string): AmountResult[] {
-    return extractAmountMatches(msg).map(({ amount, currency, confidence }) => ({ amount, currency, confidence }));
+export function extractAmountCandidates(msg: string, opts: AmountScanOptions = {}): AmountResult[] {
+    return extractAmountMatches(msg, opts).map(({ amount, currency, confidence }) => ({ amount, currency, confidence }));
 }
 
-function scanAmounts(msg: string): Candidate[] {
+function scanAmounts(msg: string, opts: AmountScanOptions = {}): Candidate[] {
     const candidates: Candidate[] = [];
     AMOUNT_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
@@ -89,8 +135,10 @@ function scanAmounts(msg: string): Candidate[] {
         const [whole, prefix, digits, suffixMult, suffixCur] = m;
         // Guard against the optional-everything pattern matching nothing.
         if (!whole) { AMOUNT_RE.lastIndex++; continue; }
-        // A number with no currency on either side is not an amount.
-        if (!prefix && !suffixCur) continue;
+        // A number with no currency on either side is not an amount — unless
+        // the caller reads typed input and the sentence marks it as money.
+        const bare = !prefix && !suffixCur;
+        if (bare && !(opts.allowBare && isBareMoney(msg, m.index, whole.length))) continue;
 
         const base = parseFloat(digits.replace(/,/g, ''));
         if (Number.isNaN(base)) continue;
@@ -105,8 +153,8 @@ function scanAmounts(msg: string): Candidate[] {
     return candidates;
 }
 
-export function extractAmount(msg: string): AmountResult | null {
-    const candidates = scanAmounts(msg);
+export function extractAmount(msg: string, opts: AmountScanOptions = {}): AmountResult | null {
+    const candidates = scanAmounts(msg, opts);
     if (candidates.length === 0) return null;
 
     candidates.sort((a, b) => b.score - a.score || a.index - b.index);

@@ -1,6 +1,6 @@
 import type { LineItem, ParsedTransaction } from '../types';
 import { extractRawBlock, finalizeTransaction, deriveSubType } from './parsers';
-import { extractAmount } from './parsers/extractors/amount';
+import { extractAmount, type AmountScanOptions } from './parsers/extractors/amount';
 import { DEFAULT_CURRENCY, detectCurrency } from './parsers/extractors/currency';
 import { parseAmountAnswer } from './parsers/extractors/numeric';
 import { extractLineItems, type ItemisationResult } from './parsers/extractors/lineItems';
@@ -13,6 +13,10 @@ import type { DirectionResult } from './parsers/types';
 
 export type { DirectionResult, ConversationalDateResult, ItemisationResult };
 export { extractLineItems };
+
+// Everything in this module reads text a person typed, where "for 3100" is a
+// price and not a reference number. The SMS pipeline keeps the strict rule.
+const TYPED: AmountScanOptions = { allowBare: true };
 export { parseConversationalDate };
 
 // Conversational entry runs through the SAME classify -> extract -> score
@@ -141,7 +145,7 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
     // each field.
     const raw = extractRawBlock(text, 0);
     const finalized = finalizeTransaction(raw, 20);
-    const amountResult = extractAmount(text);
+    const amountResult = extractAmount(text, TYPED);
     const parties = extractParties(text);
     const dateResult = parseConversationalDate(text, now);
 
@@ -171,7 +175,7 @@ export function extractDescription(text: string, now: Date = new Date()): Descri
     // Unless the items are in different currencies, in which case there is no
     // total to be had without an exchange rate, and inventing one is worse
     // than falling back to the ordinary questions.
-    const found = extractLineItems(text);
+    const found = extractLineItems(text, TYPED);
     const itemisation = found && !found.mixedCurrency ? found : null;
     // An itemised message has already said what this was: the items are the
     // description. Falling through to "what did they buy?" after being handed
@@ -293,7 +297,7 @@ export function absorbAnswer(current: OpenSlots, text: string): OpenSlots {
     };
 
     if (!next.lineItems || next.lineItems.length === 0) {
-        const itemisation = extractLineItems(text);
+        const itemisation = extractLineItems(text, TYPED);
         if (itemisation) {
             next.lineItems = itemisation.items;
             // The itemisation's total is the amount, and it beats a bare figure.
@@ -302,7 +306,7 @@ export function absorbAnswer(current: OpenSlots, text: string): OpenSlots {
     }
 
     if (next.amount == null || next.amount <= 0) {
-        const found = extractAmount(text);
+        const found = extractAmount(text, TYPED);
         if (found && found.amount > 0) next.amount = found.amount;
     }
 

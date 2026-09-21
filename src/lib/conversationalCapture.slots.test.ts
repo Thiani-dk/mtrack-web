@@ -159,8 +159,23 @@ describe('a single-item transaction', () => {
     });
 
     it('still asks for what it genuinely lacks', () => {
-        const bare = describe1('Spent 45,000 yesterday');
-        expect(openSlots(bare)).toContain('amount');
+        const noDescription = describe1('Spent Ksh 45,000 yesterday');
+        expect(openSlots(noDescription)).toContain('description');
+        expect(openSlots(noDescription)).not.toContain('amount');
+    });
+
+    it('reads a bare figure a person typed as the amount it plainly is', () => {
+        // This assertion used to run the other way, requiring a currency token
+        // before a number counted. That rule is right for M-Pesa, which always
+        // writes one, and wrong for someone typing "spent 45,000 yesterday" —
+        // and it was the whole reason a three-item message extracted nothing.
+        expect(describe1('Spent 45,000 yesterday').amount).toBe(45_000);
+    });
+
+    it('does not read a time, a quantity or a date as money', () => {
+        expect(describe1('got home around 7pm').amount).toBeNull();
+        expect(describe1('bought 3 x sodas').amount).toBeNull();
+        expect(describe1('it was on 12/09/2026').amount).toBeNull();
     });
 });
 
@@ -439,5 +454,55 @@ describe('composeDraftAnswer spread order — the absorbAnswer regression', () =
         expect(skipped.date).toBeNull();
         expect(skipped.dateSkipped).toBe(true);
         expect(openSlots(skipped)).not.toContain('date');
+    });
+});
+
+describe('the bacon and groceries message', () => {
+    // From a screenshot. Three items, three amounts, and the bot replied "How
+    // much was it?" — proof it had extracted nothing at all.
+    //
+    // The cause was NOT the typo ("boought") and NOT the merged word
+    // ("somebacon"): fixing either or both changes nothing. It was that no
+    // number in the message carries a currency token, and the amount extractor
+    // discarded every bare number unconditionally. The two variants below pin
+    // that down, so a future reader does not re-litigate it.
+    const REAL = 'hi so, i spent quite a lot today. i boought somebacon and pork cuts for 3100, '
+        + 'then i rode a bus to a neighborhood where i bought tomatoes, ginger, chapati, onions, '
+        + 'and garlic at 400. then i bought airtime worth 30';
+
+    const items = () => extractLineItems(REAL, { allowBare: true });
+
+    it('extracts three line items totalling 3,530', () => {
+        const found = items();
+        expect(found?.items).toHaveLength(3);
+        expect(found?.items.map(i => i.amount)).toEqual([3100, 400, 30]);
+        expect(found?.total).toBe(3530);
+    });
+
+    it('keeps each item with the things it was actually for', () => {
+        const [bacon, veg, airtime] = items()?.items ?? [];
+        expect(bacon.description).toMatch(/pork cuts/i);
+        expect(veg.description).toMatch(/tomatoes/i);
+        expect(veg.description).toMatch(/garlic/i);
+        expect(airtime.description).toMatch(/airtime/i);
+    });
+
+    it('leaves the capture flow nothing to ask about the amount', () => {
+        const draft = describe1(REAL);
+        expect(draft.amount).toBe(3530);
+        expect(openSlots({ ...draft, date: NOW })).not.toContain('amount');
+        expect(openSlots({ ...draft, date: NOW })).not.toContain('description');
+    });
+
+    it('was not the typo, and was not the merged word', () => {
+        // Both "fixed", currency still absent: still nothing, under the old rule.
+        const deTypoed = REAL.replace('boought', 'bought').replace('somebacon', 'some bacon');
+        expect(extractLineItems(deTypoed)).toBeNull();
+        // The bare-number reader is the whole difference.
+        expect(extractLineItems(deTypoed, { allowBare: true })?.total).toBe(3530);
+    });
+
+    it('does not sweep a greeting into the first item', () => {
+        expect(items()?.items[0].description).not.toMatch(/\bhi\b|\bso\b/i);
     });
 });

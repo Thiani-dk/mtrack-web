@@ -1,5 +1,5 @@
 import type { LineItem } from '../../../types';
-import { extractAmountMatches } from './amount';
+import { extractAmountMatches, type AmountScanOptions } from './amount';
 
 // Reading an itemised list out of one typed message.
 //
@@ -41,12 +41,12 @@ const SEGMENT_RE = /\s*(?:,(?!\d{3}(?!\d))|[;\n•]|\band\b|\bplus\b)\s*/i;
 // Words that attach a price to a thing rather than naming it. Stripped from
 // the end of a description, where they always end up: "Some ram I sold at".
 const TRAILING_NOISE =
-    /(?:\b(?:i|we|he|she|they|it)\b\s+)?(?:\b(?:sold|sell|bought|buy|paid|pay|got|charged|went|cost(?:s|ing)?|was|were|is|are)\b\s*)*(?:\b(?:at|for|to|of|each|@)\b\s*)*[-–—:=]?\s*$/i;
+    /(?:\b(?:i|we|he|she|they|it)\b\s+)?(?:\b(?:sold|sell|bought|buy|paid|pay|got|charged|went|cost(?:s|ing)?|worth|was|were|is|are)\b\s*)*(?:\b(?:at|for|to|of|each|@)\b\s*)*[-–—:=]?\s*$/i;
 
 // Leading quantifiers, filler and transaction verbs: "Some ram", "a laptop",
 // "Paid rent" — the thing bought is "rent", the paying is the transaction.
 const LEADING_NOISE =
-    /^(?:\s*(?:some|a|an|the|my|our|his|her|their|also|then|plus|with|and|paid|pay|bought|buy|sold|sell|got|spent|for|on)\b\s*)+/i;
+    /^(?:\s*(?:i|we|he|she|they|you|some|a|an|the|my|our|his|her|their|also|then|next|plus|with|and|paid|pay|bought|buy|sold|sell|got|spent|for|on)\b\s*)+/i;
 
 // Sentences before the first item are scene-setting ("They bought hardware.
 // Computer components.") — only the last one is part of the item. Likewise,
@@ -133,31 +133,99 @@ function splitQuantity(description: string, amount: number): Pick<LineItem, 'des
     };
 }
 
+// Second-pass boundaries, used ONLY on a segment that came back carrying more
+// than one price — which the pass below would otherwise discard whole.
+//
+// A full stop is not a first-pass boundary on purpose ("They bought hardware.
+// Computer components." is one item, not two), so "...garlic at 400. then i
+// bought airtime worth 30" arrived as a single two-priced segment and both
+// items were dropped. Re-splitting only where the extractor was already going
+// to give up cannot cost anything it currently gets right.
+const RESEGMENT_RE = /\s*(?:(?<=[.!?:])\s+|\bthen\b|\bafter that\b|\bnext\b|\blater\b)\s*/i;
+
+// Greetings, fillers and time words that survive tidying but name no item.
+// Carrying one forward would file "hi so" as part of a purchase.
+const NON_ITEM_WORDS = new Set([
+    'hi', 'hey', 'hello', 'so', 'ok', 'okay', 'well', 'yeah', 'yep', 'yes', 'no',
+    'thanks', 'please', 'today', 'yesterday', 'tomorrow', 'morning', 'afternoon',
+    'evening', 'night', 'lot', 'much', 'quite', 'really', 'just', 'stuff', 'things',
+]);
+
+// The last transaction verb in a price-less clause is where the goods start:
+// "then i rode a bus to a neighborhood where i bought tomatoes" is about
+// tomatoes, and everything before "bought" is how the user got there.
+const TRAILING_VERB_RE = /\b(?:bought|buy|purchased|paid|pay|sold|sell|got|spent|took|had)\b/gi;
+
+// A price-less segment reduced to the thing it names, or null if it names none.
+//
+// Bounded on purpose: at most a short noun phrase, never a clause. A generous
+// version of this would quietly staple half a sentence onto the next item's
+// description, which is worse than losing the word.
+function itemFragment(segment: string): string | null {
+    let clause = lastSentence(segment);
+
+    TRAILING_VERB_RE.lastIndex = 0;
+    let lastVerbEnd = -1;
+    let m: RegExpExecArray | null;
+    while ((m = TRAILING_VERB_RE.exec(clause)) !== null) lastVerbEnd = m.index + m[0].length;
+    const hadVerb = lastVerbEnd >= 0;
+    if (hadVerb) clause = clause.slice(lastVerbEnd);
+
+    const fragment = tidy(clause);
+    if (!fragment) return null;
+
+    const words = fragment.split(' ');
+    // With no verb to anchor it, anything longer than a short phrase is
+    // narration rather than a list entry.
+    if (words.length > (hadVerb ? 4 : 3)) return null;
+    if (words.every(w => NON_ITEM_WORDS.has(w.toLowerCase().replace(/[^a-z]/gi, '')))) return null;
+
+    return fragment;
+}
+
 // The itemisation in a message, or null when there isn't one.
-export function extractLineItems(text: string): ItemisationResult | null {
+export function extractLineItems(text: string, opts: AmountScanOptions = {}): ItemisationResult | null {
     const items: LineItem[] = [];
     const currencies = new Set<string>();
 
-    let cursor = 0;
-    for (const segment of text.split(SEGMENT_RE)) {
-        const start = text.indexOf(segment, cursor);
-        cursor = start >= 0 ? start + segment.length : cursor;
+    // Things named without a price yet, waiting for the price they share.
+    // "bacon and pork cuts for 3100" splits on "and", leaving "bacon" priceless
+    // and "pork cuts for 3100" priced — they are one line, not one line and one
+    // discarded word.
+    let pending: string[] = [];
+
+    const segments = text.split(SEGMENT_RE).flatMap(segment =>
+        extractAmountMatches(segment, opts).length > 1 ? segment.split(RESEGMENT_RE) : [segment],
+    );
+
+    for (const segment of segments) {
         if (!segment.trim()) continue;
 
-        const matches = extractAmountMatches(segment);
-        // No price in this segment: it is context, not an item. More than one:
-        // the segmentation did not separate them, and guessing which words
+        const matches = extractAmountMatches(segment, opts);
+        // No price in this segment: either a thing whose price comes later, or
+        // context. More than one even after re-splitting: guessing which words
         // belong to which price would be inventing detail.
-        if (matches.length !== 1) continue;
+        if (matches.length !== 1) {
+            if (matches.length === 0) {
+                const fragment = itemFragment(segment);
+                // Capped so a long preamble cannot accumulate into a line.
+                if (fragment && pending.length < 8) pending.push(fragment);
+                else if (!fragment) pending = [];
+            }
+            continue;
+        }
 
         const [match] = matches;
         const description = cleanDescription(
             segment.slice(0, match.index),
             segment.slice(match.index + match.length),
         );
+        const carried = pending;
+        pending = [];
         if (!description) continue;
 
-        const split = splitQuantity(description, match.amount);
+        const full = [...carried, description].join(', ');
+        const split = splitQuantity(full, match.amount);
         currencies.add(match.currency);
         items.push({ ...split, description: sentenceCase(split.description), amount: match.amount });
     }

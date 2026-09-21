@@ -5,6 +5,8 @@
 // sorts messages into buckets first so only genuine transactions ever reach
 // the extractor pipeline.
 
+import { extractAmountMatches } from './extractors/amount';
+
 export type MessageClass = 'transaction' | 'service_notice' | 'security_alert' | 'promotional' | 'unknown';
 
 // Checked first and takes priority over the other buckets: a transaction
@@ -60,5 +62,12 @@ export function classifyMessage(msg: string): MessageClass {
     if (CURRENCY_RE.test(msg) && TRANSACTION_VERB_RE.test(msg)) return 'transaction';
     if (SERVICE_NOTICE_PATTERNS.some(re => re.test(msg))) return 'service_notice';
     if (SECURITY_ALERT_PATTERNS.some(re => re.test(msg))) return 'security_alert';
+    // Typed input, where nobody writes "Ksh": "i bought airtime worth 30" is a
+    // transaction description even though CURRENCY_RE finds nothing in it. Last
+    // of all, and only over messages already ruled out as notices and alerts,
+    // so this can only ever promote what used to fall through as 'unknown'.
+    if (TRANSACTION_VERB_RE.test(msg) && extractAmountMatches(msg, { allowBare: true }).length > 0) {
+        return 'transaction';
+    }
     return 'unknown';
 }
