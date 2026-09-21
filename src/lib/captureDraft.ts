@@ -6,6 +6,7 @@ import {
     type ConversationalDateResult,
 } from './conversationalCapture';
 import type { CaptureSlot } from './conversationalCapture';
+import { fmtAmountProse } from './transactionDisplay';
 
 // How an answer becomes part of the capture draft.
 //
@@ -186,4 +187,25 @@ export function composeDraftAnswer(
 // Distinct from a rejected answer: this one deliberately closes the slot.
 export function skipDate(draft: CaptureDraft): CaptureDraft {
     return { ...draft, date: null, dateAmbiguous: false, dateInterpretation: null, dateSkipped: true };
+}
+
+// ── What is actually captured so far ─────────────────────────────────────────
+
+// A short plain-words account of the draft, or null when it holds nothing.
+//
+// Used where the flow has to tell the user what is at stake — chiefly the
+// cancel confirmation, which must not offer to discard "everything" without
+// naming what everything is.
+export function capturedSummary(draft: CaptureDraft): string | null {
+    const money = (n: number) => fmtAmountProse(n, draft.currency.code);
+
+    if (draft.lineItems && draft.lineItems.length > 0) {
+        const named = draft.lineItems.map(i => `${i.description} (${money(i.amount)})`);
+        return named.length > 2 ? `${named.slice(0, 2).join(', ')} and ${named.length - 2} more` : named.join(' and ');
+    }
+    const parts: string[] = [];
+    if (draft.amount != null && draft.amount > 0) parts.push(money(draft.amount));
+    if (draft.recipient) parts.push(draft.recipient);
+    if (parts.length === 0 && draft.date) parts.push('a date');
+    return parts.length > 0 ? parts.join(', ') : null;
 }

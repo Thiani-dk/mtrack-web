@@ -210,5 +210,37 @@ const incomplete = await transcript();
 check('an item with no price is still asked about specifically',
     !/couldn.t pick anything out/i.test(incomplete), incomplete.slice(-160));
 
+// ── 8. Cancel, which had no handling at all before ──
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('never mind');
+check('a cancel with nothing captured is taken at once, with no extra tap',
+    /scrapped/i.test(await lastBotLine()), (await lastBotLine()).slice(0, 120));
+
+// With real progress behind it, it asks first.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('bought bacon for 3100');
+await say('cancel');
+const cancelAsk = await transcript();
+check('a cancel with progress names what is at stake', /3,100/.test(cancelAsk), cancelAsk.slice(-200));
+check('and offers both ways out',
+    /Discard everything/.test(cancelAsk) && /Keep what I have/.test(cancelAsk));
+
+await page.getByRole('button', { name: 'Keep what I have' }).click();
+await page.waitForTimeout(900);
+check('keeping what is there goes to the confirmation, not back to questions',
+    /Right\?$/.test(await lastBotLine()), (await lastBotLine()).slice(0, 120));
+
+// And the words must not fire inside an ordinary sentence.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('bought a stop sign for 400 and a cancel culture book for 900');
+check('"stop" and "cancel" inside a real sentence do not scrap the document',
+    !/scrapped|Discard everything/i.test(await transcript()), (await transcript()).slice(-160));
+
 await browser.close();
 finish();

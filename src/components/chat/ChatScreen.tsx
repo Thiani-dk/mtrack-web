@@ -5,11 +5,12 @@ import type {
 } from '../../types';
 import { buildSelfReportedTransaction, buildConfirmSentence, openSlots } from '../../lib/conversationalCapture';
 import {
-    composeDescription, composeDraftAnswer, emptyCaptureDraft, skipDate,
+    capturedSummary, composeDescription, composeDraftAnswer, emptyCaptureDraft, skipDate,
     type CaptureDraft,
 } from '../../lib/captureDraft';
 import { advanceDateRetry, DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
 import { advanceZeroUnderstanding, understoodNothing } from '../../lib/zeroUnderstanding';
+import { decideCancel, isCancelMessage } from '../../lib/metaIntent';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
 import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
@@ -86,7 +87,7 @@ const EFFICIENCY_NUDGE =
 type PendingPrompt =
     | 'mode' | 'business-name' | 'party-name' | 'purpose'
     | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm'
-    | 'purpose-label' | 'zero-escape' | 'input';
+    | 'purpose-label' | 'zero-escape' | 'cancel-confirm' | 'input';
 
 interface DocFlow {
     documentType: DocumentType;
@@ -478,6 +479,12 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
     // / party name entirely, by design. The ref is the source of truth for
     // async handlers; the state copy drives renders (e.g. the composer hint).
     const [docFlow, setDocFlowState] = useState<DocFlow | null>(null);
+    // A tapped option is a typed answer by another name, and the doc flow is
+    // the one place that knows what the current question's answers mean. The
+    // handler is defined below this callback, so it is reached through a ref
+    // rather than duplicated — the alternative is two divergent copies of the
+    // routing, which is how this file grew a bug before.
+    const handleDocFlowRef = useRef<((text: string) => Promise<boolean>) | null>(null);
     const docFlowRef = useRef<DocFlow | null>(null);
     const setDocFlow = useCallback((next: DocFlow | null | ((prev: DocFlow | null) => DocFlow | null)) => {
         const resolved = typeof next === 'function' ? (next as (p: DocFlow | null) => DocFlow | null)(docFlowRef.current) : next;
@@ -926,6 +933,13 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             describedCount: 0, nudgeShown: false, dateAttempts: 0, lastDateAnswer: null,
             zeroAttempts: 0, purposeQueue: [] as string[], draftDoc: null,
         };
+        // Anything that isn't one of the three mode choices belongs to the
+        // question the doc flow is currently waiting on.
+        if (docFlowRef.current && !['own', 'point_of_sale', 'on_behalf_of'].includes(value)) {
+            void handleDocFlowRef.current?.(value);
+            return;
+        }
+
         if (value === 'own') {
             setDocFlow({ ...base, documentType: 'expense_summary', pending: 'input' });
             addMsg({ role: 'bot', kind: 'text', text: OWN_PROMPT });
@@ -1207,7 +1221,40 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         if (!flow) return false;
         const t = text.trim();
 
+        // Classification before slot-filling. Whatever the flow was waiting
+        // for, "never mind" is not an answer to it — and a design that only
+        // discovers that after trying to read it as one has already filed it
+        // as a date or a description by then.
+        if (flow.pending !== 'mode' && flow.pending !== 'cancel-confirm' && isCancelMessage(t)) {
+            const decision = decideCancel({ summary: capturedSummary(flow.draft) });
+            if (decision.kind === 'immediate') {
+                setDocFlow(null);
+                addMsg({ role: 'bot', kind: 'text', text: decision.text });
+            } else {
+                setDocFlow({ ...flow, pending: 'cancel-confirm' });
+                addMsg({ role: 'bot', kind: 'options', text: decision.text, options: decision.options ?? [] });
+            }
+            return true;
+        }
+
         switch (flow.pending) {
+            // "Cancel" said with real progress behind it is genuinely
+            // ambiguous between "scrap this" and "stop asking, I'm done", so
+            // it is asked rather than guessed. See decideCancel.
+            case 'cancel-confirm': {
+                if (/^discard/i.test(t)) {
+                    setDocFlow(null);
+                    addMsg({ role: 'bot', kind: 'text', text: 'Scrapped, all of it. Nothing was saved.' });
+                    return true;
+                }
+                if (/^keep/i.test(t)) {
+                    setDocFlow({ ...flow, pending: 'confirm' });
+                    addMsg({ role: 'bot', kind: 'text', text: confirmText(flow.draft) });
+                    return true;
+                }
+                addMsg({ role: 'bot', kind: 'text', text: 'Tap one of the two above and I will do that.' });
+                return true;
+            }
             case 'mode':
                 addMsg({ role: 'bot', kind: 'text', text: "Tap one of the options above so I know what we're making." });
                 return true;
@@ -1346,7 +1393,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 return false;
         }
         return false;
-    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, advanceAfterField, commitDraft, setDocFlow, syncDraft, askPurposeFor]);
+    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, advanceAfterField, commitDraft, setDocFlow, syncDraft, askPurposeFor, confirmText]);
+    useEffect(() => { handleDocFlowRef.current = handleDocFlow; }, [handleDocFlow]);
 
     // A near-duplicate question is only ever answered by a tap. "Keep both"
     // just locks the question. "Drop the small one" additionally flips the
@@ -1648,6 +1696,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         switch (docFlow?.pending) {
             case 'mode': return 'Tap an option above...';
             case 'zero-escape': return 'Tap an option above...';
+            case 'cancel-confirm': return 'Tap an option above...';
             case 'business-name': return 'Business name...';
             case 'party-name': return 'Who it was for...';
             case 'purpose': return "What it was for, or 'skip'...";

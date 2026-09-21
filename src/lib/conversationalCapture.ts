@@ -378,11 +378,17 @@ export function buildConfirmSentence(f: ConfirmFields): string {
     const items = f.lineItems ?? null;
     const lead = items && items.length > 0
         ? `${items.map(i => `${i.description} ${money(i.amount)}`).join(', ')} — total ${money(f.amount ?? 0)}`
+        // A draft can reach this sentence without a recipient — the cancel
+        // flow's "keep what I have" ends the questions wherever they stood. An
+        // absent one is simply left out; interpolating it produced the literal
+        // word "null" in a sentence the user is asked to agree to.
+        : !f.recipient
+            ? money(f.amount ?? 0)
         // Don't imply a direction we haven't resolved — "money in or out?" is
         // asked separately, right after this line.
-        : f.direction.source === 'unresolved'
-            ? `${money(f.amount ?? 0)}, ${f.recipient}`
-            : `${money(f.amount ?? 0)} ${f.direction.type === 'received' ? 'from' : 'to'} ${f.recipient}`;
+            : f.direction.source === 'unresolved'
+                ? `${money(f.amount ?? 0)}, ${f.recipient}`
+                : `${money(f.amount ?? 0)} ${f.direction.type === 'received' ? 'from' : 'to'} ${f.recipient}`;
 
     const parts = [lead];
     if (f.purposeLabel) parts.push(`for ${f.purposeLabel}`);

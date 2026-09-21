@@ -506,3 +506,23 @@ describe('the bacon and groceries message', () => {
         expect(items()?.items[0].description).not.toMatch(/\bhi\b|\bso\b/i);
     });
 });
+
+describe('a confirmation with no recipient', () => {
+    // Reachable through the cancel flow's "keep what I have", which ends the
+    // questions wherever they had got to. This used to interpolate the literal
+    // word "null" into the sentence the user is asked to agree to.
+    it('leaves the recipient out rather than naming it null', () => {
+        const sentence = buildConfirmSentence({
+            amount: 3100,
+            currency: { code: 'KES', explicit: false },
+            recipient: null,
+            direction: { type: 'sent', confidence: 95, source: 'keyword' },
+            purposeLabel: null,
+            dateLabel: null,
+            dateSkipped: false,
+            lineItems: null,
+        });
+        expect(sentence).not.toContain('null');
+        expect(sentence).toContain('Ksh 3,100');
+    });
+});
