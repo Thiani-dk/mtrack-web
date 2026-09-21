@@ -6,6 +6,7 @@
 // the extractor pipeline.
 
 import { extractAmountMatches } from './extractors/amount';
+import { normalizeForKeywords } from './fuzzy';
 
 export type MessageClass = 'transaction' | 'service_notice' | 'security_alert' | 'promotional' | 'unknown';
 
@@ -57,16 +58,29 @@ const SECURITY_ALERT_PATTERNS: RegExp[] = [
     /keep your pin secure/i,
 ];
 
+// The verb gate, with a bounded second look for a misspelling.
+//
+// A fixed-vocabulary gate like this has already cost this project one
+// confirmed miss, and an exact-substring requirement means one wrong letter
+// anywhere in a keyword removes the whole message's ability to be recognised —
+// not just that word. "boought" must read as "bought". The fuzzy pass only
+// runs once the exact one has failed, so a message containing a correctly
+// spelled verb never has anything in it reinterpreted. See fuzzy.ts.
+export function hasTransactionVerb(msg: string): boolean {
+    if (TRANSACTION_VERB_RE.test(msg)) return true;
+    return TRANSACTION_VERB_RE.test(normalizeForKeywords(msg));
+}
+
 export function classifyMessage(msg: string): MessageClass {
     if (NON_TRANSACTION_OVERRIDES.some(re => re.test(msg))) return 'service_notice';
-    if (CURRENCY_RE.test(msg) && TRANSACTION_VERB_RE.test(msg)) return 'transaction';
+    if (CURRENCY_RE.test(msg) && hasTransactionVerb(msg)) return 'transaction';
     if (SERVICE_NOTICE_PATTERNS.some(re => re.test(msg))) return 'service_notice';
     if (SECURITY_ALERT_PATTERNS.some(re => re.test(msg))) return 'security_alert';
     // Typed input, where nobody writes "Ksh": "i bought airtime worth 30" is a
     // transaction description even though CURRENCY_RE finds nothing in it. Last
     // of all, and only over messages already ruled out as notices and alerts,
     // so this can only ever promote what used to fall through as 'unknown'.
-    if (TRANSACTION_VERB_RE.test(msg) && extractAmountMatches(msg, { allowBare: true }).length > 0) {
+    if (hasTransactionVerb(msg) && extractAmountMatches(msg, { allowBare: true }).length > 0) {
         return 'transaction';
     }
     return 'unknown';

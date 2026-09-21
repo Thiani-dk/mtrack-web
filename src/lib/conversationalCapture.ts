@@ -8,6 +8,7 @@ import { extractParties } from './parsers/extractors/parties';
 import { extractCode } from './parsers/extractors/code';
 import { extractDirection } from './parsers/extractors/direction';
 import { parseConversationalDate, type ConversationalDateResult } from './parsers/conversationalDate';
+import { normalizeForKeywords } from './parsers/fuzzy';
 import { fmtAmountProse, hasUsableDate } from './transactionDisplay';
 import type { DirectionResult } from './parsers/types';
 
@@ -17,6 +18,18 @@ export { extractLineItems };
 // Everything in this module reads text a person typed, where "for 3100" is a
 // price and not a reference number. The SMS pipeline keeps the strict rule.
 const TYPED: AmountScanOptions = { allowBare: true };
+
+// Typed input, made legible to the exact-match machinery underneath: merged
+// words unmerged ("somebacon" -> "some bacon"), and a misspelled transaction
+// verb corrected, but only when the message carries no correctly-spelled one.
+// Nothing else is touched — item and recipient text is left exactly as typed.
+//
+// Done once, at the top of each entry point, because normalising shifts
+// character offsets and the line-item extractor reads amounts by offset. Every
+// stage below must see the SAME string.
+function readable(text: string): string {
+    return normalizeForKeywords(text);
+}
 export { parseConversationalDate };
 
 // Conversational entry runs through the SAME classify -> extract -> score
@@ -139,7 +152,8 @@ function conversationalDirectionHint(text: string): DirectionResult | null {
     return null;
 }
 
-export function extractDescription(text: string, now: Date = new Date()): DescriptionResult {
+export function extractDescription(typed: string, now: Date = new Date()): DescriptionResult {
+    const text = readable(typed);
     // Run both the full SMS path (at a relaxed bar, for anyone who pasted a
     // real confirmation) and the individual extractors, then take the best of
     // each field.
@@ -283,7 +297,8 @@ export interface OpenSlots {
 // Conservative by construction. The amount is only taken from a
 // currency-tagged figure, which is why "around 7pm" in a date answer is not
 // read as seven of anything.
-export function absorbAnswer(current: OpenSlots, text: string): OpenSlots {
+export function absorbAnswer(current: OpenSlots, typed: string): OpenSlots {
+    const text = readable(typed);
     // Built field by field rather than by spreading `current`. Callers pass
     // the whole capture draft (structurally a superset), and spreading it
     // would carry every other field back out — so a caller that then spread

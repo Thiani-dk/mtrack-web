@@ -1,5 +1,6 @@
 import type { LineItem } from '../../../types';
 import { extractAmountMatches, type AmountScanOptions } from './amount';
+import { normalizeForKeywords } from '../fuzzy';
 
 // Reading an itemised list out of one typed message.
 //
@@ -184,7 +185,12 @@ function itemFragment(segment: string): string | null {
 }
 
 // The itemisation in a message, or null when there isn't one.
-export function extractLineItems(text: string, opts: AmountScanOptions = {}): ItemisationResult | null {
+export function extractLineItems(typed: string, opts: AmountScanOptions = {}): ItemisationResult | null {
+    // Typed input gets the typo/merged-word pass before anything reads it, so
+    // "somebacon" reaches the description as "bacon" rather than as itself.
+    // Idempotent, so a caller that has already normalised loses nothing.
+    const text = opts.allowBare ? normalizeForKeywords(typed) : typed;
+
     const items: LineItem[] = [];
     const currencies = new Set<string>();
 
