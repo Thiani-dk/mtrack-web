@@ -7,7 +7,9 @@ import { extractLineItems, type ItemisationResult } from './parsers/extractors/l
 import { extractParties } from './parsers/extractors/parties';
 import { extractCode } from './parsers/extractors/code';
 import { extractDirection } from './parsers/extractors/direction';
-import { parseConversationalDate, type ConversationalDateResult } from './parsers/conversationalDate';
+import {
+    parseConversationalDate, withoutDatePhraseNumerals, type ConversationalDateResult,
+} from './parsers/conversationalDate';
 import { normalizeForKeywords } from './parsers/fuzzy';
 import { normalizeSwahiliNumerals, SWAHILI_FROM_RE, swahiliVerbDirection } from './parsers/swahili';
 import { hasTransactionVerb } from './parsers/classify';
@@ -285,7 +287,13 @@ export interface AmountAnswer {
 }
 
 export function parseAmountReply(text: string): AmountAnswer {
-    return { amount: parseAmountAnswer(text), detectedCurrency: detectCurrency(text) };
+    // A numeral a relative-date phrase already consumed is not on offer here —
+    // "3 days ago" carries no amount at all, and reading one out of it is how
+    // a three-day-old purchase was confirmed back as "Ksh 3".
+    return {
+        amount: parseAmountAnswer(withoutDatePhraseNumerals(text)),
+        detectedCurrency: detectCurrency(text),
+    };
 }
 
 // ── Slots ────────────────────────────────────────────────────────────────────
@@ -411,7 +419,9 @@ export function absorbAnswer(current: OpenSlots, typed: string): OpenSlots {
     }
 
     if (next.amount == null || next.amount <= 0) {
-        const found = extractAmount(text, TYPED);
+        // Same ownership rule as parseAmountReply: the date phrase's own
+        // numeral is blanked (offsets preserved) before a figure is looked for.
+        const found = extractAmount(withoutDatePhraseNumerals(text), TYPED);
         if (found && found.amount > 0) next.amount = found.amount;
     }
 

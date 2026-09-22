@@ -601,3 +601,86 @@ describe('asking for two missing things at once', () => {
         expect(openSlots(draft)).toEqual([]);
     });
 });
+
+// The second transcript: a numeral owned by two slots at once.
+//
+// Asked "When was that? ... And how much?", the user replied "3 days ago". The
+// date came out right, and the 3 — the number of DAYS — was also read as the
+// amount and confirmed back as "Ksh 3 to carrefour supermarket". The batched
+// question is what made it reachable: a bare figure counts as an amount when
+// "how much?" was part of what was asked, and "3 days ago" is not a bare
+// figure.
+describe('a numeral inside a relative-date phrase', () => {
+    // "3 days ago" from here is 19 September 2026, exactly as the transcript.
+    const NOW_2 = new Date('2026-09-22T09:00:00');
+
+    it('fills only the date, leaving the amount still to be asked', () => {
+        const start = { ...emptyDraft(), recipient: null };
+        const { draft, accepted } = composeDraftAnswer(start, 'date', '3 days ago', NOW_2, 'amount');
+
+        expect(accepted).toBe(true);
+        expect(draft.dateInterpretation).toBe('19 September 2026');
+        expect(draft.amount).toBeNull();
+        expect(openSlots(draft)).toContain('amount');
+    });
+
+    it('never reaches a confirmation reading "Ksh 3"', () => {
+        const start = emptyDraft();
+        const afterDate = composeDraftAnswer(start, 'date', '3 days ago', NOW_2, 'amount').draft;
+        const afterParty = composeDraftAnswer(afterDate, 'description', 'carrefour supermarket', NOW_2).draft;
+
+        // The amount is still the open slot, so that is what gets asked next —
+        // not a wrong figure quietly confirmed.
+        expect(openSlots(afterParty)).toEqual(['amount']);
+        expect(buildConfirmSentence({
+            amount: afterParty.amount,
+            currency: afterParty.currency,
+            recipient: afterParty.recipient,
+            direction: { type: 'sent', confidence: 95, source: 'keyword' },
+            purposeLabel: null,
+            dateLabel: afterParty.dateInterpretation,
+            dateSkipped: false,
+            lineItems: null,
+        })).not.toContain('Ksh 3 ');
+    });
+
+    // Not just the shape that was reported: every relative form carrying a
+    // numeral owns it.
+    it.each([
+        ['4 weeks ago', '25 August 2026'],
+        ['2 months ago', '22 July 2026'],
+        ['10 days ago', '12 September 2026'],
+    ])('applies to "%s" too', (reply, expected) => {
+        const { draft } = composeDraftAnswer(emptyDraft(), 'date', reply, NOW_2, 'amount');
+        expect(draft.dateInterpretation).toBe(expected);
+        expect(draft.amount).toBeNull();
+    });
+
+    it('still lets a genuinely bare figure answer "how much?"', () => {
+        const { draft, accepted } = composeDraftAnswer(emptyDraft(), 'amount', '3100', NOW_2);
+        expect(accepted).toBe(true);
+        expect(draft.amount).toBe(3100);
+    });
+
+    it('still takes a bare figure offered alongside a date question', () => {
+        const { draft } = composeDraftAnswer(emptyDraft(), 'date', 'yesterday', NOW_2, 'amount');
+        expect(draft.amount).toBeNull();
+        const { draft: filled } = composeDraftAnswer(emptyDraft(), 'date', 'yesterday 3100', NOW_2, 'amount');
+        expect(filled.amount).toBe(3100);
+    });
+
+    // The rule is about ownership of one numeral, not about ignoring numbers
+    // near date words: a real amount in the same breath as a date phrase still
+    // fills the amount slot, with its own value.
+    it('fills both slots when the answer carries a real amount as well', () => {
+        const { draft } = composeDraftAnswer(emptyDraft(), 'date', '3100, 3 days ago', NOW_2, 'amount');
+        expect(draft.dateInterpretation).toBe('19 September 2026');
+        expect(draft.amount).toBe(3100);
+    });
+
+    it('reads a free-typed description the same way', () => {
+        const r = extractDescription('paid carrefour supermarket 3 days ago', NOW_2);
+        expect(r.missing).toContain('amount');
+        expect(r.amount).toBeNull();
+    });
+});

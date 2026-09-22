@@ -121,6 +121,20 @@ function applyBounds(result: ConversationalDateResult, now: Date): Conversationa
 
 // ── Relative phrasing ────────────────────────────────────────────────────────
 
+// The relative forms that carry a numeral, written once and used twice: by the
+// reader below, and by the numeral-ownership rule at the foot of this file.
+// Two copies of these patterns would drift, and a drifted copy means a numeral
+// this parser consumes is still on offer to the amount reader.
+//
+// The Swahili relative dates ("leo", "jana", "juzi") are bare words with no
+// numeral in them, so there is nothing of theirs to own — see swahili.ts.
+const DAYS_AGO_SOURCE = String.raw`\b(\d{1,4})\s+days?\s+ago\b`;
+const WEEKS_AGO_SOURCE = String.raw`\b(?:(\d{1,3})|a|one)\s+weeks?\s+ago\b`;
+const MONTHS_AGO_SOURCE = String.raw`\b(?:(\d{1,3})|a|one)\s+months?\s+ago\b`;
+
+const NUMERAL_BEARING_RELATIVE = [DAYS_AGO_SOURCE, WEEKS_AGO_SOURCE, MONTHS_AGO_SOURCE]
+    .map(source => new RegExp(source, 'gi'));
+
 // `t` is lowercased for the English patterns; `raw` is kept because the
 // Swahili date words need the original case to tell "jana" from the name
 // "Jana". See swahiliRelativeDate.
@@ -155,16 +169,16 @@ function parseRelative(t: string, raw: string, now: Date): ConversationalDateRes
         return ok(startOfDay(new Date(now.getTime() - 86400000)));
     }
 
-    const daysAgo = t.match(/\b(\d{1,4})\s+days?\s+ago\b/);
+    const daysAgo = t.match(new RegExp(DAYS_AGO_SOURCE));
     if (daysAgo) {
         return ok(startOfDay(new Date(now.getTime() - Number(daysAgo[1]) * 86400000)));
     }
-    const weeksAgo = t.match(/\b(?:(\d{1,3})|a|one)\s+weeks?\s+ago\b/);
+    const weeksAgo = t.match(new RegExp(WEEKS_AGO_SOURCE));
     if (weeksAgo) {
         const n = weeksAgo[1] ? Number(weeksAgo[1]) : 1;
         return ok(startOfDay(new Date(now.getTime() - n * 7 * 86400000)));
     }
-    const monthsAgo = t.match(/\b(?:(\d{1,3})|a|one)\s+months?\s+ago\b/);
+    const monthsAgo = t.match(new RegExp(MONTHS_AGO_SOURCE));
     if (monthsAgo) {
         const n = monthsAgo[1] ? Number(monthsAgo[1]) : 1;
         const d = new Date(now);
@@ -317,6 +331,32 @@ export function parseConversationalDate(input: string, now: Date = new Date()): 
     }
 
     return ask(DATE_REASON_UNREADABLE);
+}
+
+// ── Numeral ownership ────────────────────────────────────────────────────────
+
+// A numeral inside a relative-date phrase belongs to the date, and to nothing
+// else.
+//
+// "3 days ago" answered a batched "when was that? And how much?" — and the
+// leading 3, having already been consumed as the number of days, was ALSO
+// skimmed off as a bare figure and confirmed back as "Ksh 3". One token, two
+// slots. The amount reader now sees the phrase with that numeral removed, so
+// there is no second claim to make.
+//
+// Only the numeral the date phrase itself consumes is taken out. Any other
+// figure in the same message is untouched, so "3100, 3 days ago" still fills
+// both slots correctly — this is a precedence rule, not a blanket refusal to
+// read numbers near date words.
+//
+// Digits are replaced by spaces rather than deleted so that character offsets
+// are preserved: the line-item extractor reads amounts by offset, and a
+// shortened string would misalign it.
+export function withoutDatePhraseNumerals(text: string): string {
+    return NUMERAL_BEARING_RELATIVE.reduce(
+        (out, re) => out.replace(re, phrase => phrase.replace(/\d/g, ' ')),
+        text,
+    );
 }
 
 // ── Retry policy ─────────────────────────────────────────────────────────────
