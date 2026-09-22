@@ -48,6 +48,24 @@ export function partyQuestion(documentType: DocumentType, describedCount: number
     return variants[i % variants.length];
 }
 
+// The short form, for when the party slot is the SECOND thing a batched
+// question asks about ("When was that? And who was that to?").
+//
+// A clause, not a second full question: the primary question is the sentence,
+// and restating "Who was it paid to?" in full after it reads as two questions
+// stacked rather than one asking for two things. Same type-awareness as the
+// primary above — a claim is not asked who it was paid to here either.
+const PARTY_FOLLOW_ONS: Record<DocumentType, string> = {
+    expense_summary: 'And who was that to?',
+    personal_note: 'And who was that to?',
+    point_of_sale: 'And what did they buy?',
+    on_behalf_of: 'And where was it spent?',
+};
+
+export function partyFollowOn(documentType: DocumentType): string {
+    return PARTY_FOLLOW_ONS[documentType];
+}
+
 // The input placeholder alongside it, in the same voice.
 const PARTY_PLACEHOLDERS: Record<DocumentType, string> = {
     expense_summary: 'Who it was paid to...',

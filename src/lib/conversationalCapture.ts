@@ -1,4 +1,4 @@
-import type { LineItem, ParsedTransaction } from '../types';
+import type { DocumentType, LineItem, ParsedTransaction } from '../types';
 import { extractRawBlock, finalizeTransaction, deriveSubType } from './parsers';
 import { extractAmount, type AmountScanOptions } from './parsers/extractors/amount';
 import { DEFAULT_CURRENCY, detectCurrency, normalizeCurrency } from './parsers/extractors/currency';
@@ -13,6 +13,7 @@ import {
 import { normalizeForKeywords } from './parsers/fuzzy';
 import { normalizeSwahiliNumerals, SWAHILI_FROM_RE, swahiliVerbDirection } from './parsers/swahili';
 import { hasTransactionVerb } from './parsers/classify';
+import { partyFollowOn } from './partyQuestion';
 import { fmtAmountProse, hasUsableDate } from './transactionDisplay';
 import type { DirectionResult } from './parsers/types';
 
@@ -348,30 +349,34 @@ export interface SlotQuestion {
     alsoAsked: CaptureSlot | null;
 }
 
-const FOLLOW_ON: Record<CaptureSlot, string> = {
+// Date and amount read the same whoever is writing the document. The party
+// slot does not — "And what was it for?" was asked of a sales receipt and of a
+// reimbursement claim alike, and neither is what that slot holds. Its short
+// form is worded per type in partyQuestion.ts, alongside the full one.
+const FOLLOW_ON: Record<Exclude<CaptureSlot, 'description'>, string> = {
     date: 'And when was that?',
     amount: 'And how much?',
-    description: 'And what was it for?',
 };
 
 export function composeSlotQuestion(
     open: CaptureSlot[],
     prompts: Record<CaptureSlot, string>,
+    documentType: DocumentType,
 ): SlotQuestion | null {
     const [first, second] = open;
     if (!first) return null;
     return {
         slot: first,
         alsoAsked: second ?? null,
-        text: second ? `${prompts[first]} ${FOLLOW_ON[second]}` : prompts[first],
+        text: second ? `${prompts[first]} ${followOnQuestion(second, documentType)}` : prompts[first],
     };
 }
 
 // The short follow-on form of a question, for the places that emit their own
 // primary question rather than going through composeSlotQuestion — chiefly the
 // date-clarification branches, which put the date parser's own wording.
-export function followOnQuestion(slot: CaptureSlot): string {
-    return FOLLOW_ON[slot];
+export function followOnQuestion(slot: CaptureSlot, documentType: DocumentType): string {
+    return slot === 'description' ? partyFollowOn(documentType) : FOLLOW_ON[slot];
 }
 
 // ── Absorbing more than was asked ────────────────────────────────────────────

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
     absorbAnswer, buildConfirmSentence, extractDescription, extractLineItems, itemsSummary,
-    composeSlotQuestion, openSlots, type CaptureSlot,
+    composeSlotQuestion, followOnQuestion, openSlots, type CaptureSlot,
 } from './conversationalCapture';
+import { partyQuestion } from './partyQuestion';
 import {
     composeDescription, composeDraftAnswer, emptyCaptureDraft, skipDate,
     type CaptureDraft,
@@ -564,13 +565,13 @@ describe('asking for two missing things at once', () => {
     };
 
     it('asks one question when only one thing is missing', () => {
-        const q = composeSlotQuestion(['amount'], PROMPTS);
+        const q = composeSlotQuestion(['amount'], PROMPTS, 'expense_summary');
         expect(q?.text).toBe('How much was it?');
         expect(q?.slot).toBe('amount');
     });
 
     it('asks both in one turn when two are, rather than two round trips', () => {
-        const q = composeSlotQuestion(['date', 'amount'], PROMPTS);
+        const q = composeSlotQuestion(['date', 'amount'], PROMPTS, 'expense_summary');
         expect(q?.text).toBe('When was that? And how much?');
         // The answer is filed against the first; absorbAnswer picks up the
         // second if it was given, and it is asked again alone if it wasn't.
@@ -578,18 +579,54 @@ describe('asking for two missing things at once', () => {
     });
 
     it('caps at two, rather than putting up a wall of questions', () => {
-        const q = composeSlotQuestion(['date', 'amount', 'description'], PROMPTS);
+        const q = composeSlotQuestion(['date', 'amount', 'description'], PROMPTS, 'expense_summary');
         expect(q?.text).toBe('When was that? And how much?');
         expect(q?.text).not.toContain('paid to');
     });
 
     it('leaves the primary question reading exactly as it does alone', () => {
-        const q = composeSlotQuestion(['amount', 'description'], PROMPTS);
+        const q = composeSlotQuestion(['amount', 'description'], PROMPTS, 'expense_summary');
         expect(q?.text.startsWith('How much was it?')).toBe(true);
     });
 
+    // The follow-on clause is worded for the document too — "And what was it
+    // for?" was appended to a sales receipt and to a reimbursement claim
+    // alike, and it describes neither.
+    it('words the follow-on for the document being written', () => {
+        const openTwo: CaptureSlot[] = ['amount', 'description'];
+        expect(composeSlotQuestion(openTwo, PROMPTS, 'expense_summary')?.text)
+            .toBe('How much was it? And who was that to?');
+        expect(composeSlotQuestion(openTwo, PROMPTS, 'point_of_sale')?.text)
+            .toBe('How much was it? And what did they buy?');
+        expect(composeSlotQuestion(openTwo, PROMPTS, 'on_behalf_of')?.text)
+            .toBe('How much was it? And where was it spent?');
+    });
+
+    it('keeps the follow-on a clause, not a second full question', () => {
+        for (const type of ['expense_summary', 'personal_note', 'point_of_sale', 'on_behalf_of'] as const) {
+            const follow = followOnQuestion('description', type);
+            expect(follow.startsWith('And ')).toBe(true);
+            // Shorter than the primary it stands in for, and never a restatement of it.
+            expect(follow).not.toContain(partyQuestion(type, 1));
+        }
+        // The slots that read the same whoever is writing are untouched.
+        expect(followOnQuestion('date', 'on_behalf_of')).toBe('And when was that?');
+        expect(followOnQuestion('amount', 'point_of_sale')).toBe('And how much?');
+    });
+
+    it('never asks a claim what it was "paid to", in the short form either', () => {
+        expect(followOnQuestion('description', 'on_behalf_of')).not.toContain('paid to');
+        // A receipt, a claim and own spending each get their own clause —
+        // one string reused for all three is what this replaced.
+        expect(new Set([
+            followOnQuestion('description', 'expense_summary'),
+            followOnQuestion('description', 'point_of_sale'),
+            followOnQuestion('description', 'on_behalf_of'),
+        ]).size).toBe(3);
+    });
+
     it('asks nothing when nothing is open', () => {
-        expect(composeSlotQuestion([], PROMPTS)).toBeNull();
+        expect(composeSlotQuestion([], PROMPTS, 'expense_summary')).toBeNull();
     });
 
     it('a batched answer covering both closes both', () => {

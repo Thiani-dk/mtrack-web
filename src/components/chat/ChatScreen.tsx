@@ -1138,7 +1138,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             date: DATE_PROMPT,
             amount: 'How much was it?',
             description: partyQuestion(documentType, instance),
-        });
+        }, documentType);
         if (!question) { batchedSlotRef.current = null; return 'confirm'; }
 
         addMsg({ role: 'bot', kind: 'text', text: question.text });
@@ -1236,7 +1236,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             openSlots({ ...d, date: null }).filter(slot => slot !== 'date')[0] ?? null;
         const withFollowOn = (question: string, d: CaptureDraft): string => {
             const second = nextOpenAfterDate(d);
-            return second ? `${question} ${followOnQuestion(second)}` : question;
+            return second ? `${question} ${followOnQuestion(second, flow.documentType)}` : question;
         };
 
         const fireNudge = () => {
