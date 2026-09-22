@@ -9,6 +9,7 @@ import { extractCode } from './parsers/extractors/code';
 import { extractDirection } from './parsers/extractors/direction';
 import { parseConversationalDate, type ConversationalDateResult } from './parsers/conversationalDate';
 import { normalizeForKeywords } from './parsers/fuzzy';
+import { normalizeSwahiliNumerals, SWAHILI_FROM_RE, swahiliVerbDirection } from './parsers/swahili';
 import { hasTransactionVerb } from './parsers/classify';
 import { fmtAmountProse, hasUsableDate } from './transactionDisplay';
 import type { DirectionResult } from './parsers/types';
@@ -29,7 +30,7 @@ const TYPED: AmountScanOptions = { allowBare: true };
 // character offsets and the line-item extractor reads amounts by offset. Every
 // stage below must see the SAME string.
 function readable(text: string): string {
-    return normalizeForKeywords(text);
+    return normalizeForKeywords(normalizeSwahiliNumerals(text));
 }
 export { parseConversationalDate };
 
@@ -159,6 +160,16 @@ function extractFreeformName(text: string): string | null {
 // extractDirection comes back unresolved, so it never overrides a real signal.
 function conversationalDirectionHint(text: string): DirectionResult | null {
     const t = ` ${text.toLowerCase()} `;
+
+    // Swahili, read from the verb itself — "nilinunua" is money out,
+    // "nilipokea" money in — with "kutoka" ("from") as the structural signal,
+    // exactly as the English path reads "from".
+    for (const token of t.match(/[a-z]+/g) ?? []) {
+        const swahili = swahiliVerbDirection(token);
+        if (swahili) {
+            return { type: SWAHILI_FROM_RE.test(t) ? 'received' : swahili, confidence: 95, source: 'keyword' };
+        }
+    }
 
     // Money coming to the user.
     if (/\b(?:paid|sent|gave|owed|repaid|refunded|wired)\s+me\b/.test(t) || /\bpay(?:ing|s)?\s+me\b/.test(t)) {

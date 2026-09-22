@@ -7,6 +7,7 @@
 
 import { extractAmountMatches } from './extractors/amount';
 import { normalizeForKeywords } from './fuzzy';
+import { SWAHILI_VERBS } from './swahili';
 
 export type MessageClass = 'transaction' | 'service_notice' | 'security_alert' | 'promotional' | 'unknown';
 
@@ -22,7 +23,12 @@ const CURRENCY_RE = /(Ksh\.?|KES|USD|EUR|GBP|TZS|UGX|RWF|\$|£|€)\s*\.?\s*[\d,
 // with...") — broadened here so genuine transaction messages that predate
 // this classifier keep reaching the extractors.
 const TRANSACTION_VERB_RE =
-    /\b(?:sent|paid|payment|received|withdraw|approved|charge(?:d)?|bought|purchased|credited|debited|deposited|transferred|refund|reversal)\b|\bdone at\b/i;
+    new RegExp(
+        String.raw`\b(?:sent|paid|payment|received|withdraw|approved|charge(?:d)?|bought|purchased`
+        + String.raw`|credited|debited|deposited|transferred|refund|reversal`
+        + String.raw`|${SWAHILI_VERBS.join('|')})\b|\bdone at\b`,
+        'i',
+    );
 
 // Checked BEFORE the currency+verb test: these carry transaction-verb-like
 // wording ("Interest charged", "credited") but are notices, not payments.

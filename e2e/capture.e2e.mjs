@@ -334,5 +334,25 @@ check('one answer covering both closes both',
 check('and it moves on to what is genuinely still missing',
     /Who was it paid to\?/.test(afterBoth), afterBoth.slice(-160));
 
+// ── 13. A code-switched message, which is the normal case here ──
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('Nilinunua bacon na pork cuts for elfu tatu leo');
+const swahili = await transcript();
+// The figure landed: the flow asks for what it lacks, not for an amount it
+// was already given. ("leo" is Swahili for today and is NOT in the date
+// vocabulary — §5 covers verbs, numerals and prepositions only, so an
+// unreadable date is the correct outcome here, not a silent guess.)
+check('a Swahili verb and numeral are read with no currency token anywhere',
+    !/How much was it\?/.test(swahili), swahili.slice(-220));
+check('and it is not answered with "I didn\'t follow"',
+    !/couldn.t pick anything out/i.test(swahili));
+
+await say('yesterday');
+await say('bacon and pork cuts');
+check('the Swahili figure reaches the confirmation as 3,000',
+    /3,000/.test(await lastBotLine()), (await lastBotLine()).slice(0, 160));
+
 await browser.close();
 finish();

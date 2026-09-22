@@ -16,7 +16,7 @@ const NUMBER_SOURCE = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2
 // A multiplier ends where a letter does not follow, or where a currency code
 // runs straight on from it ("100kUSD").
 const MULTIPLIER_SOURCE =
-    String.raw`(?:\s*(millions|million|thousands|thousand|mn|k|m)`
+    String.raw`(?:\s*(millions|million|thousands|thousand|elfu|mia|mn|k|m)`
     + `(?:(?![A-Za-z])|(?=${CURRENCY_SUFFIX_SOURCE})))?`;
 const AMOUNT_RE = new RegExp(
     `(?:(${CURRENCY_SUFFIX_SOURCE})\\s*\\.?\\s*)?(${NUMBER_SOURCE})${MULTIPLIER_SOURCE}\\s*(${CURRENCY_SUFFIX_SOURCE})?`,
@@ -26,6 +26,9 @@ const AMOUNT_RE = new RegExp(
 const SHORTHAND: Record<string, number> = {
     k: 1_000, thousand: 1_000, thousands: 1_000,
     m: 1_000_000, mn: 1_000_000, million: 1_000_000, millions: 1_000_000,
+    // Swahili, normalised into this form upstream: "elfu tatu" arrives as
+    // "3 elfu". See parsers/swahili.ts.
+    elfu: 1_000, mia: 100,
 };
 
 const POSITIVE_CONTEXT =
@@ -138,7 +141,10 @@ function scanAmounts(msg: string, opts: AmountScanOptions = {}): Candidate[] {
         // A number with no currency on either side is not an amount — unless
         // the caller reads typed input and the sentence marks it as money.
         const bare = !prefix && !suffixCur;
-        if (bare && !(opts.allowBare && isBareMoney(msg, m.index, whole.length))) continue;
+        // A bare number carrying a multiplier is a quantity of money by
+        // construction — "10k", "3 elfu", "mia tano". No cue word needed.
+        const carriesMultiplier = Boolean(suffixMult);
+        if (bare && !(opts.allowBare && (carriesMultiplier || isBareMoney(msg, m.index, whole.length)))) continue;
 
         const base = parseFloat(digits.replace(/,/g, ''));
         if (Number.isNaN(base)) continue;

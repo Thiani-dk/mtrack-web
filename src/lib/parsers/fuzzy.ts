@@ -13,6 +13,8 @@
 //   2. Merged-word recovery — "somebacon" reads as "some bacon". Bounded to a
 //      quantity/filler word followed by a plausible standalone word.
 
+import { SWAHILI_VERBS } from './swahili';
+
 // ── Edit distance ────────────────────────────────────────────────────────────
 
 // Damerau-Levenshtein, because the commonest typo by far is a transposition
@@ -100,6 +102,9 @@ export const TRANSACTION_VERBS: readonly string[] = [
     'charge', 'charged', 'bought', 'purchased', 'credited', 'debited',
     'deposited', 'transferred', 'refund', 'refunded', 'reversal', 'spent',
     'sold', 'gave', 'settled',
+    // Swahili and Sheng, matched at the token level so a code-switched
+    // sentence needs no language detection. See parsers/swahili.ts.
+    ...SWAHILI_VERBS,
 ];
 
 // Quantity and filler words, for quantity parsing.

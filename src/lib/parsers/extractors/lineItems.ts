@@ -1,6 +1,7 @@
 import type { LineItem } from '../../../types';
 import { extractAmountMatches, type AmountScanOptions } from './amount';
 import { normalizeForKeywords } from '../fuzzy';
+import { normalizeSwahiliNumerals, SWAHILI_VERBS } from '../swahili';
 
 // Reading an itemised list out of one typed message.
 //
@@ -37,7 +38,8 @@ export interface ItemisationResult {
 // The comma is only a boundary when it is not the thousands separator inside a
 // number: splitting "Ksh 30,000 and electricity" on its comma turned thirty
 // thousand into thirty.
-const SEGMENT_RE = /\s*(?:,(?!\d{3}(?!\d))|[;\n•]|\band\b|\bplus\b)\s*/i;
+// "na" is the Swahili "and", and separates a list of items the same way.
+const SEGMENT_RE = /\s*(?:,(?!\d{3}(?!\d))|[;\n•]|\band\b|\bna\b|\bplus\b)\s*/i;
 
 // Words that attach a price to a thing rather than naming it. Stripped from
 // the end of a description, where they always end up: "Some ram I sold at".
@@ -46,8 +48,12 @@ const TRAILING_NOISE =
 
 // Leading quantifiers, filler and transaction verbs: "Some ram", "a laptop",
 // "Paid rent" — the thing bought is "rent", the paying is the transaction.
-const LEADING_NOISE =
-    /^(?:\s*(?:i|we|he|she|they|you|some|a|an|the|my|our|his|her|their|also|then|next|plus|with|and|paid|pay|bought|buy|sold|sell|got|spent|for|on)\b\s*)+/i;
+const LEADING_NOISE = new RegExp(
+    String.raw`^(?:\s*(?:i|we|he|she|they|you|some|a|an|the|my|our|his|her|their|also|then|next`
+    + String.raw`|plus|with|and|na|paid|pay|bought|buy|sold|sell|got|spent|for|on`
+    + String.raw`|${SWAHILI_VERBS.join('|')})\b\s*)+`,
+    'i',
+);
 
 // Sentences before the first item are scene-setting ("They bought hardware.
 // Computer components.") — only the last one is part of the item. Likewise,
@@ -190,7 +196,7 @@ export function extractLineItems(typed: string, opts: AmountScanOptions = {}): I
     // Typed input gets the typo/merged-word pass before anything reads it, so
     // "somebacon" reaches the description as "bacon" rather than as itself.
     // Idempotent, so a caller that has already normalised loses nothing.
-    const text = opts.allowBare ? normalizeForKeywords(typed) : typed;
+    const text = opts.allowBare ? normalizeForKeywords(normalizeSwahiliNumerals(typed)) : typed;
 
     const items: LineItem[] = [];
     const currencies = new Set<string>();
