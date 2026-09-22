@@ -71,6 +71,15 @@ const MODE_OPTIONS: ChatOption[] = [
 const OWN_PROMPT =
     "Copy your M-Pesa, Airtel Money, or bank messages in. If you don't have the message for something, just tell me what you spent and when.";
 const POS_NAME_PROMPT = "What's the business name?";
+
+// "Anyway — how much was it?" reads as one sentence; "Anyway — How much..."
+// reads as two glued together. A prompt that starts with a proper noun or an
+// acronym is left alone.
+function lowerFirst(text: string): string {
+    const [first] = text.split(' ');
+    if (!first || first.slice(1) !== first.slice(1).toLowerCase()) return text;
+    return text.charAt(0).toLowerCase() + text.slice(1);
+}
 const POS_ITEM_PROMPT =
     "Now tell me what they bought and the amount. You can paste the M-Pesa message instead if you have it.";
 const OBO_PARTY_PROMPT = "Who was this for?";
@@ -1135,6 +1144,22 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         lineItems: draft.lineItems,
     }), []);
 
+    // The question currently on the table, word for word, so an interruption
+    // can be answered and the thread picked back up exactly where it was.
+    const promptFor = useCallback((flow: DocFlow): string => {
+        switch (flow.pending) {
+            case 'field-date': return DATE_PROMPT;
+            case 'field-amount': return 'How much was it?';
+            case 'field-recipient':
+                return flow.documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?';
+            case 'business-name': return POS_NAME_PROMPT;
+            case 'party-name': return OBO_PARTY_PROMPT;
+            case 'purpose': return OBO_PURPOSE_PROMPT;
+            case 'confirm': return confirmText(flow.draft);
+            default: return 'what did you spend on?';
+        }
+    }, [confirmText]);
+
     const advanceAfterField = useCallback((flow: DocFlow, draft: CaptureDraft) => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
         const next = askNextField(draft, flow.documentType);
@@ -1160,6 +1185,15 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         };
         const segments = segmentMultiIntent(text, intentOf);
         const questionAnswers = segments.questions.map(q => answerOrAdmit(q.text));
+
+        // A message that is ONLY a question about the app. Answering it must
+        // not cost the user their place, and it must never reach the
+        // zero-understanding fallback — "I couldn't pick anything out of that"
+        // in reply to a perfectly clear question would be nonsense.
+        if (segments.data.length === 0 && questionAnswers.length > 0) {
+            addMsg({ role: 'bot', kind: 'text', text: `${questionAnswers[0]} Anyway — what did you spend on?` });
+            return;
+        }
         // Only the data half is folded into the draft; the question half would
         // otherwise be mined for an amount it never contained.
         const dataText = segments.data.length > 0 && questionAnswers.length > 0
@@ -1275,6 +1309,22 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 addMsg({ role: 'bot', kind: 'options', text: decision.text, options: decision.options ?? [] });
             }
             return true;
+        }
+
+        // A question ABOUT the app, asked in the middle of being asked
+        // something. Answer it, then put the parked question back verbatim —
+        // the interruption must not count as an answer to anything, so the
+        // pending state is deliberately left exactly as it was. That IS the
+        // resume pointer: nothing advanced, so nothing needs restoring.
+        if (flow.pending !== 'mode' && flow.pending !== 'cancel-confirm'
+            && flow.pending !== 'correction-target' && flow.pending !== 'zero-escape') {
+            const e = extractDescription(t);
+            const intent = classifyIntent({ text: t, extraction: e, nothingExtracted: understoodNothing(e) });
+            if (intent === 'meta_question') {
+                const parked = promptFor(flow);
+                addMsg({ role: 'bot', kind: 'text', text: `${answerOrAdmit(t)} Anyway — ${lowerFirst(parked)}` });
+                return true;
+            }
         }
 
         // A correction, wherever it arrives. This has to run before the slot
@@ -1474,7 +1524,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 return false;
         }
         return false;
-    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, advanceAfterField, commitDraft, setDocFlow, syncDraft, askPurposeFor, confirmText]);
+    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, advanceAfterField, commitDraft, setDocFlow, syncDraft, askPurposeFor, confirmText, promptFor]);
     useEffect(() => { handleDocFlowRef.current = handleDocFlow; }, [handleDocFlow]);
 
     // A near-duplicate question is only ever answered by a tap. "Keep both"

@@ -294,5 +294,29 @@ await say('bacon');
 check('and the captured figure reaches the confirmation intact',
     /3,100/.test(await lastBotLine()), (await lastBotLine()).slice(0, 140));
 
+// ── 11. A question asked in the middle of being asked something ──
+//
+// The interruption must not count as an answer to anything, and the parked
+// question has to come back verbatim.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('bought bacon');
+const parked = await lastBotLine();
+check('a question is on the table', /When was that\?/.test(parked), parked.slice(0, 100));
+
+await say('wait, what currencies do you support?');
+const answered = await lastBotLine();
+check('the question is answered', /Shillings/.test(answered), answered.slice(0, 160));
+check('and the parked question comes straight back', /Anyway —/.test(answered) && /when was that/i.test(answered));
+check('it is not treated as gibberish', !/couldn.t pick anything out/i.test(await transcript()));
+
+await say('yesterday');
+const resumed = await transcript();
+check('the interruption did not consume the date question',
+    !/When was that\?[^]*When was that\?[^]*When was that\?/.test(resumed));
+check('the flow resumed exactly where it was',
+    /How much was it\?/.test(resumed), resumed.slice(-160));
+
 await browser.close();
 finish();
