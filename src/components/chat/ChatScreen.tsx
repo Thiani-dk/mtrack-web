@@ -3,7 +3,10 @@ import type {
     ChatMessage, ChatOption, ParsedTransaction, SkippedMessage,
     DocumentType, MerchantProfile, OnBehalfOfContext, TrackedDocument,
 } from '../../types';
-import { buildSelfReportedTransaction, buildConfirmSentence, openSlots } from '../../lib/conversationalCapture';
+import {
+    buildSelfReportedTransaction, buildConfirmSentence, composeSlotQuestion, followOnQuestion,
+    openSlots, type CaptureSlot,
+} from '../../lib/conversationalCapture';
 import {
     capturedSummary, composeDescription, composeDraftAnswer, emptyCaptureDraft, skipDate,
     type CaptureDraft,
@@ -123,6 +126,10 @@ interface DocFlow {
     // because the answer to "which one?" names an item and no amount, so the
     // new value has nowhere else to live across that turn.
     pendingCorrectionAmount: number | null;
+    // The second slot asked alongside the pending one, when the question was
+    // batched. The answer reader needs it — a bare figure is the amount only
+    // if "how much?" was actually part of what was asked.
+    batchedSlot: CaptureSlot | null;
     // Consecutive messages this flow made nothing whatsoever of. Capped, so
     // "I couldn't pick anything out of that" cannot be said forever — the
     // third time, the user is offered a way out instead. See zeroUnderstanding.
@@ -503,6 +510,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
     // rather than duplicated — the alternative is two divergent copies of the
     // routing, which is how this file grew a bug before.
     const handleDocFlowRef = useRef<((text: string) => Promise<boolean>) | null>(null);
+    // askNextField reports the batched second slot out of band, because it
+    // returns the pending prompt and its callers immediately build the next
+    // flow object from that. Read straight back in advanceAfterField.
+    const batchedSlotRef = useRef<CaptureSlot | null>(null);
     const docFlowRef = useRef<DocFlow | null>(null);
     const setDocFlow = useCallback((next: DocFlow | null | ((prev: DocFlow | null) => DocFlow | null)) => {
         const resolved = typeof next === 'function' ? (next as (p: DocFlow | null) => DocFlow | null)(docFlowRef.current) : next;
@@ -578,6 +589,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             lastDateAnswer: null,
             zeroAttempts: 0,
             pendingCorrectionAmount: null,
+            batchedSlot: null,
             purposeQueue: [],
             draftDoc: null,
         });
@@ -622,6 +634,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 lastDateAnswer: null,
                 zeroAttempts: 0,
                 pendingCorrectionAmount: null,
+                batchedSlot: null,
                 purposeQueue: [],
                 draftDoc: doc,
             });
@@ -951,7 +964,8 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         const base = {
             merchantProfile: null, onBehalfOf: null, draft: emptyDraft(),
             describedCount: 0, nudgeShown: false, dateAttempts: 0, lastDateAnswer: null,
-            zeroAttempts: 0, pendingCorrectionAmount: null, purposeQueue: [] as string[], draftDoc: null,
+            zeroAttempts: 0, pendingCorrectionAmount: null, batchedSlot: null as CaptureSlot | null,
+            purposeQueue: [] as string[], draftDoc: null,
         };
         // Anything that isn't one of the three mode choices belongs to the
         // question the doc flow is currently waiting on.
@@ -1112,22 +1126,24 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
     // second, vaguer answer that overwrote a good one.
     const askNextField = useCallback((draft: CaptureDraft, documentType: DocumentType): PendingPrompt => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
-        const [next] = openSlots(draft);
-        switch (next) {
-            case 'date':
-                addMsg({ role: 'bot', kind: 'text', text: DATE_PROMPT });
-                return 'field-date';
-            case 'amount':
-                addMsg({ role: 'bot', kind: 'text', text: 'How much was it?' });
-                return 'field-amount';
-            case 'description':
-                addMsg({
-                    role: 'bot', kind: 'text',
-                    text: documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?',
-                });
-                return 'field-recipient';
-            default:
-                return 'confirm';
+        // Two open slots are asked together — they are independent, so nothing
+        // is lost by it, and a user who volunteered everything but two fields
+        // should not make two round trips for them. The answer is filed
+        // against the first; absorbAnswer picks up the second if it was given,
+        // and it is asked again on its own if it wasn't.
+        const question = composeSlotQuestion(openSlots(draft), {
+            date: DATE_PROMPT,
+            amount: 'How much was it?',
+            description: documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?',
+        });
+        if (!question) { batchedSlotRef.current = null; return 'confirm'; }
+
+        addMsg({ role: 'bot', kind: 'text', text: question.text });
+        batchedSlotRef.current = question.alsoAsked;
+        switch (question.slot) {
+            case 'date': return 'field-date';
+            case 'amount': return 'field-amount';
+            case 'description': return 'field-recipient';
         }
     }, [isDemoSession, addDemoMessage, addMessage]);
 
@@ -1163,7 +1179,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
     const advanceAfterField = useCallback((flow: DocFlow, draft: CaptureDraft) => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
         const next = askNextField(draft, flow.documentType);
-        setDocFlow({ ...flow, draft, pending: next });
+        setDocFlow({ ...flow, draft, pending: next, batchedSlot: batchedSlotRef.current });
         if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
     }, [isDemoSession, addDemoMessage, addMessage, askNextField, confirmText, setDocFlow]);
 
@@ -1210,6 +1226,16 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             }
         };
 
+        // These branches put the date parser's OWN wording rather than going
+        // through askNextField, which is why batching used to miss the most
+        // common case of all — a first message with no readable date.
+        const nextOpenAfterDate = (d: CaptureDraft): CaptureSlot | null =>
+            openSlots({ ...d, date: null }).filter(slot => slot !== 'date')[0] ?? null;
+        const withFollowOn = (question: string, d: CaptureDraft): string => {
+            const second = nextOpenAfterDate(d);
+            return second ? `${question} ${followOnQuestion(second)}` : question;
+        };
+
         const fireNudge = () => {
             if (describedCount >= 2 && !docFlowRef.current?.nudgeShown) {
                 addMsg({ role: 'bot', kind: 'text', text: EFFICIENCY_NUDGE });
@@ -1246,8 +1272,11 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         // A date the parser refused outright (in the future, or older than the
         // 12-month window) is never carried into the draft — say why and ask again.
         if (!draft.date && !draft.dateSkipped && r.dateResult.confidence === 'invalid') {
-            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount, zeroAttempts: 0 });
-            addMsg({ role: 'bot', kind: 'text', text: `${r.dateResult.reason} When was it?` });
+            setDocFlow({
+                ...flow, draft: { ...draft, date: null }, pending: 'field-date',
+                describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
+            });
+            addMsg({ role: 'bot', kind: 'text', text: withFollowOn(`${r.dateResult.reason} When was it?`, draft) });
             fireNudge();
             answerQuestions();
             return;
@@ -1259,8 +1288,11 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         // couldn't work out a date from that" would imply they'd tried.
         if (!draft.date && !draft.dateSkipped && r.dateResult.confidence === 'needs_clarification' && r.dateResult.reason) {
             const attempted = r.dateResult.reason !== DATE_REASON_UNREADABLE;
-            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount, zeroAttempts: 0 });
-            addMsg({ role: 'bot', kind: 'text', text: attempted ? r.dateResult.reason : DATE_PROMPT });
+            setDocFlow({
+                ...flow, draft: { ...draft, date: null }, pending: 'field-date',
+                describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
+            });
+            addMsg({ role: 'bot', kind: 'text', text: withFollowOn(attempted ? r.dateResult.reason : DATE_PROMPT, draft) });
             fireNudge();
             answerQuestions();
             return;
@@ -1269,7 +1301,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         // Phase C5 — a day/month flip on a reimbursement claim can sink the
         // whole submission, so escalate it before doing anything else.
         if (draft.date && draft.dateAmbiguous && flow.documentType === 'on_behalf_of') {
-            setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount, zeroAttempts: 0 });
+            setDocFlow({
+                ...flow, draft: { ...draft, date: null }, pending: 'field-date',
+                describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
+            });
             addMsg({ role: 'bot', kind: 'text', text: OBO_AMBIGUOUS_DATE_PROMPT });
             fireNudge();
             answerQuestions();
@@ -1280,7 +1315,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         // message filled stays filled, and only a genuinely empty slot earns a
         // question.
         const next = askNextField(draft, flow.documentType);
-        setDocFlow({ ...flow, draft, pending: next, describedCount, zeroAttempts: 0 });
+        setDocFlow({ ...flow, draft, pending: next, describedCount, zeroAttempts: 0, batchedSlot: batchedSlotRef.current });
         if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
         fireNudge();
         answerQuestions();
@@ -1436,7 +1471,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 return true;
             }
             case 'field-date': {
-                const composed = composeDraftAnswer(flow.draft, 'date', t);
+                const composed = composeDraftAnswer(flow.draft, 'date', t, undefined, flow.batchedSlot);
                 const d = composed.dateResult!;
 
                 if (composed.accepted) {
@@ -1469,7 +1504,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 return true;
             }
             case 'field-amount': {
-                const composed = composeDraftAnswer(flow.draft, 'amount', t);
+                const composed = composeDraftAnswer(flow.draft, 'amount', t, undefined, flow.batchedSlot);
                 if (!composed.accepted) {
                     addMsg({ role: 'bot', kind: 'text', text: 'How much was it? A figure is enough.' });
                     setDocFlow({ ...flow, draft: composed.draft });
@@ -1479,7 +1514,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 return true;
             }
             case 'field-recipient': {
-                const composed = composeDraftAnswer(flow.draft, 'description', t);
+                const composed = composeDraftAnswer(flow.draft, 'description', t, undefined, flow.batchedSlot);
                 if (!composed.accepted) {
                     addMsg({ role: 'bot', kind: 'text', text: flow.documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?' });
                     return true;

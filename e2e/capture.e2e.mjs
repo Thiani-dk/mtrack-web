@@ -318,5 +318,21 @@ check('the interruption did not consume the date question',
 check('the flow resumed exactly where it was',
     /How much was it\?/.test(resumed), resumed.slice(-160));
 
+// ── 12. Two missing fields asked in one turn ──
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('bought bacon');
+const batched = await lastBotLine();
+check('both open questions come in one turn, not two round trips',
+    /When was that\?/.test(batched) && /And how much\?/.test(batched), batched.slice(0, 160));
+
+await say('yesterday, 3100');
+const afterBoth = await transcript();
+check('one answer covering both closes both',
+    !/And how much\?/.test(afterBoth.split('yesterday, 3100')[1] ?? ''), afterBoth.slice(-200));
+check('and it moves on to what is genuinely still missing',
+    /Who was it paid to\?/.test(afterBoth), afterBoth.slice(-160));
+
 await browser.close();
 finish();

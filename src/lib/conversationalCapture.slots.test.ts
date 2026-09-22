@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     absorbAnswer, buildConfirmSentence, extractDescription, extractLineItems, itemsSummary,
-    openSlots, type CaptureSlot,
+    composeSlotQuestion, openSlots, type CaptureSlot,
 } from './conversationalCapture';
 import {
     composeDescription, composeDraftAnswer, emptyCaptureDraft, skipDate,
@@ -553,5 +553,51 @@ describe('a "for" clause that is introducing a price, not a reason', () => {
         expect(extractDescription('paid Kevin 500 for a birthday gift', NOW).purposeLabel)
             .toBe('birthday gift');
         expect(extractDescription('sent 2000 for school fees', NOW).purposeLabel).toBe('school fees');
+    });
+});
+
+describe('asking for two missing things at once', () => {
+    const PROMPTS: Record<CaptureSlot, string> = {
+        date: 'When was that?',
+        amount: 'How much was it?',
+        description: 'Who was it paid to?',
+    };
+
+    it('asks one question when only one thing is missing', () => {
+        const q = composeSlotQuestion(['amount'], PROMPTS);
+        expect(q?.text).toBe('How much was it?');
+        expect(q?.slot).toBe('amount');
+    });
+
+    it('asks both in one turn when two are, rather than two round trips', () => {
+        const q = composeSlotQuestion(['date', 'amount'], PROMPTS);
+        expect(q?.text).toBe('When was that? And how much?');
+        // The answer is filed against the first; absorbAnswer picks up the
+        // second if it was given, and it is asked again alone if it wasn't.
+        expect(q?.slot).toBe('date');
+    });
+
+    it('caps at two, rather than putting up a wall of questions', () => {
+        const q = composeSlotQuestion(['date', 'amount', 'description'], PROMPTS);
+        expect(q?.text).toBe('When was that? And how much?');
+        expect(q?.text).not.toContain('paid to');
+    });
+
+    it('leaves the primary question reading exactly as it does alone', () => {
+        const q = composeSlotQuestion(['amount', 'description'], PROMPTS);
+        expect(q?.text.startsWith('How much was it?')).toBe(true);
+    });
+
+    it('asks nothing when nothing is open', () => {
+        expect(composeSlotQuestion([], PROMPTS)).toBeNull();
+    });
+
+    it('a batched answer covering both closes both', () => {
+        const start = emptyDraft();
+        expect(openSlots(start)).toEqual(['date', 'amount', 'description']);
+        const { draft } = composeDraftAnswer(start, 'date', 'yesterday, Ksh 4,500 to Kevin', NOW);
+        expect(draft.date).not.toBeNull();
+        expect(draft.amount).toBe(4500);
+        expect(openSlots(draft)).toEqual([]);
     });
 });

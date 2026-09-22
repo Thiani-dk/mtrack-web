@@ -123,8 +123,17 @@ export interface ComposedAnswer {
 // tests exists to fail if this is ever flipped back.
 export function composeDraftAnswer(
     draft: CaptureDraft, slot: CaptureSlot, answer: string, now: Date = new Date(),
+    // The slot asked alongside this one, when the question was batched. A bare
+    // figure counts as the amount when "how much?" was part of what was asked,
+    // for the same reason it does when that was the whole question: the
+    // question supplied the context free text lacks.
+    alsoAsked: CaptureSlot | null = null,
 ): ComposedAnswer {
     const absorbed = absorbAnswer(draft, answer);
+    if (alsoAsked === 'amount' && (absorbed.amount == null || absorbed.amount <= 0)) {
+        const offered = parseAmountReply(answer).amount;
+        if (offered != null && offered > 0) absorbed.amount = offered;
+    }
 
     if (slot === 'date') {
         const dateResult = parseConversationalDate(answer, now);

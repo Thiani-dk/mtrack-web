@@ -305,6 +305,56 @@ export function openSlots(draft: {
     return open;
 }
 
+// ── Asking for more than one thing at once ─────────────────────────────────
+
+// Two independent gaps are one question, not two round trips.
+//
+// The slots are genuinely independent of each other — no answer changes
+// whether another is still needed — so nothing is lost by asking together, and
+// a user who volunteered everything but the date and the amount should not
+// have to make two round trips for them. Capped at two: three questions in one
+// breath is a wall of text, and the third comes round again immediately
+// anyway.
+//
+// The primary question is emitted verbatim and the second appended as its own
+// short sentence, so the first question reads exactly as it does alone.
+export interface SlotQuestion {
+    text: string;
+    // The slot the answer is filed against. The others are still filled if the
+    // answer happens to mention them — see absorbAnswer — and re-asked if not.
+    slot: CaptureSlot;
+    // The slot asked alongside it, if any. The answer reader needs this: a
+    // bare figure counts as an amount when "how much?" was part of the
+    // question, exactly as it does when that was the whole question.
+    alsoAsked: CaptureSlot | null;
+}
+
+const FOLLOW_ON: Record<CaptureSlot, string> = {
+    date: 'And when was that?',
+    amount: 'And how much?',
+    description: 'And what was it for?',
+};
+
+export function composeSlotQuestion(
+    open: CaptureSlot[],
+    prompts: Record<CaptureSlot, string>,
+): SlotQuestion | null {
+    const [first, second] = open;
+    if (!first) return null;
+    return {
+        slot: first,
+        alsoAsked: second ?? null,
+        text: second ? `${prompts[first]} ${FOLLOW_ON[second]}` : prompts[first],
+    };
+}
+
+// The short follow-on form of a question, for the places that emit their own
+// primary question rather than going through composeSlotQuestion — chiefly the
+// date-clarification branches, which put the date parser's own wording.
+export function followOnQuestion(slot: CaptureSlot): string {
+    return FOLLOW_ON[slot];
+}
+
 // ── Absorbing more than was asked ────────────────────────────────────────────
 
 // The slots a follow-up answer might fill, whichever question prompted it.
