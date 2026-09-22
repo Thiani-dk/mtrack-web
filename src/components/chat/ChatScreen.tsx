@@ -17,6 +17,7 @@ import {
     classifyIntent, decideCancel, isCancelMessage, isCorrectionMessage, segmentMultiIntent,
 } from '../../lib/metaIntent';
 import { answerOrAdmit } from '../../lib/metaAnswers';
+import { partyPlaceholder, partyQuestion } from '../../lib/partyQuestion';
 import { extractDescription } from '../../lib/conversationalCapture';
 import { applyNamedCorrection, resolveCorrection } from '../../lib/correction';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
@@ -1124,7 +1125,9 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
     // ready to confirm. Asking for something the user already said is what
     // made this flow feel like it wasn't listening — and at worst invited a
     // second, vaguer answer that overwrote a good one.
-    const askNextField = useCallback((draft: CaptureDraft, documentType: DocumentType): PendingPrompt => {
+    const askNextField = useCallback((
+        draft: CaptureDraft, documentType: DocumentType, instance: number,
+    ): PendingPrompt => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
         // Two open slots are asked together — they are independent, so nothing
         // is lost by it, and a user who volunteered everything but two fields
@@ -1134,7 +1137,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         const question = composeSlotQuestion(openSlots(draft), {
             date: DATE_PROMPT,
             amount: 'How much was it?',
-            description: documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?',
+            description: partyQuestion(documentType, instance),
         });
         if (!question) { batchedSlotRef.current = null; return 'confirm'; }
 
@@ -1167,7 +1170,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             case 'field-date': return DATE_PROMPT;
             case 'field-amount': return 'How much was it?';
             case 'field-recipient':
-                return flow.documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?';
+                return partyQuestion(flow.documentType, flow.describedCount);
             case 'business-name': return POS_NAME_PROMPT;
             case 'party-name': return OBO_PARTY_PROMPT;
             case 'purpose': return OBO_PURPOSE_PROMPT;
@@ -1178,7 +1181,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
 
     const advanceAfterField = useCallback((flow: DocFlow, draft: CaptureDraft) => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
-        const next = askNextField(draft, flow.documentType);
+        const next = askNextField(draft, flow.documentType, flow.describedCount);
         setDocFlow({ ...flow, draft, pending: next, batchedSlot: batchedSlotRef.current });
         if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
     }, [isDemoSession, addDemoMessage, addMessage, askNextField, confirmText, setDocFlow]);
@@ -1314,7 +1317,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         // One path, driven by what is actually still missing: everything the
         // message filled stays filled, and only a genuinely empty slot earns a
         // question.
-        const next = askNextField(draft, flow.documentType);
+        const next = askNextField(draft, flow.documentType, describedCount);
         setDocFlow({ ...flow, draft, pending: next, describedCount, zeroAttempts: 0, batchedSlot: batchedSlotRef.current });
         if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
         fireNudge();
@@ -1516,7 +1519,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             case 'field-recipient': {
                 const composed = composeDraftAnswer(flow.draft, 'description', t, undefined, flow.batchedSlot);
                 if (!composed.accepted) {
-                    addMsg({ role: 'bot', kind: 'text', text: flow.documentType === 'point_of_sale' ? 'What did they buy?' : 'Who was it paid to?' });
+                    addMsg({ role: 'bot', kind: 'text', text: partyQuestion(flow.documentType, flow.describedCount) });
                     return true;
                 }
                 advanceAfterField(flow, composed.draft);
@@ -1873,7 +1876,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             case 'field-amount': return docFlow.draft.currency.explicit
                 ? `Amount in ${docFlow.draft.currency.code}...`
                 : 'Amount...';
-            case 'field-recipient': return docFlow.documentType === 'point_of_sale' ? 'What they bought...' : 'Who it was paid to...';
+            case 'field-recipient': return partyPlaceholder(docFlow.documentType);
             case 'confirm': return "'yes' to confirm, or tell me what's off...";
             default: return 'Copy your messages, or describe what you spent...';
         }
