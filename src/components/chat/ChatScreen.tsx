@@ -10,7 +10,11 @@ import {
 } from '../../lib/captureDraft';
 import { advanceDateRetry, DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
 import { advanceZeroUnderstanding, understoodNothing } from '../../lib/zeroUnderstanding';
-import { decideCancel, isCancelMessage, isCorrectionMessage } from '../../lib/metaIntent';
+import {
+    classifyIntent, decideCancel, isCancelMessage, isCorrectionMessage, segmentMultiIntent,
+} from '../../lib/metaIntent';
+import { answerOrAdmit } from '../../lib/metaAnswers';
+import { extractDescription } from '../../lib/conversationalCapture';
 import { applyNamedCorrection, resolveCorrection } from '../../lib/correction';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
 import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
@@ -1145,8 +1149,32 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         const flow = docFlowRef.current;
         if (!flow) return;
 
-        const { draft, extraction: r } = composeDescription(flow.draft, text);
+        // A message can carry two things at once — "bought bacon for 3100,
+        // also can you tell me what currencies you support". The data clause
+        // advances the actual task and is handled first, whichever half it sat
+        // in; the question is answered in the SAME turn, because two bot turns
+        // for one message reads as a system that lost its place.
+        const intentOf = (clause: string) => {
+            const e = extractDescription(clause);
+            return classifyIntent({ text: clause, extraction: e, nothingExtracted: understoodNothing(e) });
+        };
+        const segments = segmentMultiIntent(text, intentOf);
+        const questionAnswers = segments.questions.map(q => answerOrAdmit(q.text));
+        // Only the data half is folded into the draft; the question half would
+        // otherwise be mined for an amount it never contained.
+        const dataText = segments.data.length > 0 && questionAnswers.length > 0
+            ? segments.data.map(d => d.text).join(', ')
+            : text;
+
+        const { draft, extraction: r } = composeDescription(flow.draft, dataText);
         const describedCount = flow.describedCount + 1;
+        // Emitted after whatever the data half prompts, so the reply reads
+        // "here's what I did with that — and to answer your question, ...".
+        const answerQuestions = () => {
+            for (const answer of questionAnswers) {
+                addMsg({ role: 'bot', kind: 'text', text: `To answer your question: ${answer}` });
+            }
+        };
 
         const fireNudge = () => {
             if (describedCount >= 2 && !docFlowRef.current?.nudgeShown) {
@@ -1177,6 +1205,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 });
                 addMsg({ role: 'bot', kind: 'text', text: zero.response.text });
             }
+            answerQuestions();
             return;
         }
 
@@ -1186,6 +1215,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount, zeroAttempts: 0 });
             addMsg({ role: 'bot', kind: 'text', text: `${r.dateResult.reason} When was it?` });
             fireNudge();
+            answerQuestions();
             return;
         }
 
@@ -1198,6 +1228,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount, zeroAttempts: 0 });
             addMsg({ role: 'bot', kind: 'text', text: attempted ? r.dateResult.reason : DATE_PROMPT });
             fireNudge();
+            answerQuestions();
             return;
         }
 
@@ -1207,6 +1238,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             setDocFlow({ ...flow, draft: { ...draft, date: null }, pending: 'field-date', describedCount, zeroAttempts: 0 });
             addMsg({ role: 'bot', kind: 'text', text: OBO_AMBIGUOUS_DATE_PROMPT });
             fireNudge();
+            answerQuestions();
             return;
         }
 
@@ -1217,6 +1249,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         setDocFlow({ ...flow, draft, pending: next, describedCount, zeroAttempts: 0 });
         if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
         fireNudge();
+        answerQuestions();
     }, [isDemoSession, addDemoMessage, addMessage, askNextField, confirmText, setDocFlow]);
 
     // Handles a message while a specific prompt is pending. Returns true if it

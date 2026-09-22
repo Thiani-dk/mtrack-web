@@ -276,5 +276,23 @@ await page.waitForTimeout(900);
 const afterPick = await transcript();
 check('picking the item applies the change to that one', /400\s*→\s*Ksh\s*3,500/.test(afterPick), afterPick.slice(-220));
 
+// ── 10. A message that says two things at once ──
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('bought bacon for 3100 today, also can you tell me what currencies you support');
+const both = await transcript();
+// The amount landed: the flow moved on to the one thing it genuinely lacks
+// rather than asking for a figure the message already gave.
+check('the purchase is captured, not re-asked about',
+    !/How much was it\?/.test(both), both.slice(-260));
+check('and the question is answered in the same turn',
+    /To answer your question/.test(both) && /Shillings/.test(both), both.slice(-260));
+check('the question clause is not mined for an amount', !/Ksh 0\b/.test(both));
+
+await say('bacon');
+check('and the captured figure reaches the confirmation intact',
+    /3,100/.test(await lastBotLine()), (await lastBotLine()).slice(0, 140));
+
 await browser.close();
 finish();

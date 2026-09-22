@@ -142,7 +142,8 @@ function splitQuantity(description: string, amount: number): Pick<LineItem, 'des
 // bought airtime worth 30" arrived as a single two-priced segment and both
 // items were dropped. Re-splitting only where the extractor was already going
 // to give up cannot cost anything it currently gets right.
-const RESEGMENT_RE = /\s*(?:(?<=[.!?:])\s+|\bthen\b|\bafter that\b|\bnext\b|\blater\b)\s*/i;
+const RESEGMENT_RE =
+    /\s*(?:(?<=[.!?:])\s+|\bthen\b|\bafter that\b|\bnext\b|\blater\b|\band also\b|\boh and\b|\balso\b)\s*/i;
 
 // Greetings, fillers and time words that survive tidying but name no item.
 // Carrying one forward would file "hi so" as part of a purchase.

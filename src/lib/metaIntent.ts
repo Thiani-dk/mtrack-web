@@ -151,3 +151,34 @@ export function decideCancel(captured: { summary: string | null }): CancelDecisi
         ],
     };
 }
+
+// ── Routing a multi-intent message ───────────────────────────────────────────
+
+export interface Segment {
+    text: string;
+    intent: MetaIntent;
+}
+
+// The clauses of a multi-intent message, each classified on its own.
+//
+// Order of PROCESSING is not order of appearance: the data clause advances the
+// actual task and is handled first, whichever half it sat in, and the question
+// is answered after — in one combined reply rather than two bot turns, because
+// two turns for one message reads as a system that lost its place.
+export function segmentMultiIntent(
+    text: string,
+    classifySegment: (clause: string) => MetaIntent,
+): { data: Segment[]; questions: Segment[] } {
+    const data: Segment[] = [];
+    const questions: Segment[] = [];
+
+    for (const clause of splitDiscourse(text)) {
+        const intent = classifySegment(clause);
+        if (intent === 'meta_question') questions.push({ text: clause, intent });
+        else if (intent === 'data' || intent === 'correction') data.push({ text: clause, intent });
+        // An 'unclear' clause beside a clause that IS clear is not worth a
+        // fallback of its own — the user said something usable and that is
+        // what to act on.
+    }
+    return { data, questions };
+}
