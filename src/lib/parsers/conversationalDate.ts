@@ -1,3 +1,4 @@
+import { swahiliRelativeDate } from './swahili';
 import { extractDate } from './extractors/date';
 
 // A deliberately lenient date reader for TYPED input only.
@@ -120,7 +121,11 @@ function applyBounds(result: ConversationalDateResult, now: Date): Conversationa
 
 // ── Relative phrasing ────────────────────────────────────────────────────────
 
-function parseRelative(t: string, now: Date): ConversationalDateResult | null {
+// `t` is lowercased for the English patterns; `raw` is kept because the
+// Swahili date words need the original case to tell "jana" from the name
+// "Jana". See swahiliRelativeDate.
+function parseRelative(t: string, raw: string, now: Date): ConversationalDateResult | null {
+    const swahili = swahiliRelativeDate(raw);
     // Explicitly forward-looking wording is rejected before anything else tries
     // to read a day out of it.
     if (/\b(tomorrow|next\s+(?:week|month|year)|next\s+(?:sun|mon|tues|wednes|thurs|fri|satur)day)\b/.test(t)) {
@@ -135,14 +140,19 @@ function parseRelative(t: string, now: Date): ConversationalDateResult | null {
         return ask(DATE_REASON_LAST_WEEK);
     }
 
-    if (/\b(today|just now|this morning|this afternoon|this evening|tonight|earlier today)\b/.test(t)) {
+    if (/\b(today|just now|this morning|this afternoon|this evening|tonight|earlier today)\b/.test(t)
+        || swahili === 'today') {
         return ok(startOfDay(now));
     }
-    if (/\byesterday\b/.test(t)) {
-        return ok(startOfDay(new Date(now.getTime() - 86400000)));
-    }
-    if (/\bday before yesterday\b/.test(t)) {
+    // BEFORE the plain "yesterday" test, not after it: "day before yesterday"
+    // contains "yesterday", so the longer phrase has to be claimed first or it
+    // is silently read as one day ago. It sat after for as long as it existed,
+    // which made it unreachable.
+    if (/\bday before yesterday\b/.test(t) || swahili === 'day-before') {
         return ok(startOfDay(new Date(now.getTime() - 2 * 86400000)));
+    }
+    if (/\byesterday\b/.test(t) || swahili === 'yesterday') {
+        return ok(startOfDay(new Date(now.getTime() - 86400000)));
     }
 
     const daysAgo = t.match(/\b(\d{1,4})\s+days?\s+ago\b/);
@@ -288,7 +298,7 @@ export function parseConversationalDate(input: string, now: Date = new Date()): 
     if (!raw) return ask(DATE_REASON_UNREADABLE);
     const lower = raw.toLowerCase();
 
-    const relative = parseRelative(lower, now);
+    const relative = parseRelative(lower, raw, now);
     if (relative) return applyBounds(relative, now);
 
     const monthForm = parseMonthName(raw, now);

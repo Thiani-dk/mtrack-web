@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeSwahiliNumerals, swahiliVerbDirection } from './swahili';
 import { classifyMessage } from './classify';
+import { parseConversationalDate } from './conversationalDate';
 import { extractDescription, extractLineItems } from '../conversationalCapture';
 import { understoodNothing } from '../zeroUnderstanding';
 
@@ -76,5 +77,72 @@ describe('what this deliberately does not attempt', () => {
         // honest fallback an unrecognised English sentence would get.
         const r = extractDescription('habari yako rafiki yangu', NOW);
         expect(understoodNothing(r)).toBe(true);
+    });
+});
+
+describe('Swahili relative dates', () => {
+    // Through parseConversationalDate, not a parallel reader, so the bounds
+    // rules and the rest of that parser's discipline apply unchanged.
+    const on = (text: string) => parseConversationalDate(text, NOW);
+
+    it('reads leo as today and jana as yesterday', () => {
+        expect(on('leo').date).toEqual(new Date('2026-09-12T12:00:00'));
+        expect(on('jana').date).toEqual(new Date('2026-09-11T12:00:00'));
+        expect(on('leo').confidence).toBe('exact');
+        expect(on('jana').confidence).toBe('exact');
+    });
+
+    it('reads juzi as the day before yesterday, not as jana', () => {
+        expect(on('juzi').date).toEqual(new Date('2026-09-10T12:00:00'));
+    });
+
+    it('reads them mid-sentence, with no language detection', () => {
+        expect(on('nilinunua bacon kwa elfu tatu leo').date)
+            .toEqual(new Date('2026-09-12T12:00:00'));
+        expect(on('bought bacon for 3100 jana').date)
+            .toEqual(new Date('2026-09-11T12:00:00'));
+    });
+
+    it('does not fire on those letters inside a longer word', () => {
+        // A word boundary, not a substring, exactly as the English words are
+        // matched. "chameleon" contains "leo"; "Leonard" starts with it.
+        expect(on('bought a chameleon').confidence).not.toBe('exact');
+        expect(on('paid Leonard').confidence).not.toBe('exact');
+    });
+
+    it('reads a capitalised "Jana" mid-sentence as a name, not as yesterday', () => {
+        // "paid Jana 500" dated the record to yesterday — a wrong date applied
+        // silently, which is the worst shape this can take. Capitalisation is
+        // the signal, the same one extractFreeformName already relies on.
+        expect(on('paid Jana 500').confidence).not.toBe('exact');
+        expect(on('sent Jana 200').date).toBeNull();
+        // And the name still reaches the draft as the recipient.
+        expect(extractDescription('paid Jana 500', NOW).recipient).toBe('Jana');
+    });
+
+    it('still reads it at the start of a message, where a capital says nothing', () => {
+        // Sentence-initial capitalisation is not evidence of a name.
+        expect(on('Jana nilinunua bacon').date).toEqual(new Date('2026-09-11T12:00:00'));
+        expect(on('Leo nilinunua bacon').date).toEqual(new Date('2026-09-12T12:00:00'));
+    });
+
+    it('still reads a lowercase one mid-sentence', () => {
+        expect(on('nilinunua bacon jana').date).toEqual(new Date('2026-09-11T12:00:00'));
+    });
+
+    it('reaches the capture flow, so the date slot closes', () => {
+        const r = extractDescription('nilinunua bacon kwa elfu tatu leo', NOW);
+        expect(r.amount).toBe(3000);
+        expect(r.date).toEqual(new Date('2026-09-12T12:00:00'));
+        expect(r.missing).not.toContain('date');
+    });
+});
+
+describe('"day before yesterday", which was unreachable', () => {
+    it('is no longer swallowed by the plain "yesterday" test', () => {
+        // The longer phrase contains the shorter one, and sat AFTER it, so it
+        // resolved to one day ago rather than two for as long as it existed.
+        expect(parseConversationalDate('day before yesterday', NOW).date)
+            .toEqual(new Date('2026-09-10T12:00:00'));
     });
 });

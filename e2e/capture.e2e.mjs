@@ -340,19 +340,17 @@ await page.getByRole('button', { name: 'My own spending' }).click();
 await page.waitForTimeout(800);
 await say('Nilinunua bacon na pork cuts for elfu tatu leo');
 const swahili = await transcript();
-// The figure landed: the flow asks for what it lacks, not for an amount it
-// was already given. ("leo" is Swahili for today and is NOT in the date
-// vocabulary — §5 covers verbs, numerals and prepositions only, so an
-// unreadable date is the correct outcome here, not a silent guess.)
 check('a Swahili verb and numeral are read with no currency token anywhere',
     !/How much was it\?/.test(swahili), swahili.slice(-220));
+check('"leo" closes the date slot, so the date is not asked about either',
+    !/When was that\?/.test(swahili), swahili.slice(-220));
 check('and it is not answered with "I didn\'t follow"',
     !/couldn.t pick anything out/i.test(swahili));
 
-await say('yesterday');
 await say('bacon and pork cuts');
-check('the Swahili figure reaches the confirmation as 3,000',
-    /3,000/.test(await lastBotLine()), (await lastBotLine()).slice(0, 160));
+const swahiliDone = await lastBotLine();
+check('it confirms with the Swahili figure and the Swahili date',
+    /3,000/.test(swahiliDone) && /22 September 2026/.test(swahiliDone), swahiliDone.slice(0, 180));
 
 await browser.close();
 finish();

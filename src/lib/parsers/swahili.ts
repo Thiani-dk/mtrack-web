@@ -87,3 +87,48 @@ export const SWAHILI_TO_RE = /\bkwa\b/i;
 
 // "na" is "and" — a list separator between items, exactly like the English one.
 export const SWAHILI_AND = 'na';
+
+// ── Relative dates ───────────────────────────────────────────────────────────
+
+// "leo" and "jana" are the two that actually turn up, and they resolve through
+// the same conversational date parser as "today" and "yesterday" rather than a
+// parallel one — so the bounds rules, the ambiguity handling and the "I'd
+// rather leave it blank than guess" discipline all apply unchanged.
+//
+// Token-level like the rest of this file: "Nilinunua bacon for elfu tatu leo"
+// needs no language detection, just the word.
+// "juzi" is the day before yesterday — kept distinct from "jana" because a
+// parser that conflated them would be off by a day, silently.
+const DATE_WORDS: ReadonlyArray<[string, SwahiliRelativeDate]> = [
+    ['leo', 'today'],
+    ['juzi', 'day-before'],
+    ['jana', 'yesterday'],
+];
+
+export type SwahiliRelativeDate = 'today' | 'yesterday' | 'day-before';
+
+// Which relative day a message names in Swahili, if any.
+//
+// Case-sensitive on purpose, which the English words do not need to be.
+// "Jana" is a real name, and "paid Jana 500" dated the record to yesterday —
+// a wrong date applied silently, which is the worst shape a bug can take here.
+// A capitalised occurrence mid-sentence is read as a name and ignored; at the
+// very start of the message it is ordinary sentence capitalisation and says
+// nothing either way, so it still counts.
+//
+// The residual case is a lowercase "jana" that really was meant as a name.
+// Nothing distinguishes that from the date word, and reading it as the date is
+// the better of the two guesses — the confirmation sentence states the date
+// back before anything is saved.
+export function swahiliRelativeDate(raw: string): SwahiliRelativeDate | null {
+    for (const [word, meaning] of DATE_WORDS) {
+        const re = new RegExp(String.raw`\b(${word})\b`, 'gi');
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(raw)) !== null) {
+            const token = m[1];
+            const capitalised = token[0] !== token[0].toLowerCase();
+            if (!capitalised || m.index === 0) return meaning;
+        }
+    }
+    return null;
+}
