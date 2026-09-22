@@ -10,7 +10,8 @@ import {
 } from '../../lib/captureDraft';
 import { advanceDateRetry, DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
 import { advanceZeroUnderstanding, understoodNothing } from '../../lib/zeroUnderstanding';
-import { decideCancel, isCancelMessage } from '../../lib/metaIntent';
+import { decideCancel, isCancelMessage, isCorrectionMessage } from '../../lib/metaIntent';
+import { applyNamedCorrection, resolveCorrection } from '../../lib/correction';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
 import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
@@ -87,7 +88,7 @@ const EFFICIENCY_NUDGE =
 type PendingPrompt =
     | 'mode' | 'business-name' | 'party-name' | 'purpose'
     | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm'
-    | 'purpose-label' | 'zero-escape' | 'cancel-confirm' | 'input';
+    | 'purpose-label' | 'zero-escape' | 'cancel-confirm' | 'correction-target' | 'input';
 
 interface DocFlow {
     documentType: DocumentType;
@@ -105,6 +106,10 @@ interface DocFlow {
     // The previous date answer verbatim: repeating the same text is not a
     // fresh attempt, however it parses.
     lastDateAnswer: string | null;
+    // The figure from a correction whose target is still being chosen. Held
+    // because the answer to "which one?" names an item and no amount, so the
+    // new value has nowhere else to live across that turn.
+    pendingCorrectionAmount: number | null;
     // Consecutive messages this flow made nothing whatsoever of. Capped, so
     // "I couldn't pick anything out of that" cannot be said forever — the
     // third time, the user is offered a way out instead. See zeroUnderstanding.
@@ -559,6 +564,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             dateAttempts: 0,
             lastDateAnswer: null,
             zeroAttempts: 0,
+            pendingCorrectionAmount: null,
             purposeQueue: [],
             draftDoc: null,
         });
@@ -602,6 +608,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 dateAttempts: 0,
                 lastDateAnswer: null,
                 zeroAttempts: 0,
+                pendingCorrectionAmount: null,
                 purposeQueue: [],
                 draftDoc: doc,
             });
@@ -931,7 +938,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         const base = {
             merchantProfile: null, onBehalfOf: null, draft: emptyDraft(),
             describedCount: 0, nudgeShown: false, dateAttempts: 0, lastDateAnswer: null,
-            zeroAttempts: 0, purposeQueue: [] as string[], draftDoc: null,
+            zeroAttempts: 0, pendingCorrectionAmount: null, purposeQueue: [] as string[], draftDoc: null,
         };
         // Anything that isn't one of the three mode choices belongs to the
         // question the doc flow is currently waiting on.
@@ -1237,7 +1244,48 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             return true;
         }
 
+        // A correction, wherever it arrives. This has to run before the slot
+        // switch for the same reason cancel does: at the confirmation step
+        // ANY non-yes message used to wipe the whole draft and restart from
+        // the date, so "actually it was 3500" threw away an amount, a date and
+        // an item list that were all correct.
+        if (flow.pending !== 'mode' && flow.pending !== 'cancel-confirm' && isCorrectionMessage(t)) {
+            const outcome = resolveCorrection(flow.draft, t);
+            if (outcome.kind === 'applied') {
+                // Every correction says what it changed. A silently-applied
+                // one is the single case where editing the WRONG field leaves
+                // the user no way to notice.
+                addMsg({ role: 'bot', kind: 'text', text: outcome.echo });
+                advanceAfterField({ ...flow, pending: 'input' }, outcome.draft);
+                return true;
+            }
+            if (outcome.kind === 'ambiguous') {
+                setDocFlow({ ...flow, pending: 'correction-target', pendingCorrectionAmount: outcome.amount });
+                addMsg({ role: 'bot', kind: 'options', text: outcome.text, options: outcome.options });
+                return true;
+            }
+            addMsg({ role: 'bot', kind: 'text', text: outcome.text });
+            return true;
+        }
+
         switch (flow.pending) {
+            // Which of several items the correction meant. The answer carries
+            // the item's own description, so it resolves through the same
+            // reference matching rather than a second positional mechanism.
+            case 'correction-target': {
+                const named = t.replace(/^correction-target:/, '');
+                const pendingAmount = flow.pendingCorrectionAmount;
+                const outcome = pendingAmount != null
+                    ? applyNamedCorrection(flow.draft, named, pendingAmount)
+                    : resolveCorrection(flow.draft, named);
+                if (outcome.kind === 'applied') {
+                    addMsg({ role: 'bot', kind: 'text', text: outcome.echo });
+                    advanceAfterField({ ...flow, pending: 'input', pendingCorrectionAmount: null }, outcome.draft);
+                } else {
+                    addMsg({ role: 'bot', kind: 'text', text: 'Tap one of the items above and tell me the new figure.' });
+                }
+                return true;
+            }
             // "Cancel" said with real progress behind it is genuinely
             // ambiguous between "scrap this" and "stop asking, I'm done", so
             // it is asked rather than guessed. See decideCancel.
@@ -1697,6 +1745,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             case 'mode': return 'Tap an option above...';
             case 'zero-escape': return 'Tap an option above...';
             case 'cancel-confirm': return 'Tap an option above...';
+            case 'correction-target': return 'Tap the one you meant...';
             case 'business-name': return 'Business name...';
             case 'party-name': return 'Who it was for...';
             case 'purpose': return "What it was for, or 'skip'...";

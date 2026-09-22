@@ -49,6 +49,12 @@ export function isCancelMessage(text: string): boolean {
 const CORRECTION_RE =
     /\bactually\b|\bno\s+wait\b|\bi\s+meant\b|\bi\s+ment\b|\bsorry,?\s+(?:it\s+was|that\s+was|i\s+meant)\b|\bscratch\s+that\b|\bmake\s+(?:that|it)\b|\bnot\s+\d[\d,.]*\s*,?\s*(?:but\s+)?\d/i;
 
+// A cheap whole-message correction test, for callers routing before extraction.
+// Cancel wins over it, so "actually cancel this" is not read as a field edit.
+export function isCorrectionMessage(text: string): boolean {
+    return !isCancelMessage(text) && CORRECTION_RE.test(text.trim());
+}
+
 // ── 3. Meta-question ─────────────────────────────────────────────────────────
 
 // A question ABOUT the system rather than data for it. Requires a question

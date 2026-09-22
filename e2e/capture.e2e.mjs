@@ -242,5 +242,39 @@ await say('bought a stop sign for 400 and a cancel culture book for 900');
 check('"stop" and "cancel" inside a real sentence do not scrap the document',
     !/scrapped|Discard everything/i.test(await transcript()), (await transcript()).slice(-160));
 
+// ── 9. A correction at the confirmation, which used to wipe the draft ──
+//
+// Anything that wasn't "yes" at the confirm step reset the whole draft and
+// restarted from the date question, so "actually it was 3500" threw away a
+// correct amount, date and item list.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('i bought bacon for 3100, tomatoes for 400 and airtime for 30 today');
+check('the itemised message needs no further questions',
+    /Right\?$/.test(await lastBotLine()), (await lastBotLine()).slice(0, 140));
+
+await say('the bacon was actually 3500');
+const corrected = await transcript();
+check('the correction names what it changed', /3,100\s*→\s*Ksh\s*3,500/.test(corrected), corrected.slice(-260));
+check('and states the new total', /3,930/.test(corrected));
+check('it does not restart from the date question',
+    !/let.s go through it/i.test(corrected), corrected.slice(-200));
+check('the other items survive', /Tomatoes/.test(corrected) && /Airtime/.test(corrected));
+
+// An unreferenced correction over several items asks rather than guessing.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('i bought bacon for 3100, tomatoes for 400 and airtime for 30 today');
+await say('actually it was 3500');
+const asked = await transcript();
+check('an ambiguous correction asks which item', /Which one/.test(asked), asked.slice(-200));
+
+await page.getByRole('button', { name: /^Tomatoes/ }).click();
+await page.waitForTimeout(900);
+const afterPick = await transcript();
+check('picking the item applies the change to that one', /400\s*→\s*Ksh\s*3,500/.test(afterPick), afterPick.slice(-220));
+
 await browser.close();
 finish();
