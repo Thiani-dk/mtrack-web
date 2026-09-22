@@ -526,3 +526,32 @@ describe('a confirmation with no recipient', () => {
         expect(sentence).toContain('Ksh 3,100');
     });
 });
+
+describe('a "for" clause that is introducing a price, not a reason', () => {
+    // "Sold a laptop for Ksh 45,000" was read as being for the purpose
+    // "Ksh 45" — the purpose pattern is case-insensitive, so the currency
+    // token matched its leading [a-z] and the figure was truncated at the
+    // thousands comma. The confirmation then read "for Ksh 45".
+    it('is not mistaken for a purpose', () => {
+        expect(extractDescription('Sold a laptop for Ksh 45,000', NOW).purposeLabel).toBeNull();
+        expect(extractDescription('bought bacon for 3100', NOW).purposeLabel).toBeNull();
+        expect(extractDescription('paid rent for KES 20,000', NOW).purposeLabel).toBeNull();
+        expect(extractDescription('sent it for 10k USD', NOW).purposeLabel).toBeNull();
+    });
+
+    it('and the confirmation says nothing about it', () => {
+        const d = describe1('Sold a laptop for Ksh 45,000');
+        expect(buildConfirmSentence({
+            amount: d.amount, currency: d.currency, recipient: 'laptop',
+            direction: { type: 'received', confidence: 95, source: 'keyword' },
+            purposeLabel: d.purposeLabel, dateLabel: '4 May 2026', dateSkipped: false,
+            lineItems: d.lineItems,
+        })).toBe('Ksh 45,000 from laptop, on 4 May 2026. Right?');
+    });
+
+    it('still reads a genuine purpose', () => {
+        expect(extractDescription('paid Kevin 500 for a birthday gift', NOW).purposeLabel)
+            .toBe('birthday gift');
+        expect(extractDescription('sent 2000 for school fees', NOW).purposeLabel).toBe('school fees');
+    });
+});

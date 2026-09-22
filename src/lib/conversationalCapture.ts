@@ -1,7 +1,7 @@
 import type { LineItem, ParsedTransaction } from '../types';
 import { extractRawBlock, finalizeTransaction, deriveSubType } from './parsers';
 import { extractAmount, type AmountScanOptions } from './parsers/extractors/amount';
-import { DEFAULT_CURRENCY, detectCurrency } from './parsers/extractors/currency';
+import { DEFAULT_CURRENCY, detectCurrency, normalizeCurrency } from './parsers/extractors/currency';
 import { parseAmountAnswer } from './parsers/extractors/numeric';
 import { extractLineItems, type ItemisationResult } from './parsers/extractors/lineItems';
 import { extractParties } from './parsers/extractors/parties';
@@ -120,7 +120,23 @@ function extractPurpose(text: string): string | null {
     if (!m) return null;
     const p = m[1].trim().replace(/\s+/g, ' ');
     if (/^account\b/i.test(p)) return null;
+    // "Sold a laptop for Ksh 45,000" — the words after "for" are the price,
+    // not the reason. The pattern above is case-insensitive, so "Ksh 45" read
+    // as a purpose and the laptop was confirmed back as being "for Ksh 45".
+    //
+    // A purpose has to say something once the money is taken out of it: strip
+    // any currency token and any figure, and if no words are left, this "for"
+    // was introducing an amount.
+    if (isMoneyPhrase(p)) return null;
     return p.length >= 2 ? p : null;
+}
+
+// Whether a phrase is nothing but a sum of money.
+function isMoneyPhrase(phrase: string): boolean {
+    const words = phrase.split(/[\s,]+/).filter(Boolean);
+    const remaining = words.filter(w =>
+        normalizeCurrency(w) == null && !/^\d[\d,.]*(?:k|m|mn|thousand|million)?$/i.test(w));
+    return remaining.length === 0;
 }
 
 // "paid Kevin", "gave Mary", "to James", "sent to Achieng" — a capitalised name
