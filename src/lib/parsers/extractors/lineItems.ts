@@ -28,6 +28,9 @@ export interface ItemisationResult {
     // currencies would require a rate, which is not something to invent, so the
     // caller asks instead.
     mixedCurrency: boolean;
+    // Every currency named, in the order they appeared, so the caller can say
+    // WHICH two it cannot add together rather than just refusing.
+    currencies: string[];
 }
 
 // Segment boundaries: commas, semicolons, newlines, bullets, and "and"/"plus"
@@ -368,6 +371,7 @@ export function extractLineItems(typed: string, opts: AmountScanOptions = {}): I
         total: round2(items.reduce((sum, i) => sum + i.amount, 0)),
         currency: currencies.values().next().value ?? 'KES',
         mixedCurrency: currencies.size > 1,
+        currencies: [...currencies],
     };
 }
 

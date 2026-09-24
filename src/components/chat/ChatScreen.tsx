@@ -5,7 +5,7 @@ import type {
 } from '../../types';
 import {
     buildSelfReportedTransaction, buildConfirmSentence, composeSlotQuestion, followOnQuestion,
-    openSlots, type CaptureSlot,
+    openSlots, mixedCurrencyQuestion, type CaptureSlot,
 } from '../../lib/conversationalCapture';
 import {
     capturedSummary, composeDescription, composeDraftAnswer, emptyCaptureDraft, skipDate,
@@ -1309,6 +1309,21 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
             });
             addMsg({ role: 'bot', kind: 'text', text: OBO_AMBIGUOUS_DATE_PROMPT });
+            fireNudge();
+            answerQuestions();
+            return;
+        }
+
+        // Two currencies in one message. The amount is deliberately left open
+        // — there is no honest total without a rate — so say which two rather
+        // than putting a bare "How much was it?" to someone who just gave two
+        // perfectly clear figures.
+        if (r.mixedCurrencies && (draft.amount == null || draft.amount <= 0)) {
+            setDocFlow({
+                ...flow, draft, pending: 'field-amount', describedCount, zeroAttempts: 0,
+                batchedSlot: null,
+            });
+            addMsg({ role: 'bot', kind: 'text', text: mixedCurrencyQuestion(r.mixedCurrencies) });
             fireNudge();
             answerQuestions();
             return;

@@ -90,6 +90,10 @@ export interface DescriptionResult {
     // total in that case, so a caller that only knows about single amounts is
     // still correct, just less detailed.
     itemisation: ItemisationResult | null;
+    // Set when the message priced things in more than one currency, listing
+    // them. There is no honest total without an exchange rate, so `amount` is
+    // null and the caller must ask — saying why.
+    mixedCurrencies: string[] | null;
     // The one priced thing a message named, when it named exactly one AND said
     // how many. A single item is not an itemisation — see extractSoleItem —
     // but "3 x sodas Ksh 450" carries a fact the total cannot: three of them,
@@ -242,13 +246,22 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
     // than falling back to the ordinary questions.
     const found = extractLineItems(text, TYPED);
     const itemisation = found && !found.mixedCurrency ? found : null;
+    // Two currencies in one message cannot be added up without a rate. That was
+    // always the rule, and the itemisation was correctly thrown away — but the
+    // amount then fell back to whichever single figure scored highest, so "a
+    // chip for 200 USD and lunch for 500 bob" was confirmed as "$200" and the
+    // rest went unmentioned. Refusing to total them means leaving the amount
+    // open, not quietly picking one.
+    const mixedCurrency = found?.mixedCurrency ?? false;
     // An itemised message has already said what this was: the items are the
     // description. Falling through to "what did they buy?" after being handed
     // a four-line list is the question that started all this.
-    const sole = itemisation ? null : extractSoleItem(text, TYPED);
+    const sole = itemisation || mixedCurrency ? null : extractSoleItem(text, TYPED);
     const recipient = finalizedName ?? parties.recipient ?? parties.sender
         ?? extractFreeformName(text)
-        ?? (itemisation ? itemsSummary(itemisation.items) : null)
+        // What was bought is known even when the total is not, so a mixed-
+        // currency message is still not asked what it was for.
+        ?? (found ? itemsSummary(found.items) : null)
         // One priced thing is not an itemisation, but it is still an answer to
         // "what did they buy?". Last, so a named person always wins over goods.
         ?? (sole?.description ?? null);
@@ -267,7 +280,8 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
     // extractor finds is 50; the transaction is 150, and 50 on a receipt is a
     // wrong figure, not a vague one. The item reader is the only stage that
     // knows the difference, so where it counted a quantity, its total wins.
-    const amount = itemisation ? itemisation.total
+    const amount = mixedCurrency ? null
+        : itemisation ? itemisation.total
         : (sole && sole.quantity != null ? sole.amount : singleAmount);
 
     const missing: Array<'amount' | 'recipient' | 'date'> = [];
@@ -281,6 +295,10 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
         detectedCurrency,
         recipient,
         itemisation,
+        // The currencies a message named, when it named more than one. The
+        // caller puts them in the question, so "what's the total?" arrives with
+        // a reason attached rather than looking like it wasn't listening.
+        mixedCurrencies: mixedCurrency ? (found?.currencies ?? []) : null,
         soleLineItem: sole && sole.quantity != null ? sole : null,
         purposeLabel: extractPurpose(text),
         date,
@@ -529,6 +547,19 @@ export function buildConfirmSentence(f: ConfirmFields): string {
     else if (f.dateSkipped) parts.push('with no date');
 
     return `${parts.join(', ')}${assumedCurrencyNote(f.currency)}. Right?`;
+}
+
+// The question to put when a message priced things in two currencies.
+//
+// Not the bare "How much was it?": the user gave two totals and refusing them
+// both without a word reads as the flow having ignored the message. It says
+// which two, and what it needs instead.
+export function mixedCurrencyQuestion(currencies: string[]): string {
+    const named = currencies.length === 2
+        ? `${currencies[0]} and ${currencies[1]}`
+        : `${currencies.slice(0, -1).join(', ')} and ${currencies[currencies.length - 1]}`;
+    return `That's priced in ${named} — I can't add those together without an exchange rate, `
+        + 'and I\'d rather not invent one. What\'s the total, and in which currency?';
 }
 
 // A currency nobody mentioned is an assumption, and an assumption the user

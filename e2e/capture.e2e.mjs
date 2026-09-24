@@ -340,7 +340,7 @@ check('one answer covering both closes both',
 check('and it moves on to what is genuinely still missing',
     /Who was it paid to\?/.test(afterBoth), afterBoth.slice(-160));
 
-// ── 13. A code-switched message, which is the normal case here ──
+// ── 12b. A code-switched message, which is the normal case here ──
 await startChat();
 await page.getByRole('button', { name: 'My own spending' }).click();
 await page.waitForTimeout(800);
@@ -362,7 +362,25 @@ const todayLong = new Date().toLocaleDateString('en-GB', { day: 'numeric', month
 check('it confirms with the Swahili figure and the Swahili date',
     /3,000/.test(swahiliDone) && swahiliDone.includes(todayLong), `${swahiliDone.slice(0, 180)} | want ${todayLong}`);
 
-// ── 13. A stated quantity, all the way onto the receipt card ──
+// ── 13. Two currencies in one message ──
+//
+// The itemisation is correctly refused — dollars and shillings do not add up
+// without a rate — but the amount used to fall back to whichever single figure
+// scored highest, and the flow confirmed "$200. Right?" for a message that
+// described two purchases.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('a chip for 200 USD and lunch for 500 bob yesterday');
+const mixed = await transcript();
+check('it does not confirm one of the two figures as the total',
+    !/\$200[^0-9]*Right\?/.test(mixed), mixed.slice(-260));
+check('it says which two currencies it cannot add up',
+    /USD and KES/.test(mixed) && /exchange rate/.test(mixed), (await lastBotLine()).slice(0, 180));
+check('and does not also ask what it was for — it knows',
+    !/Who was it paid to\?/.test(mixed), mixed.slice(-260));
+
+// ── 14. A stated quantity, all the way onto the receipt card ──
 //
 // "3 x sodas Ksh 450" carries a fact the total cannot: three of them, at Ksh
 // 150 each. It was extracted, dropped on the way into the draft, and — even
