@@ -380,6 +380,32 @@ check('it says which two currencies it cannot add up',
 check('and does not also ask what it was for — it knows',
     !/Who was it paid to\?/.test(mixed), mixed.slice(-260));
 
+// ── 13b. One more thing, remembered at the confirmation ──
+//
+// Anything that was not "yes" used to clear the whole draft and start again
+// from the date, so "oh and airtime for 30" cost the user the bacon, the
+// tomatoes and the total they had already agreed.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('bacon for 3100 and tomatoes for 400 yesterday');
+check('the itemised message goes straight to a confirmation',
+    /Right\?$/.test(await lastBotLine()), (await lastBotLine()).slice(0, 120));
+
+await say('oh and airtime for 30');
+const afterAdd = await lastBotLine();
+check('a forgotten item is added rather than clearing the draft',
+    /Bacon Ksh 3,100/.test(afterAdd) && /Tomatoes Ksh 400/.test(afterAdd) && /Airtime Ksh 30/.test(afterAdd),
+    afterAdd.slice(0, 200));
+check('and the total moves with it', /total Ksh 3,530/.test(afterAdd), afterAdd.slice(0, 200));
+check('the cue word is not left in the item name', !/Oh, airtime/i.test(afterAdd), afterAdd.slice(0, 200));
+
+// "yesterday" starts with "yes". It used to match the confirmation's yes-words
+// and approve the draft on a tap the user never made.
+await say('yesterday');
+check('a date at the confirmation is not read as approval',
+    !/^Added\./.test(await lastBotLine()), (await lastBotLine()).slice(0, 120));
+
 // ── 14. A stated quantity, all the way onto the receipt card ──
 //
 // "3 x sodas Ksh 450" carries a fact the total cannot: three of them, at Ksh

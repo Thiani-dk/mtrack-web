@@ -55,6 +55,25 @@ export function isCorrectionMessage(text: string): boolean {
     return !isCancelMessage(text) && CORRECTION_RE.test(text.trim());
 }
 
+// ── 2b. Agreement ────────────────────────────────────────────────────────────
+
+// "Yes" to the confirmation, however it is said.
+//
+// Every word needs its own word boundary. Without one, "yes" matched the start
+// of "yesterday" — so a user answering the confirmation with a date approved
+// the draft instead of correcting it, and a wrong record was saved on a tap
+// they never made.
+//
+// Lives here rather than inline in the handler because the handler is a
+// component: a rule this consequential has to be testable without rendering a
+// chat, and a copy of it in a test file is the copy that will never ship.
+const AFFIRMATIVE_RE =
+    /^(?:(?:y|yes|yep|yeah|yup|correct|right|ok|okay|sure|fine|that'?s? right|go ahead)\b|👍)/i;
+
+export function isAffirmative(text: string): boolean {
+    return AFFIRMATIVE_RE.test(text.trim());
+}
+
 // ── 3. Meta-question ─────────────────────────────────────────────────────────
 
 // A question ABOUT the system rather than data for it. Requires a question

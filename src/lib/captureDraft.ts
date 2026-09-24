@@ -1,4 +1,5 @@
 import type { LineItem } from '../types';
+import { isCorrectionMessage } from './metaIntent';
 import {
     absorbAnswer, extractDescription, lockCurrency, parseAmountReply, parseConversationalDate,
     UNSTATED_CURRENCY,
@@ -217,4 +218,65 @@ export function capturedSummary(draft: CaptureDraft): string | null {
     if (draft.recipient) parts.push(draft.recipient);
     if (parts.length === 0 && draft.date) parts.push('a date');
     return parts.length > 0 ? parts.join(', ') : null;
+}
+
+// ── One more thing, said after everything else ───────────────────────────────
+
+// The phrasings that introduce an ADDITION rather than a change.
+//
+// Deliberately narrow. At the confirmation, anything that is not "yes" is read
+// as "no, start again" — which is right for a rejection and catastrophic for
+// "oh and airtime for 30": the whole itemisation was cleared and the questions
+// began again from the date. But widening that branch to fold in anything
+// carrying a figure would be worse still, because "no it was 500" carries one
+// too, and adding it would produce a total the user never said.
+//
+// So an addition has to announce itself, and must not be a correction.
+const ADDITION_RE =
+    /^\s*(?:oh\s+)?(?:and|also|plus)\b|^\s*(?:oh\s+)?(?:i\s+)?(?:also\s+)?(?:forgot|missed)\b|^\s*(?:i|we)\s+also\b|\balso\s+(?:bought|paid|got|spent)\b/i;
+
+// Folds "one more thing" into a draft that is otherwise complete.
+//
+// Returns null when the message is not an addition, or carries nothing to add
+// — in which case the caller keeps its existing behaviour. Never used as a
+// fallback for "I didn't understand that": a message has to look like an
+// addition AND yield a priced thing.
+export function foldAddition(
+    draft: CaptureDraft, text: string, now: Date = new Date(),
+): CaptureDraft | null {
+    if (!ADDITION_RE.test(text) || isCorrectionMessage(text)) return null;
+
+    // The cue is not part of what was bought: without stripping it the line
+    // read "Oh, airtime".
+    const body = text
+        .replace(/^\s*(?:oh\s+)?(?:and|also|plus)\b[,\s]*/i, '')
+        .replace(/^\s*(?:oh\s+)?(?:i\s+)?(?:also\s+)?(?:forgot|missed)\b[,\s:]*(?:about\s+)?/i, '')
+        .replace(/^\s*(?:i|we)\s+also\b\s*/i, '');
+    const r = extractDescription(body || text, now);
+    if (r.mixedCurrencies) return null;
+    const added: LineItem[] = r.itemisation?.items ?? (r.soleLineItem ? [r.soleLineItem] : []);
+    // A message with a figure but no nameable goods still adds a line, using
+    // whatever it did say — losing it is the failure being fixed here.
+    if (added.length === 0) {
+        if (r.amount == null || r.amount <= 0) return null;
+        added.push({ description: r.recipient ?? 'Other', quantity: null, unitPrice: null, amount: r.amount });
+    }
+
+    // Whatever was already captured becomes the first line, so the total is a
+    // sum of stated figures and never a figure standing next to them.
+    const existing: LineItem[] = draft.lineItems && draft.lineItems.length > 0
+        ? draft.lineItems
+        : draft.amount != null && draft.amount > 0
+            ? [{ description: draft.recipient ?? 'Unknown', quantity: null, unitPrice: null, amount: draft.amount }]
+            : [];
+    if (existing.length === 0) return null;
+
+    const lineItems = [...existing, ...added];
+    return {
+        ...draft,
+        lineItems,
+        amount: Math.round(lineItems.reduce((s, i) => s + i.amount, 0) * 100) / 100,
+        recipient: lineItems.map(i => i.description).join(', '),
+        currency: lockCurrency(draft.currency, text),
+    };
 }

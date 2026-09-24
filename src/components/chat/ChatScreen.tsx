@@ -8,13 +8,13 @@ import {
     openSlots, mixedCurrencyQuestion, type CaptureSlot,
 } from '../../lib/conversationalCapture';
 import {
-    capturedSummary, composeDescription, composeDraftAnswer, emptyCaptureDraft, skipDate,
+    capturedSummary, composeDescription, composeDraftAnswer, emptyCaptureDraft, foldAddition, skipDate,
     type CaptureDraft,
 } from '../../lib/captureDraft';
 import { advanceDateRetry, DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
 import { advanceZeroUnderstanding, understoodNothing } from '../../lib/zeroUnderstanding';
 import {
-    classifyIntent, decideCancel, isCancelMessage, isCorrectionMessage, segmentMultiIntent,
+    classifyIntent, decideCancel, isAffirmative, isCancelMessage, isCorrectionMessage, segmentMultiIntent,
 } from '../../lib/metaIntent';
 import { answerOrAdmit } from '../../lib/metaAnswers';
 import { partyPlaceholder, partyQuestion } from '../../lib/partyQuestion';
@@ -1561,9 +1561,17 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 syncDraft(updatedTxns);
                 return true;
             }
-            case 'confirm':
-                if (/^(y\b|yes|yep|yeah|correct|right|ok|okay|sure|that'?s? right|👍)/i.test(t)) {
+            case 'confirm': {
+                const added = foldAddition(flow.draft, t);
+                if (isAffirmative(t)) {
                     await commitDraft(flow, flow.draft);
+                } else if (added) {
+                    // "Oh and airtime for 30" is not a rejection. Anything that
+                    // was not "yes" used to clear the whole draft and start
+                    // again from the date, so one forgotten item cost the user
+                    // everything they had already typed.
+                    setDocFlow({ ...flow, draft: added });
+                    addMsg({ role: 'bot', kind: 'text', text: `Added. ${confirmText(added)}` });
                 } else {
                     setDocFlow({
                         ...flow,
@@ -1573,6 +1581,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                     addMsg({ role: 'bot', kind: 'text', text: `No problem, let's go through it. ${DATE_PROMPT}` });
                 }
                 return true;
+            }
             case 'input':
                 return false;
         }
