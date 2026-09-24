@@ -56,8 +56,14 @@ export interface AmountScanOptions {
 }
 
 // "for 3100", "at 400", "worth 30", "spent 2000", "cost 750", "@ 120".
+//
+// "came to 250" is on the list as a phrase rather than by adding "to" on its
+// own: a bare "to" sits in front of a great many numbers that are not prices.
+// Without it a paragraph-length shopping list lost one item's price entirely,
+// and the orphaned clause was then carried forward as the description of the
+// NEXT item — a total short by Ksh 250 with nothing to show anything had gone.
 const MONEY_CUE_RE =
-    /\b(?:for|at|worth|of|each|cost|costs|costing|spent|spend|spending|paid|pay|paying|sold|sell|selling|bought|buy|buying|gave|give|sent|send|received|receive|got|charged|totall?ing|total|around|about|roughly|approx(?:imately)?)\s*$|@\s*$/i;
+    /\b(?:for|at|worth|of|each|cost|costs|costing|spent|spend|spending|paid|pay|paying|sold|sell|selling|bought|buy|buying|gave|give|sent|send|received|receive|got|charged|totall?ing|total|around|about|roughly|approx(?:imately)?)\s*$|@\s*$|\b(?:came|comes|come|add(?:s|ed)?\s+up|amount(?:s|ed|ing)?)\s+to\s*$/i;
 
 // A trailing "/=" or "/-" is how a Kenyan price is written without naming
 // Shillings. Both forms are common; only the first was ever listed, and even

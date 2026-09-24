@@ -52,7 +52,7 @@ const SEGMENT_RE = /\s*(?:,(?!\d{3}(?!\d))|[;\n•]|\band\b|\bna\b|\bplus\b)\s*/
 // code-switched description ("Bacon kwa") because the only test of that
 // phrasing asked whether the description CONTAINED "bacon".
 const TRAILING_NOISE =
-    /(?:\b(?:i|we|he|she|they|it)\b\s+)?(?:\b(?:sold|sell|bought|buy|paid|pay|got|charged|went|cost(?:s|ing)?|worth|was|were|is|are)\b\s*)*(?:\b(?:at|for|to|of|each|@|kwa)\b\s*)*[-–—:=]?\s*$/i;
+    /(?:\b(?:i|we|he|she|they|it)\b\s+)?(?:\b(?:sold|sell|bought|buy|paid|pay|got|charged|went|came|comes|come|add(?:s|ed)?\s+up|amount(?:s|ed|ing)?|cost(?:s|ing)?|worth|was|were|is|are)\b\s*)*(?:\b(?:at|for|to|of|each|@|kwa)\b\s*)*[-–—:=]?\s*$/i;
 
 // Leading quantifiers, filler and transaction verbs: "Some ram", "a laptop",
 // "Paid rent" — the thing bought is "rent", the paying is the transaction.
@@ -236,7 +236,8 @@ const NON_ITEM_WORDS = new Set([
 // The last transaction verb in a price-less clause is where the goods start:
 // "then i rode a bus to a neighborhood where i bought tomatoes" is about
 // tomatoes, and everything before "bought" is how the user got there.
-const TRAILING_VERB_RE = /\b(?:bought|buy|purchased|paid|pay|sold|sell|got|spent|took|had)\b/gi;
+const TRAILING_VERB_RE =
+    /\b(?:bought|buy|purchased|paid|pay|sold|sell|got|spent|took|had|picked\s+up|grabbed|collected)\b/gi;
 
 // Everything after the last transaction verb in a clause, or the whole clause
 // when it has none.
