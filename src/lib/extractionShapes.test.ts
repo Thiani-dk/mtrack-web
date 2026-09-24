@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { DocumentType } from '../types';
 import { composeDescription, composeDraftAnswer, emptyCaptureDraft, type CaptureDraft } from './captureDraft';
-import { composeSlotQuestion, openSlots } from './conversationalCapture';
+import {
+    buildSelfReportedTransaction, composeSlotQuestion, extractDescription, openSlots,
+} from './conversationalCapture';
+import { buildDocModel } from './documentLayout';
+import type { DocRenderMeta } from './documentRender';
 import { partyQuestion } from './partyQuestion';
 import { EXTRACTION_SHAPES, type ExtractionShape, type ShapeCase } from './extractionShapes.fixtures';
 
@@ -23,6 +27,34 @@ const NOW = new Date('2026-09-12T09:00:00');
 const TYPES: readonly DocumentType[] = [
     'expense_summary', 'personal_note', 'point_of_sale', 'on_behalf_of',
 ];
+
+// The document each shape would actually produce. Added after the flow sweep,
+// which found two defects — a quantity dropped on the way in, and a sale
+// recorded as money out — that were invisible to a harness reading only the
+// draft. What the customer holds is the thing worth asserting.
+const docMeta = (documentType: DocumentType) => ({
+    documentType,
+    coveringFrom: null,
+    coveringTo: null,
+    merchantProfile: { businessName: 'Kibanda', phone: null, location: null },
+} as unknown as DocRenderMeta);
+
+function documentFor(draft: CaptureDraft, documentType: DocumentType) {
+    const tx = buildSelfReportedTransaction({
+        amount: draft.amount ?? 0,
+        currency: draft.currency.code,
+        recipient: draft.recipient ?? 'Unknown',
+        date: NOW,
+        direction: draft.direction,
+        lineItems: draft.lineItems,
+    });
+    const model = buildDocModel([tx], docMeta(documentType), false);
+    return {
+        tx,
+        rows: model.lines.flatMap(l => l.items.map(i => `${i.text}  ${i.amount}`.trim())),
+        lineAmount: model.lines[0]?.amount ?? null,
+    };
+}
 
 // What the flow would ask next, word for word. Mirrors askNextField.
 function nextQuestion(draft: CaptureDraft, documentType: DocumentType): string | null {
@@ -81,9 +113,34 @@ describe.each(EXTRACTION_SHAPES.map(s => [s.name, s] as const))('%s', (_name, sh
 
         // The one that matters. Every bug in this file was visible to the user
         // as a question asked about something they had already said.
-        it('asks nothing further once the date is settled', () => {
-            const { asked } = run(shape, documentType);
-            expect(asked).toBeNull();
+        it('asks only about what it genuinely still lacks', () => {
+            const { settled, asked } = run(shape, documentType);
+            const stillOpen = shape.expect?.stillOpen ?? [];
+            expect(openSlots(settled)).toEqual(stillOpen);
+            if (stillOpen.length === 0) expect(asked).toBeNull();
+        });
+
+        if (shape.expect?.mixedCurrencies) {
+            it('names the currencies it cannot add together', () => {
+                const { expected } = run(shape, documentType);
+                expect(extractDescription(expected.message, NOW).mixedCurrencies)
+                    .toEqual(shape.expect?.mixedCurrencies);
+            });
+        }
+
+        // Only point_of_sale draws an itemisation — see buildLine. The other
+        // three documents carry one row per transaction and no breakdown.
+        if (shape.expect?.documentRows && documentType === 'point_of_sale') {
+            it('draws the itemisation the customer will read', () => {
+                const { settled } = run(shape, documentType);
+                expect(documentFor(settled, documentType).rows).toEqual(shape.expect?.documentRows);
+            });
+        }
+
+        it('records which way the money went, where the wording settles it', () => {
+            const { expected, settled } = run(shape, documentType);
+            if (!expected.direction) return;
+            expect(documentFor(settled, documentType).tx.type).toBe(expected.direction);
         });
     });
 });
@@ -98,6 +155,6 @@ describe('the harness itself', () => {
     it('carries every shape that has broken extraction so far', () => {
         // A deletion from the fixture file is a shape stopping being tested
         // everywhere, which is exactly how this class of bug kept returning.
-        expect(EXTRACTION_SHAPES).toHaveLength(6);
+        expect(EXTRACTION_SHAPES).toHaveLength(10);
     });
 });

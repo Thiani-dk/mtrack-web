@@ -5,7 +5,11 @@ not yet been reported. Every bug in this project's history has been found by a
 user noticing a broken conversation; the point of this sweep is to find the
 next few before they do.
 
-Audit only. No code was changed while producing it.
+Audit only when written. No code was changed while producing it.
+
+**Status after Phase 4** — every finding now carries a verdict; see §7. Eleven
+of the fourteen defects are fixed, three are deferred with reasons, and one
+entry (D3) had its diagnosis corrected by driving it through the real UI.
 
 ---
 
@@ -99,17 +103,21 @@ Tomatoes 400]` but `amount = 30`, and the description has been replaced with
 
 **Root cause:** `composeDescription` folds a later free-text message into the
 same draft with `amount: r.amount ?? draft.amount` and `recipient: r.recipient
-?? draft.recipient`. Both are *replace-if-present*, not *add*. The second
-message yields an amount, so it wins outright. `lineItems` uses the same rule
-and happens to survive only because the second message has one price and so
-produces no itemisation — which is what leaves the two in contradiction.
+?? draft.recipient`. Both are *replace-if-present*, not *add*.
 
-The simpler form is worse still: `bacon for 3100` then `and tomatoes for 400`
-ends with amount `400`, recipient `Tomatoes`, and the bacon gone entirely.
+**CORRECTED IN PHASE 4.** That code is real but is **not reachable from the
+chat**. A later free-text message always arrives as an answer to whatever
+question is pending, never through `composeDescription` with a populated draft
+— confirmed by driving all three variants through the real UI. The diagnosis
+above was reached from a unit-level probe and was wrong about the path.
 
-**What the user experiences:** they add a forgotten item and the earlier ones
-vanish, or the total collapses to the last thing they said while the itemisation
-still lists everything. Pre-existing.
+The reachable version is worse. At the *confirmation*, anything that is not
+"yes" cleared the entire draft and restarted from the date, so `oh and airtime
+for 30` cost the user the bacon, the tomatoes and the Ksh 3,500 they had just
+agreed — not one item, all of them. That is what was fixed.
+
+**What the user experiences:** they remember one more thing at the last moment
+and lose everything they typed. Pre-existing.
 
 ---
 
@@ -403,7 +411,7 @@ someone acts on, then a lost transaction, then friction.
 
 ---
 
-## 6. Suggested sequencing
+## 6. Suggested sequencing (as written, before any fixing)
 
 **First, the four wrong-figure defects inside the capture flow (1, 2, 3, 4).**
 These are the only findings where the user acts on something false without being
@@ -437,3 +445,59 @@ worth one common treatment rather than three.
 **Add each fixed defect to the shared extraction-shape fixture set as it is
 fixed**, so the harness carries it across all four document types from then on.
 That is what stops this list being rediscovered.
+
+
+---
+
+## 7. Status after Phase 4
+
+| # | Finding | Status | Commit / reason |
+|---|---|---|---|
+| 1 | D2 bare count read as the amount | **Fixed** | `a bare count between the verb and the price is not the price` |
+| 2 | D1 mixed currencies collapse to one figure | **Fixed** | `two currencies in one message leave the total open rather than picking one` |
+| 3 | D3 addition at the confirmation wipes the draft | **Fixed** | `a forgotten item at the confirmation is added, not treated as a rejection` — diagnosis corrected, see §2 |
+| 4 | D5 a sale recorded as money out | **Fixed** | `a sale is money coming in, not going out` |
+| 5 | D4 non-KES document totalled in Shillings | **Deferred** | Document rendering, not capture. See below. |
+| 6 | D6 "came to 250" loses a price | **Fixed** | `"came to 250" is a price, so a long list stops losing one` |
+| 7 | D7 `/=` never worked | **Fixed** | `"500/=" is read as a price` |
+| 8 | D9 lowercase party names | **Fixed** | `a party named by relationship, in lower case` |
+| 9 | D10 zero unrecordable, dead end | **Fixed** | `something that cost nothing can be recorded` |
+| 10 | D11 two figures, first wins silently | **Deferred** | See below. |
+| 11 | D13 added item dropped in an answer | **Fixed** | `an item added while answering a question is kept` |
+| 12 | D8 Swahili numeral in an answer | **Fixed** | `a Swahili numeral works as an answer, not only in free text` |
+| 13 | D12 two dates, last wins silently | **Deferred** | See below. |
+| 14 | D14 junk as description | **Fixed** | `a leftover word is not a description` |
+| 15–21 | I1–I8 improvements | **Not done** | Ranked below every defect; none is a wrong figure or a lost line. I1 is partly answered by D10 — "it was free" is now a valid answer, though the flow still asks rather than reading it from the opening message. |
+
+One defect was found *while* fixing another and is fixed with it: the
+confirmation matched `/^(y\b|yes|...)/`, and "yes" is a prefix of "yesterday",
+so answering the confirmation with a date **approved the draft** and saved a
+record on an agreement the user never gave. Fixed in the D3 commit.
+
+### Why the three deferrals
+
+**D4 — a single non-Shilling document totals itself in Shillings.** This is a
+change to how every non-KES document renders, which the brief sets aside for a
+decision rather than an assumption. The fix itself looks small — `buildTotals`
+takes the single-currency path and formats with `fmt()`, which hardcodes `Ksh`,
+where the per-row amounts use the currency-aware `fmtCurrency` — but it changes
+the hero figure and the totals block on every document in a currency other than
+Shillings, including ones already saved. Worth a yes before doing.
+
+**D11 — two figures in one message, first wins silently.** A naive fix is worse
+than the defect. Surfacing "you also mentioned Ksh 600" means surfacing every
+*candidate* the scanner found, and after the D2 fix "paid 20 for 3 sodas" still
+legitimately carries `3` as a candidate — so the note would fire on ordinary
+messages that have no second amount in them at all. Telling a second *stated
+amount* from a numeral that merely scored as one needs the same count-versus-
+price judgement D2 introduced, applied a second time and in the opposite
+direction. Ranked tenth, below everything fixed, and not worth a guess.
+
+**D12 — two dates in one message, last wins silently.** The date parser returns
+one verdict and has no notion of a second reading it rejected, so telling the
+user would mean widening its result type — a change to a parser that four
+document types and the SMS path share, for the thirteenth-ranked finding.
+
+Both D11 and D12 are the same shape as D13, which *was* fixed: a second value
+arriving where one was expected. D13 was fixable because an explicit addition
+announces itself in the wording; a second bare figure or date does not.

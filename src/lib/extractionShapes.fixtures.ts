@@ -1,4 +1,5 @@
 import type { DocumentType } from '../types';
+import type { CaptureSlot } from './conversationalCapture';
 
 // Every real-world message shape that has broken extraction in this project,
 // with what it should extract to.
@@ -29,20 +30,46 @@ export interface ShapeCase {
     items?: string[] | null;
     // Overrides, where a type's wording genuinely carries a different figure.
     amount?: number;
+    // Which way the money went, where the wording settles it. A sales receipt
+    // and a reimbursement claim describing the same goods do not agree about
+    // this, so it is per type rather than per shape.
+    direction?: 'sent' | 'received';
+}
+
+// The dimensions below were added after the flow sweep. Each one models
+// something a shape can get wrong that the original harness could not see:
+// what the document actually draws, which way the money went, and whether the
+// flow is right to still be asking something.
+export interface ShapeExpectations {
+    // The itemisation rows the shared document model draws for this shape, as
+    // "<text>  <amount>". Checked for point_of_sale, where the customer is
+    // holding the thing. An empty array means no itemisation row at all.
+    documentRows?: string[];
+    // Slots the flow SHOULD still be asking about once the date is settled.
+    // Almost always none — a question about something already said is the bug
+    // this whole file exists for — but a message priced in two currencies has
+    // no honest total, and asking is the correct outcome.
+    stillOpen?: CaptureSlot[];
+    // Set when the message prices things in more than one currency, listing
+    // them in the order they appeared.
+    mixedCurrencies?: string[];
 }
 
 export interface ExtractionShape {
     name: string;
     // The report it came from, and what went wrong.
     report: string;
-    // Defaults for every type, overridable per case.
-    amount: number;
+    // Defaults for every type, overridable per case. null where the message
+    // deliberately leaves no total — two currencies cannot be added up.
+    amount: number | null;
     items: string[] | null;
     currency?: string;
     // Whether the message itself settles the date. Most of these do not, and
     // the harness answers "yesterday" before checking that nothing else is
     // still being asked.
     datedInMessage?: boolean;
+    // Applies to every type unless a case overrides the pieces it can.
+    expect?: ShapeExpectations;
     byType: Record<DocumentType, ShapeCase>;
 }
 
@@ -192,6 +219,75 @@ export const EXTRACTION_SHAPES: readonly ExtractionShape[] = [
                 message: '3 days ago i paid for their milk for 120',
                 description: 'Milk',
             },
+        },
+    },
+    {
+        name: 'two currencies in one message',
+        report: 'Found by the flow sweep. The itemisation was correctly refused — '
+            + 'dollars and shillings do not add up without a rate — but the amount fell '
+            + 'back to whichever single figure scored highest, so the flow confirmed '
+            + '"$200. Right?" for a message that described two purchases.',
+        amount: null,
+        items: null,
+        expect: {
+            // No honest total exists, so asking is the correct outcome — the
+            // one shape in this file where a remaining question is right.
+            stillOpen: ['amount'],
+            mixedCurrencies: ['USD', 'KES'],
+            documentRows: [],
+        },
+        byType: {
+            expense_summary: { message: 'a chip for 200 USD and lunch for 500 bob', description: 'Chip, Lunch' },
+            personal_note: { message: 'a chip for 200 USD and lunch for 500 bob', description: 'Chip, Lunch' },
+            point_of_sale: { message: 'they took a chip for 200 USD and lunch for 500 bob', description: 'Chip, Lunch' },
+            on_behalf_of: { message: 'i paid for a chip for 200 USD and lunch for 500 bob', description: 'Chip, Lunch' },
+        },
+    },
+    {
+        name: 'a Kenyan price written with a trailing slash',
+        report: 'Found by the flow sweep. The rule for "500/=" was written and never '
+            + 'once fired: the date-separator guard was tested first and a slash after a '
+            + 'number matched it, so the branch below was unreachable and the message '
+            + 'extracted no amount at all.',
+        amount: 800,
+        items: ['Lunch', 'Beer'],
+        expect: { documentRows: ['Lunch  Ksh 500.00', 'Beer  Ksh 300.00'] },
+        byType: {
+            expense_summary: { message: 'lunch 500/= and beer 300/=', description: 'Lunch, Beer' },
+            personal_note: { message: 'lunch 500/= and beer 300/=', description: 'Lunch, Beer' },
+            point_of_sale: { message: 'they took lunch 500/= and beer 300/=', description: 'Lunch, Beer' },
+            on_behalf_of: { message: 'i paid lunch 500/= and beer 300/=', description: 'Lunch, Beer' },
+        },
+    },
+    {
+        name: 'a party named by relationship, in lower case',
+        report: 'Found by the flow sweep, and the shape most likely to be common. '
+            + 'Capitalisation is the only signal a name gives and most people typing on '
+            + 'a phone give none, so "gave mum 2000" lost the recipient AND the amount — '
+            + 'the cue word could not reach across a span it did not recognise.',
+        amount: 2000,
+        items: null,
+        expect: { documentRows: [] },
+        byType: {
+            expense_summary: { message: 'gave mum 2000', description: 'Mum', direction: 'sent' },
+            personal_note: { message: 'gave mum 2000', description: 'Mum', direction: 'sent' },
+            point_of_sale: { message: 'sold goods to mum for 2000', description: 'Mum', direction: 'received' },
+            on_behalf_of: { message: 'paid my landlord 2000', description: 'My landlord', direction: 'sent' },
+        },
+    },
+    {
+        name: 'a count between the verb and the price, rendered',
+        report: 'The receipt half of the bare-count defect. With the figure read '
+            + 'correctly the count lands where it belongs, and the row the customer '
+            + 'reads carries the quantity and the unit price.',
+        amount: 150,
+        items: ['Chapati'],
+        expect: { documentRows: ['Chapati (3 x Ksh 50.00)  Ksh 150.00'] },
+        byType: {
+            expense_summary: { message: 'bought 3 chapati for 150', description: 'Chapati' },
+            personal_note: { message: 'bought 3 chapati for 150', description: 'Chapati' },
+            point_of_sale: { message: 'sold 3 chapati for 150', description: 'Chapati', direction: 'received' },
+            on_behalf_of: { message: 'paid for 3 chapati for 150', description: 'Chapati' },
         },
     },
 ];
