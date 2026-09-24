@@ -29,6 +29,8 @@ const NOT_A_NAME = new Set([
     'today', 'yesterday', 'tomorrow',
     'ksh', 'kes', 'kshs', 'shillings', 'shilling', 'bob', 'usd', 'eur', 'gbp',
     'tzs', 'ugx', 'rwf', 'dollars', 'dollar', 'pounds', 'euros',
+    // Capitalised out of habit on a transaction line, never a surname.
+    'ref', 'txn', 'code', 'total', 'balance',
 ]);
 
 export function isNameWord(word: string): boolean {
@@ -47,4 +49,48 @@ export function trimToName(raw: string): string | null {
         kept.push(word);
     }
     return kept.length > 0 ? kept.join(' ') : null;
+}
+
+// The other way people name a party: not by name at all.
+//
+// Capitalisation is the only signal a name gives, and most people typing on a
+// phone give none — "gave mum 2000" left the flow with no recipient AND no
+// amount, because the cue word could not reach across the unrecognised span
+// either. It cost two fields on what is probably the commonest phrasing there
+// is, and it cannot be fixed by relaxing the capitalisation rule without
+// handing back every false positive that rule exists to stop.
+//
+// So a second, closed signal: a word that can only be a person. A short list,
+// weighted to how money actually moves here — family, the landlord, the fundi,
+// mama mboga. Anything not on it still needs a capital.
+const RELATIONSHIP = new Set([
+    'mum', 'mom', 'mummy', 'mama', 'mother', 'dad', 'daddy', 'baba', 'father',
+    'wife', 'husband', 'son', 'daughter', 'brother', 'bro', 'sister', 'sis',
+    'uncle', 'aunt', 'auntie', 'cousin', 'grandma', 'grandpa', 'shosho', 'guka',
+    'landlord', 'landlady', 'boss', 'employer', 'teacher', 'tutor',
+    'mechanic', 'fundi', 'watchman', 'askari', 'driver', 'conductor', 'tailor',
+    'barber', 'doctor', 'nurse', 'neighbour', 'neighbor', 'friend', 'partner',
+    'colleague', 'shopkeeper', 'mboga', 'househelp', 'help', 'nanny',
+]);
+
+const POSSESSIVE_RE = /^(?:my|our|his|her|their|the)$/i;
+
+function isCapitalisedName(word: string): boolean {
+    return /^[A-Z][a-zA-Z'’-]+$/.test(word) && isNameWord(word);
+}
+
+// Whether a run of words, taken whole, could be the party a payment names.
+//
+// Either every word is a capitalised plausible name, or the run is a
+// relationship — optionally with a possessive in front of it ("my landlord").
+// The two are kept separate on purpose: mixing them would let one capitalised
+// word drag an arbitrary lowercase one along with it.
+export function isPartySpan(span: string): boolean {
+    const words = span.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0 || words.length > 3) return false;
+    if (words.every(isCapitalisedName)) return true;
+
+    const meaningful = words.filter(w => !POSSESSIVE_RE.test(w));
+    return meaningful.length > 0 && meaningful.length <= 2
+        && meaningful.every(w => RELATIONSHIP.has(w.toLowerCase()));
 }

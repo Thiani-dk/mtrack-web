@@ -1,6 +1,6 @@
 import type { AmountResult } from '../types';
 import { CURRENCY_SUFFIX_SOURCE, DEFAULT_CURRENCY, normalizeCurrency } from './currency';
-import { PARTY_NAME_SOURCE, trimToName } from '../names';
+import { isPartySpan } from '../names';
 
 export type { AmountResult };
 
@@ -82,17 +82,22 @@ const TRAILING_SLASH_RE = /^\s*\/[=-](?!\d)/;
 // times, years and quantities being read as money, and a widened window of
 // characters would let all of those back. A capitalised run that could be a
 // person is a narrow, checkable exception; "the" is not, and still fails.
-const CUE_ACROSS_NAME_RE = new RegExp(String.raw`\s(${PARTY_NAME_SOURCE})\s*$`);
-
 // Whether a money cue word governs the figure that follows `before`.
+//
+// Spans of one, two and three words are each tried, because a party can be
+// "Kevin", "Mama Njeri" or "my landlord" and the cue has to reach past all of
+// it. Every word of the span has to belong to the party — "paid Kevin Tuesday
+// 500" must not become five hundred.
 function cueReaches(before: string): boolean {
     if (MONEY_CUE_RE.test(before)) return true;
-    const m = before.match(CUE_ACROSS_NAME_RE);
-    // Every word of the span has to be plausible as part of a name. "paid
-    // Kevin Ksh 500" is already currency-tagged and never reaches here, but
-    // "paid Kevin Tuesday 500" must not become five hundred either.
-    if (!m || trimToName(m[1]) !== m[1]) return false;
-    return MONEY_CUE_RE.test(before.slice(0, m.index));
+
+    const words = before.replace(/\s+$/, '').split(/\s+/).filter(Boolean);
+    for (let n = 1; n <= Math.min(3, words.length); n++) {
+        const span = words.slice(words.length - n).join(' ');
+        if (!isPartySpan(span)) continue;
+        if (MONEY_CUE_RE.test(words.slice(0, words.length - n).join(' '))) return true;
+    }
+    return false;
 }
 
 // Numbers a cue word can sit next to that are still not money.

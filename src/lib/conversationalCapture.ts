@@ -11,7 +11,7 @@ import {
     parseConversationalDate, withoutDatePhraseNumerals, type ConversationalDateResult,
 } from './parsers/conversationalDate';
 import { normalizeForKeywords } from './parsers/fuzzy';
-import { PARTY_NAME_SOURCE, trimToName } from './parsers/names';
+import { isPartySpan, PARTY_NAME_SOURCE, trimToName } from './parsers/names';
 import { normalizeSwahiliNumerals, SWAHILI_FROM_RE, swahiliVerbDirection } from './parsers/swahili';
 import { hasTransactionVerb } from './parsers/classify';
 import { partyFollowOn } from './partyQuestion';
@@ -157,18 +157,38 @@ function isMoneyPhrase(phrase: string): boolean {
 // "paid Kevin", "gave Mary", "to James", "sent to Achieng" — a capitalised name
 // token after a payment verb or preposition. Deliberately conservative.
 function extractFreeformName(text: string): string | null {
-    const m = text.match(FREEFORM_NAME_RE);
+    const m = text.match(FREEFORM_NAME_RE) ?? matchRelationship(text);
     if (!m) return null;
     // Trimmed word by word rather than accepted or rejected whole: "paid Kevin
     // Ksh 500" used to be filed as a payment to someone called "Kevin Ksh",
     // because the run of capitalised words was only rejected when ALL of it
     // was a month or a currency. See parsers/names.ts, which the amount reader
     // shares so the two stages cannot disagree about where a name ends.
-    return trimToName(m[1]);
+    const name = trimToName(m[1]);
+    return name ? name.charAt(0).toUpperCase() + name.slice(1) : null;
 }
 
 const FREEFORM_NAME_RE = new RegExp(
     String.raw`\b(?:paid|pay|gave|give|sent to|sent|to|for)\s+(${PARTY_NAME_SOURCE})\b`);
+
+// The same position, filled by a word that can only be a person rather than by
+// a capitalised name — "gave mum 2000", "sent my landlord 15000". Most people
+// typing on a phone use no capitals at all, and without this the message lost
+// its recipient and its amount together. See parsers/names.ts for the list.
+const RELATIONSHIP_AFTER_VERB_RE =
+    /\b(?:paid|pay|gave|give|sent to|sent|to|for)\s+((?:my |our |his |her |their |the )?[a-z][a-z-]+(?: [a-z][a-z-]+)?)\b/i;
+
+function matchRelationship(text: string): RegExpMatchArray | null {
+    const m = text.match(RELATIONSHIP_AFTER_VERB_RE);
+    if (!m) return null;
+    // Longest first: "my landlord" beats "my", and "mama mboga" beats "mama".
+    const words = m[1].split(' ');
+    for (let n = words.length; n >= 1; n--) {
+        const span = words.slice(0, n).join(' ');
+        if (isPartySpan(span) && !/^[A-Z]/.test(span)) return [m[0], span] as unknown as RegExpMatchArray;
+    }
+    return null;
+}
 
 // The SMS direction oracle handles house-style confirmations. Free typing is
 // different: "paid Kevin 500", "gave mum 2k", "Jane sent me 800" carry a clear
