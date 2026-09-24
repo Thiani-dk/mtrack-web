@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composeDescription, emptyCaptureDraft, foldAddition } from './captureDraft';
+import { composeDescription, composeDraftAnswer, emptyCaptureDraft, foldAddition } from './captureDraft';
 import { isAffirmative } from './metaIntent';
 
 // "Oh and airtime for 30", said at the confirmation.
@@ -44,6 +44,39 @@ describe('one more thing, added at the confirmation', () => {
         expect(out?.lineItems?.map(i => [i.description, i.amount]))
             .toEqual([['Bacon', 3100], ['Tomatoes', 400]]);
         expect(out?.amount).toBe(3500);
+    });
+});
+
+describe('an addition arriving inside an answer', () => {
+    // "Yesterday, also airtime for 30" answers the question AND adds an item.
+    // absorbAnswer fills only empty slots — rightly, so a stray number in a
+    // date reply cannot displace a known amount — so the item was discarded
+    // without a word.
+    it('fills the slot that was asked about and keeps the new item', () => {
+        const c = composeDraftAnswer(THREE(), 'date', 'yesterday, also airtime for 30', NOW);
+        expect(c.accepted).toBe(true);
+        expect(c.draft.date).not.toBeNull();
+        expect(c.draft.lineItems?.map(i => i.description)).toEqual(['Bacon', 'Tomatoes', 'Airtime']);
+        expect(c.draft.amount).toBe(3530);
+    });
+
+    it('leaves a plain answer completely alone', () => {
+        const c = composeDraftAnswer(THREE(), 'date', 'yesterday', NOW);
+        expect(c.draft.lineItems?.map(i => i.description)).toEqual(['Bacon', 'Tomatoes']);
+        expect(c.draft.amount).toBe(3500);
+    });
+
+    it('does not add a correction that arrives the same way', () => {
+        const c = composeDraftAnswer(THREE(), 'date', 'yesterday, actually the bacon was 3500', NOW);
+        expect(c.draft.amount).toBe(3500);
+        expect(c.draft.lineItems).toHaveLength(2);
+    });
+
+    it('does not split a plain "and" into an addition', () => {
+        // "bacon and pork cuts for 3100" is one item list, and the discourse
+        // boundary is deliberately not a bare "and".
+        const c = composeDraftAnswer(emptyCaptureDraft(), 'description', 'bacon and pork cuts', NOW);
+        expect(c.draft.lineItems).toBeNull();
     });
 });
 

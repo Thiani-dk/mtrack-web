@@ -1,5 +1,5 @@
 import type { LineItem } from '../types';
-import { isCorrectionMessage } from './metaIntent';
+import { isCorrectionMessage, splitDiscourse } from './metaIntent';
 import {
     absorbAnswer, extractDescription, lockCurrency, parseAmountReply, parseConversationalDate,
     UNSTATED_CURRENCY,
@@ -130,11 +130,19 @@ export function composeDraftAnswer(
     // question supplied the context free text lacks.
     alsoAsked: CaptureSlot | null = null,
 ): ComposedAnswer {
-    const absorbed = absorbAnswer(draft, answer);
+    // "Yesterday, also airtime for 30" adds an item as well as answering the
+    // question. absorbAnswer fills only EMPTY slots — rightly, so that a stray
+    // number in a date reply cannot displace a known amount — but an item the
+    // user explicitly added is not a stray number, and it was discarded
+    // without a word. The same narrow addition rule the confirmation uses.
+    const withAddition = foldAddition(draft, answer, now) ?? draft;
+    const absorbed = absorbAnswer(withAddition, answer);
     if (alsoAsked === 'amount' && (absorbed.amount == null || absorbed.amount <= 0)) {
         const offered = parseAmountReply(answer).amount;
         if (offered != null && offered > 0) absorbed.amount = offered;
     }
+
+    const base = withAddition;
 
     if (slot === 'date') {
         const dateResult = parseConversationalDate(answer, now);
@@ -148,7 +156,7 @@ export function composeDraftAnswer(
             accepted: true,
             dateResult,
             draft: {
-                ...draft,
+                ...base,
                 // An answer may say more than was asked; anything it carries
                 // for a still-empty slot is kept.
                 ...absorbed,
@@ -171,7 +179,7 @@ export function composeDraftAnswer(
             accepted: true,
             dateResult: null,
             draft: {
-                ...draft,
+                ...base,
                 ...absorbed,
                 // A bare figure in reply to "how much" is the amount, even when
                 // no currency sat next to it — the question supplied the
@@ -189,7 +197,7 @@ export function composeDraftAnswer(
     return {
         accepted: true,
         dateResult: null,
-        draft: { ...draft, ...absorbed, recipient },
+        draft: { ...base, ...absorbed, recipient },
     };
 }
 
@@ -244,15 +252,26 @@ const ADDITION_RE =
 export function foldAddition(
     draft: CaptureDraft, text: string, now: Date = new Date(),
 ): CaptureDraft | null {
-    if (!ADDITION_RE.test(text) || isCorrectionMessage(text)) return null;
+    if (isCorrectionMessage(text)) return null;
 
-    // The cue is not part of what was bought: without stripping it the line
-    // read "Oh, airtime".
-    const body = text
-        .replace(/^\s*(?:oh\s+)?(?:and|also|plus)\b[,\s]*/i, '')
-        .replace(/^\s*(?:oh\s+)?(?:i\s+)?(?:also\s+)?(?:forgot|missed)\b[,\s:]*(?:about\s+)?/i, '')
-        .replace(/^\s*(?:i|we)\s+also\b\s*/i, '');
-    const r = extractDescription(body || text, now);
+    // Two ways an addition announces itself: a cue at the front of the whole
+    // message ("oh and airtime for 30"), or a discourse boundary with the
+    // addition behind it ("yesterday, also airtime for 30" — an answer that
+    // says more than was asked). splitDiscourse is the existing definition of
+    // that boundary and is deliberately not a bare "and", so "bacon and pork
+    // cuts for 3100" stays one item list.
+    const clauses = splitDiscourse(text);
+    const body = ADDITION_RE.test(text)
+        // The cue is not part of what was bought: without stripping it the
+        // line read "Oh, airtime".
+        ? text
+            .replace(/^\s*(?:oh\s+)?(?:and|also|plus)\b[,\s]*/i, '')
+            .replace(/^\s*(?:oh\s+)?(?:i\s+)?(?:also\s+)?(?:forgot|missed)\b[,\s:]*(?:about\s+)?/i, '')
+            .replace(/^\s*(?:i|we)\s+also\b\s*/i, '')
+        : clauses.length > 1 ? clauses[clauses.length - 1] : '';
+    if (!body.trim()) return null;
+
+    const r = extractDescription(body, now);
     if (r.mixedCurrencies) return null;
     const added: LineItem[] = r.itemisation?.items ?? (r.soleLineItem ? [r.soleLineItem] : []);
     // A message with a figure but no nameable goods still adds a line, using
