@@ -721,3 +721,95 @@ describe('a numeral inside a relative-date phrase', () => {
         expect(r.amount).toBeNull();
     });
 });
+
+describe('the chicken-wings point-of-sale transcript', () => {
+    // From a real run. One item carrying two descriptive sub-clauses, with its
+    // price at the far end of the sentence after a full stop. The amount was
+    // read; the description was not, so after the date was answered the bot
+    // asked "What did they buy?" — a question the first six words had answered.
+    //
+    // The cause was NOT the comma splitting, the parentheses or the leading
+    // quantity. It was that the only reader of item text anywhere in the flow
+    // was the itemisation, and an itemisation needs two prices — so EVERY
+    // single-priced message lost its description, sub-clauses or not.
+    const MESSAGE = '2 buckets of chicken wings, one spicy, one sweet(honey dipped). worth 2999 ksh';
+
+    const draft = describe1(MESSAGE);
+
+    it('keeps the whole description, sub-clauses and all', () => {
+        expect(draft.recipient)
+            .toBe('2 buckets of chicken wings, one spicy, one sweet (honey dipped)');
+    });
+
+    it('reads the price on the far side of the full stop', () => {
+        expect(draft.amount).toBe(2999);
+    });
+
+    it('does not break one purchase into a one-row table', () => {
+        // The sub-clauses are modifiers of a single item, not items of their
+        // own, and a single item is a transaction rather than an itemisation.
+        expect(draft.lineItems).toBeNull();
+    });
+
+    it('leaves only the date to ask about, and asks nothing after it', () => {
+        expect(openSlots(draft)).toEqual(['date']);
+        const { draft: dated, asked } = answer(draft, 'yesterday');
+        expect(asked).toBe(QUESTION.date);
+        expect(openSlots(dated)).toEqual([]);
+    });
+
+    it('confirms it as one line, not as a list with a redundant total', () => {
+        const sentence = buildConfirmSentence({
+            amount: draft.amount,
+            currency: draft.currency,
+            recipient: draft.recipient,
+            direction: { type: 'received', confidence: 95, source: 'keyword' },
+            purposeLabel: null,
+            dateLabel: '11 September 2026',
+            dateSkipped: false,
+            lineItems: draft.lineItems,
+        });
+        expect(sentence).toContain('Ksh 2,999');
+        expect(sentence).toContain('chicken wings');
+        expect(sentence).not.toContain('total');
+    });
+});
+
+describe('a price-less comma fragment beside a priced one', () => {
+    // The principle behind the fix: a fragment carrying no price, sitting next
+    // to one that does, is a description of that item rather than an item of
+    // its own. What must NOT change is a list where each entry has its own
+    // price — that is a genuine itemisation and still splits.
+    it('still splits a genuine multi-item list', () => {
+        const d = describe1('chicken wings worth 2999, chips worth 200, soda worth 100');
+        expect(d.lineItems?.map(i => [i.description, i.amount])).toEqual([
+            ['Chicken wings', 2999], ['Chips', 200], ['Soda', 100],
+        ]);
+        expect(d.amount).toBe(3299);
+    });
+
+    it('folds price-less neighbours into the item that has the price', () => {
+        const d = describe1('a crate of sodas, half cold, half warm, worth 1200');
+        expect(d.lineItems).toBeNull();
+        expect(d.recipient).toBe('Crate of sodas, half cold, half warm');
+        expect(d.amount).toBe(1200);
+    });
+
+    it('reads a single item with no sub-clauses at all', () => {
+        const d = describe1('chicken wings worth 2999 ksh');
+        expect(d.recipient).toBe('Chicken wings');
+        expect(d.amount).toBe(2999);
+    });
+
+    it('does not offer filler as a description', () => {
+        // "spent 5000 yesterday" names no goods. Asking is right; filing the
+        // purchase as "Yesterday" would not be.
+        expect(describe1('spent 5000 yesterday').recipient).toBeNull();
+    });
+
+    it('does not read a relative-date phrase as the goods', () => {
+        const d = describe1('3 days ago i bought milk for 120');
+        expect(d.recipient).toBe('Milk');
+        expect(d.amount).toBe(120);
+    });
+});

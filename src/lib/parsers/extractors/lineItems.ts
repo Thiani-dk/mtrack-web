@@ -51,6 +51,7 @@ const TRAILING_NOISE =
 const LEADING_NOISE = new RegExp(
     String.raw`^(?:\s*(?:i|we|he|she|they|you|some|a|an|the|my|our|his|her|their|also|then|next`
     + String.raw`|plus|with|and|na|paid|pay|bought|buy|sold|sell|got|spent|for|on`
+    + String.raw`|sent|send|gave|give|received|receive|to`
     + String.raw`|${SWAHILI_VERBS.join('|')})\b\s*)+`,
     'i',
 );
@@ -67,6 +68,43 @@ function lastSentence(text: string): string {
     return parts[parts.length - 1] ?? text;
 }
 
+// The last sentence before a price that still says something once tidied.
+//
+// "...one sweet (honey dipped). worth 2999 ksh" puts a full stop between the
+// goods and their price, so the sentence immediately before the price is the
+// bare word "worth" — which tidying correctly reduces to nothing, and the item
+// was then dropped for having no description at all. A sentence made only of
+// the words that attach a price to a thing names no thing; the one before it
+// does.
+//
+// Stepping back is allowed ONLY over a sentence like that: one that had words
+// and lost all of them to tidying. A sentence that was blank to begin with
+// means the price opened its own sentence, and everything before it is
+// scene-setting — "They bought credits... on my platform. 500 USD on call
+// time" is call time, not the platform. That case stops here and lets the
+// words AFTER the price have it.
+function lastSpeakingSentence(text: string): string {
+    const parts = splitSentences(text);
+    for (let i = parts.length - 1; i >= 0; i--) {
+        if (!parts[i].trim()) return '';
+        const tidied = goodsIn(parts[i]);
+        if (tidied) return tidied;
+    }
+    return '';
+}
+
+// The thing named in a clause that runs up to a price.
+//
+// The same rule itemFragment uses on price-less clauses: the last transaction
+// verb is where the goods start, so "3 days ago i bought milk for 120" is about
+// milk and not about three days ago. Applied only when trimming to the verb
+// leaves something behind — "Some ram I sold at" has its goods BEFORE the verb,
+// and trimming there would throw the ram away.
+function goodsIn(clause: string): string {
+    const trimmed = tidy(afterLastVerb(clause));
+    return trimmed || tidy(clause);
+}
+
 function firstSentence(text: string): string {
     return splitSentences(text.trim())[0] ?? text;
 }
@@ -78,6 +116,9 @@ function tidy(raw: string): string {
     // A price can sit mid-sentence, so the words around it keep their
     // punctuation — strip what is left dangling at either end.
     out = out.replace(/^[\s,;:—–-]+/, '').replace(/[\s,;:.!?—–-]+$/, '');
+    // "sweet(honey dipped)" is one word to everything that counts words, and
+    // reads as a typo in the confirmation. The space the user left out.
+    out = out.replace(/(\S)\(/g, '$1 (');
     return out.replace(/\s+/g, ' ').trim();
 }
 
@@ -92,7 +133,7 @@ function tidy(raw: string): string {
 // Before wins when it says anything, since that is the more common phrasing
 // and the side that carries a quantity.
 function cleanDescription(before: string, after: string): string {
-    const fromBefore = tidy(lastSentence(before));
+    const fromBefore = lastSpeakingSentence(before);
     if (fromBefore) return fromBefore;
     return tidy(firstSentence(after));
 }
@@ -164,35 +205,57 @@ const NON_ITEM_WORDS = new Set([
 // tomatoes, and everything before "bought" is how the user got there.
 const TRAILING_VERB_RE = /\b(?:bought|buy|purchased|paid|pay|sold|sell|got|spent|took|had)\b/gi;
 
+// Everything after the last transaction verb in a clause, or the whole clause
+// when it has none.
+function afterLastVerb(clause: string): string {
+    TRAILING_VERB_RE.lastIndex = 0;
+    let end = -1;
+    let m: RegExpExecArray | null;
+    while ((m = TRAILING_VERB_RE.exec(clause)) !== null) end = m.index + m[0].length;
+    return end >= 0 ? clause.slice(end) : clause;
+}
+
+// A subject pronoun is the mark of narration rather than of a thing: "i rode a
+// bus to a neighborhood" has one, "2 buckets of chicken wings" does not.
+const NARRATING_RE = /\b(?:i|we|he|she|they|you|it)\b/i;
+
 // A price-less segment reduced to the thing it names, or null if it names none.
 //
 // Bounded on purpose: at most a short noun phrase, never a clause. A generous
 // version of this would quietly staple half a sentence onto the next item's
 // description, which is worse than losing the word.
 function itemFragment(segment: string): string | null {
-    let clause = lastSentence(segment);
+    const clause = lastSentence(segment);
+    const hadVerb = afterLastVerb(clause) !== clause;
 
-    TRAILING_VERB_RE.lastIndex = 0;
-    let lastVerbEnd = -1;
-    let m: RegExpExecArray | null;
-    while ((m = TRAILING_VERB_RE.exec(clause)) !== null) lastVerbEnd = m.index + m[0].length;
-    const hadVerb = lastVerbEnd >= 0;
-    if (hadVerb) clause = clause.slice(lastVerbEnd);
-
-    const fragment = tidy(clause);
+    const fragment = tidy(afterLastVerb(clause));
     if (!fragment) return null;
 
     const words = fragment.split(' ');
-    // With no verb to anchor it, anything longer than a short phrase is
-    // narration rather than a list entry.
-    if (words.length > (hadVerb ? 4 : 3)) return null;
+    // How much text may be carried forward as one item's words.
+    //
+    // A bare noun phrase — no transaction verb to anchor it, and no subject
+    // pronoun either — is exactly what a descriptive fragment looks like: "2
+    // buckets of chicken wings", "one sweet (honey dipped)". Those ran over the
+    // old three-word ceiling and were dropped, which is how a message whose
+    // first six words said what was bought still got asked what was bought.
+    // Anything carrying a pronoun is someone telling a story and keeps the
+    // tight ceiling.
+    const limit = hadVerb ? 4 : NARRATING_RE.test(fragment) ? 3 : 6;
+    if (words.length > limit) return null;
     if (words.every(w => NON_ITEM_WORDS.has(w.toLowerCase().replace(/[^a-z]/gi, '')))) return null;
 
     return fragment;
 }
 
-// The itemisation in a message, or null when there isn't one.
-export function extractLineItems(typed: string, opts: AmountScanOptions = {}): ItemisationResult | null {
+// Every priced thing a message names, however many that is.
+//
+// Split out from extractLineItems because "how many priced things are in this
+// message" and "does this message name what was bought" are two questions, and
+// answering the second with the first is what made the chicken-wings message
+// fail: one price meant no itemisation, no itemisation meant no description,
+// and the flow asked what they bought about a sentence that opened by saying.
+function collectItems(typed: string, opts: AmountScanOptions): { items: LineItem[]; currencies: Set<string> } {
     // Typed input gets the typo/merged-word pass before anything reads it, so
     // "somebacon" reaches the description as "bacon" rather than as itself.
     // Idempotent, so a caller that has already normalised loses nothing.
@@ -235,15 +298,29 @@ export function extractLineItems(typed: string, opts: AmountScanOptions = {}): I
         );
         const carried = pending;
         pending = [];
-        if (!description) continue;
 
-        const full = [...carried, description].join(', ');
+        // A segment that is nothing but the price and the word attaching it
+        // ("...half warm, worth 1200") describes whatever came just before it.
+        // Dropping the item here is what made the words the user actually
+        // typed disappear and the question come back.
+        const full = [...carried, description].filter(Boolean).join(', ');
+        if (!full) continue;
         const split = splitQuantity(full, match.amount);
         currencies.add(match.currency);
         items.push({ ...split, description: sentenceCase(split.description), amount: match.amount });
     }
 
-    // One priced thing is a transaction, not an itemisation.
+    return { items, currencies };
+}
+
+// The itemisation in a message, or null when there isn't one.
+export function extractLineItems(typed: string, opts: AmountScanOptions = {}): ItemisationResult | null {
+    const { items, currencies } = collectItems(typed, opts);
+
+    // One priced thing is a transaction, not an itemisation. A receipt that
+    // breaks a single purchase out into a one-row table, with the row and the
+    // total saying the same figure twice, is noise. See extractSoleItem for
+    // what that one thing is still good for.
     if (items.length < 2) return null;
 
     return {
@@ -252,4 +329,28 @@ export function extractLineItems(typed: string, opts: AmountScanOptions = {}): I
         currency: currencies.values().next().value ?? 'KES',
         mixedCurrency: currencies.size > 1,
     };
+}
+
+// The goods named by a message that carries exactly one price.
+//
+// Not an itemisation — the caller uses this for the DESCRIPTION alone, so a
+// single purchase is still confirmed as one line. It exists because "2 buckets
+// of chicken wings, one spicy, one sweet (honey dipped). worth 2999 ksh" said
+// what was bought perfectly clearly and was still answered with "What did they
+// buy?": the only reader of item text in the whole flow was the itemisation,
+// and an itemisation needs two prices.
+//
+// Guarded against handing back filler: a description made entirely of words
+// that name no thing ("yesterday", "stuff") is no description at all, and
+// filing a purchase as "Yesterday" is worse than asking.
+export function extractSoleItem(typed: string, opts: AmountScanOptions = {}): LineItem | null {
+    const { items } = collectItems(typed, opts);
+    if (items.length !== 1) return null;
+
+    const [item] = items;
+    const words = item.description.split(' ').filter(Boolean);
+    if (words.length === 0) return null;
+    if (words.every(w => NON_ITEM_WORDS.has(w.toLowerCase().replace(/[^a-z]/gi, '')))) return null;
+    if (!/[a-z]/i.test(item.description)) return null;
+    return item;
 }

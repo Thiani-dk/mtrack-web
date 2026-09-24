@@ -3,7 +3,7 @@ import { extractRawBlock, finalizeTransaction, deriveSubType } from './parsers';
 import { extractAmount, type AmountScanOptions } from './parsers/extractors/amount';
 import { DEFAULT_CURRENCY, detectCurrency, normalizeCurrency } from './parsers/extractors/currency';
 import { parseAmountAnswer } from './parsers/extractors/numeric';
-import { extractLineItems, type ItemisationResult } from './parsers/extractors/lineItems';
+import { extractLineItems, extractSoleItem, type ItemisationResult } from './parsers/extractors/lineItems';
 import { extractParties } from './parsers/extractors/parties';
 import { extractCode } from './parsers/extractors/code';
 import { extractDirection } from './parsers/extractors/direction';
@@ -237,7 +237,10 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
     // a four-line list is the question that started all this.
     const recipient = finalizedName ?? parties.recipient ?? parties.sender
         ?? extractFreeformName(text)
-        ?? (itemisation ? itemsSummary(itemisation.items) : null);
+        ?? (itemisation ? itemsSummary(itemisation.items) : null)
+        // One priced thing is not an itemisation, but it is still an answer to
+        // "what did they buy?". Last, so a named person always wins over goods.
+        ?? (extractSoleItem(text, TYPED)?.description ?? null);
 
     // A pasted confirmation that fully parsed already carries a trustworthy
     // date; otherwise the conversational reader has the say. A date is only
@@ -433,7 +436,8 @@ export function absorbAnswer(current: OpenSlots, typed: string): OpenSlots {
     if (!next.recipient) {
         const parties = extractParties(text);
         next.recipient = parties.recipient ?? parties.sender ?? extractFreeformName(text)
-            ?? (next.lineItems && next.lineItems.length > 0 ? itemsSummary(next.lineItems) : null);
+            ?? (next.lineItems && next.lineItems.length > 0 ? itemsSummary(next.lineItems) : null)
+            ?? (extractSoleItem(text, TYPED)?.description ?? null);
     }
 
     return next;
