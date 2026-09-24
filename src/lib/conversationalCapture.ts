@@ -169,14 +169,14 @@ function extractFreeformName(text: string): string | null {
 }
 
 const FREEFORM_NAME_RE = new RegExp(
-    String.raw`\b(?:paid|pay|gave|give|sent to|sent|to|for)\s+(${PARTY_NAME_SOURCE})\b`);
+    String.raw`\b(?:paid|pay|gave|give|sent to|sent|to|for|from)\s+(${PARTY_NAME_SOURCE})\b`);
 
 // The same position, filled by a word that can only be a person rather than by
 // a capitalised name — "gave mum 2000", "sent my landlord 15000". Most people
 // typing on a phone use no capitals at all, and without this the message lost
 // its recipient and its amount together. See parsers/names.ts for the list.
 const RELATIONSHIP_AFTER_VERB_RE =
-    /\b(?:paid|pay|gave|give|sent to|sent|to|for)\s+((?:my |our |his |her |their |the )?[a-z][a-z-]+(?: [a-z][a-z-]+)?)\b/i;
+    /\b(?:paid|pay|gave|give|sent to|sent|to|for|from)\s+((?:my |our |his |her |their |the )?[a-z][a-z-]+(?: [a-z][a-z-]+)?)\b/i;
 
 function matchRelationship(text: string): RegExpMatchArray | null {
     const m = text.match(RELATIONSHIP_AFTER_VERB_RE);

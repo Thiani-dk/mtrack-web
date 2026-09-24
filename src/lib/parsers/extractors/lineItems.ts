@@ -231,6 +231,10 @@ const NON_ITEM_WORDS = new Set([
     'hi', 'hey', 'hello', 'so', 'ok', 'okay', 'well', 'yeah', 'yep', 'yes', 'no',
     'thanks', 'please', 'today', 'yesterday', 'tomorrow', 'morning', 'afternoon',
     'evening', 'night', 'lot', 'much', 'quite', 'really', 'just', 'stuff', 'things',
+    // Words left over from the sentence around a price rather than naming what
+    // was bought: "got 500 back" was filed with the description "Back".
+    'back', 'change', 'rest', 'total', 'it', 'that', 'this', 'them', 'one', 'each',
+    'there', 'here', 'then', 'now', 'again', 'else', 'all',
 ]);
 
 // The last transaction verb in a price-less clause is where the goods start:
