@@ -59,8 +59,10 @@ export interface AmountScanOptions {
 const MONEY_CUE_RE =
     /\b(?:for|at|worth|of|each|cost|costs|costing|spent|spend|spending|paid|pay|paying|sold|sell|selling|bought|buy|buying|gave|give|sent|send|received|receive|got|charged|totall?ing|total|around|about|roughly|approx(?:imately)?)\s*$|@\s*$/i;
 
-// A trailing "/=" is how a Kenyan price is written without naming Shillings.
-const TRAILING_SLASH_RE = /^\s*\/=/;
+// A trailing "/=" or "/-" is how a Kenyan price is written without naming
+// Shillings. Both forms are common; only the first was ever listed, and even
+// that one never fired — see isBareMoney.
+const TRAILING_SLASH_RE = /^\s*\/[=-](?!\d)/;
 
 // The name of whoever the money went to, sitting between the cue word and the
 // figure: "paid Kevin 500", "sent Mama Njeri 1,200".
@@ -101,6 +103,13 @@ function isBareMoney(msg: string, index: number, length: number): boolean {
     const before = msg.slice(Math.max(0, index - 64), index);
     const after = msg.slice(index + length);
 
+    // "500/=" says money and nothing else, so it is settled before the date
+    // guard rather than after it. Checked in the other order — which is how it
+    // was written — the slash reads as a date separator and returns false, and
+    // the branch below it was unreachable: "lunch 500/= and beer 300/="
+    // extracted no amount at all.
+    if (TRAILING_SLASH_RE.test(after)) return true;
+
     // "12/09/2026", "7:30" — a number wedged into a date or a time, however
     // money-ish the words around it are.
     if (DATE_CHAR_BEFORE_RE.test(before) || DATE_CHAR_AFTER_RE.test(after)) return false;
@@ -112,7 +121,7 @@ function isBareMoney(msg: string, index: number, length: number): boolean {
     // currency-tagged amount and never reaches this bare-number path.
     if (/[A-Za-z]$/.test(before)) return false;
 
-    return cueReaches(before) || TRAILING_SLASH_RE.test(after);
+    return cueReaches(before);
 }
 
 interface Candidate {
