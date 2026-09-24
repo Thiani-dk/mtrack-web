@@ -42,6 +42,21 @@ async function say(text) {
 }
 
 async function startChat() {
+    // Cleared first. A section that saves a document leaves the session open,
+    // and the home screen then offers to resume it rather than to start a new
+    // one — so every section after a saving one used to time out waiting for a
+    // button that was no longer there. That made section order load-bearing,
+    // which is a poor thing for a test file to depend on.
+    await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+    await page.evaluate(async () => {
+        localStorage.clear();
+        sessionStorage.clear();
+        const dbs = (await indexedDB.databases?.()) ?? [];
+        await Promise.all(dbs.map(d => d.name && new Promise(res => {
+            const r = indexedDB.deleteDatabase(d.name);
+            r.onsuccess = r.onerror = r.onblocked = () => res(undefined);
+        })));
+    });
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
     await page.getByRole('button', { name: /Start a summary/ }).click();
     await page.waitForTimeout(900);
@@ -405,6 +420,32 @@ check('the cue word is not left in the item name', !/Oh, airtime/i.test(afterAdd
 await say('yesterday');
 check('a date at the confirmation is not read as approval',
     !/^Added\./.test(await lastBotLine()), (await lastBotLine()).slice(0, 120));
+
+// ── 13c. Something that cost nothing ──
+//
+// Zero counted as no amount at all, so every way of saying it was rejected and
+// the question came back unchanged — a flat dead end with cancelling as the
+// only exit. And commitDraft refused amount <= 0, so even once the answer was
+// accepted, pressing yes did nothing at all.
+await startChat();
+await page.getByRole('button', { name: 'My own spending' }).click();
+await page.waitForTimeout(800);
+await say('got a sample from the shop yesterday');
+check('it asks how much', /How much/.test(await transcript()), (await lastBotLine()).slice(0, 120));
+
+await say('it was free');
+const freeLine = await lastBotLine();
+check('"it was free" is accepted rather than asked again',
+    !/How much/.test(freeLine), freeLine.slice(0, 140));
+
+await say('a soap sample');
+const zeroConfirm = await lastBotLine();
+check('and is confirmed as a figure, not as a blank',
+    /Ksh 0/.test(zeroConfirm) && /Right\?$/.test(zeroConfirm), zeroConfirm.slice(0, 160));
+
+await say('yes');
+await page.waitForTimeout(1200);
+check('pressing yes actually saves it', /Added\./.test(await transcript()), (await transcript()).slice(-200));
 
 // ── 14. A stated quantity, all the way onto the receipt card ──
 //

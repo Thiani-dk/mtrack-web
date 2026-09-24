@@ -79,7 +79,18 @@ export function parseNumeric(text: string): number | null {
 // Parses a standalone amount answer — the reply to "How much was it?". The
 // whole string is expected to be about one amount ("100k USD", "Ksh 45,000",
 // "about 5.5k"), so the first number wins.
+// The ways people say a thing cost nothing. A gift, a sample, a zero-rated
+// line — all real transactions worth recording, and none of them expressible
+// before: "0", "free" and "nothing" were each rejected, the question came back
+// unchanged, and there was no way out of it but cancelling.
+//
+// Anchored at both ends: the phrase has to BE the answer. Matching it merely at
+// the start turned "free delivery on orders over 2000" into zero.
+const NO_CHARGE_RE =
+    /^(?:(?:it|that|this)\s+was\s+)?(?:free|nothing|no\s+charge|nil|zero|a\s+gift|gift|on\s+the\s+house|complimentary)\s*[.!]?$/i;
+
 export function parseAmountAnswer(text: string): number | null {
+    if (NO_CHARGE_RE.test(text.trim())) return 0;
     const value = parseNumeric(text);
-    return value != null && value > 0 ? value : null;
+    return value != null && value >= 0 ? value : null;
 }

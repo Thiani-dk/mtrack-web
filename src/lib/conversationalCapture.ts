@@ -401,7 +401,10 @@ export function openSlots(draft: {
     const open: CaptureSlot[] = [];
     if (!draft.date && !draft.dateSkipped) open.push('date');
     // An itemisation fills the amount slot with its total.
-    const hasAmount = (draft.amount != null && draft.amount > 0)
+    // Zero is an answer, not the absence of one. Treating it as missing is what
+    // made "it was free" unrecordable: the question came back every time and
+    // the only way out was to cancel the whole capture.
+    const hasAmount = draft.amount != null
         || (draft.lineItems != null && draft.lineItems.length > 0);
     if (!hasAmount) open.push('amount');
     if (!draft.recipient) open.push('description');

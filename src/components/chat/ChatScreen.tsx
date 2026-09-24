@@ -1034,7 +1034,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
     const commitDraft = useCallback(async (flow: DocFlow, draft: CaptureDraft) => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
-        if (draft.amount == null || draft.amount <= 0 || !draft.recipient) return;
+        // Zero is a figure. Refusing it here meant that even once the flow
+        // accepted "it was free", pressing yes at the confirmation silently
+        // did nothing at all — the worse half of the same dead end.
+        if (draft.amount == null || draft.amount < 0 || !draft.recipient) return;
         if (!draft.date && !draft.dateSkipped) return;
 
         const txn = buildSelfReportedTransaction({
