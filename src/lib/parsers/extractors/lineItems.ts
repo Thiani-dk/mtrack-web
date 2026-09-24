@@ -43,8 +43,13 @@ const SEGMENT_RE = /\s*(?:,(?!\d{3}(?!\d))|[;\n•]|\band\b|\bna\b|\bplus\b)\s*/
 
 // Words that attach a price to a thing rather than naming it. Stripped from
 // the end of a description, where they always end up: "Some ram I sold at".
+//
+// "kwa" is the Swahili one — "nilinunua bacon kwa elfu tatu" is bacon for three
+// thousand, and the item is bacon. It was left dangling on the end of every
+// code-switched description ("Bacon kwa") because the only test of that
+// phrasing asked whether the description CONTAINED "bacon".
 const TRAILING_NOISE =
-    /(?:\b(?:i|we|he|she|they|it)\b\s+)?(?:\b(?:sold|sell|bought|buy|paid|pay|got|charged|went|cost(?:s|ing)?|worth|was|were|is|are)\b\s*)*(?:\b(?:at|for|to|of|each|@)\b\s*)*[-–—:=]?\s*$/i;
+    /(?:\b(?:i|we|he|she|they|it)\b\s+)?(?:\b(?:sold|sell|bought|buy|paid|pay|got|charged|went|cost(?:s|ing)?|worth|was|were|is|are)\b\s*)*(?:\b(?:at|for|to|of|each|@|kwa)\b\s*)*[-–—:=]?\s*$/i;
 
 // Leading quantifiers, filler and transaction verbs: "Some ram", "a laptop",
 // "Paid rent" — the thing bought is "rent", the paying is the transaction.
