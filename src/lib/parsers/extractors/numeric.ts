@@ -20,12 +20,18 @@ export interface NumericToken {
     start: number;
     end: number;
     // Whether a shorthand multiplier was applied, for tests and diagnostics.
-    multiplier: 1 | 1_000 | 1_000_000;
+    multiplier: 1 | 100 | 1_000 | 1_000_000;
 }
 
-const MULTIPLIERS: Record<string, 1_000 | 1_000_000> = {
+const MULTIPLIERS: Record<string, 100 | 1_000 | 1_000_000> = {
     k: 1_000, thousand: 1_000, thousands: 1_000,
     m: 1_000_000, million: 1_000_000, millions: 1_000_000, mn: 1_000_000,
+    // Swahili, normalised into this form upstream: "elfu tatu" arrives here as
+    // "3 elfu". The amount extractor has carried these since the Swahili work;
+    // this table had not, and the two only ever disagreed on the path that
+    // reads an ANSWER — so "elfu tatu" was three thousand in free text and
+    // three when it was the reply to "How much was it?".
+    elfu: 1_000, mia: 100,
 };
 
 // A number, optionally comma-grouped and/or decimal, optionally followed by a
@@ -38,7 +44,7 @@ const MULTIPLIERS: Record<string, 1_000 | 1_000_000> = {
 const MULT_GUARD = `(?:(?![A-Za-z])|(?=${CURRENCY_SUFFIX_SOURCE}))`;
 const NUMBER_RE = new RegExp(
     String.raw`(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)`
-    + `(?:\\s*(millions|million|thousands|thousand|mn|k|m)${MULT_GUARD})?`,
+    + `(?:\\s*(millions|million|thousands|thousand|elfu|mia|mn|k|m)${MULT_GUARD})?`,
     'gi',
 );
 

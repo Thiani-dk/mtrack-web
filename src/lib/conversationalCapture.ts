@@ -371,12 +371,18 @@ export interface AmountAnswer {
 }
 
 export function parseAmountReply(text: string): AmountAnswer {
+    // Through the same normalisation as every other entry point. It was the
+    // only one that skipped it, so "elfu tatu" read as three thousand in free
+    // text and as nothing at all the moment it was given as an answer — the
+    // flow understood the user's Swahili right up until it asked them a direct
+    // question.
+    const readableText = readable(text);
     // A numeral a relative-date phrase already consumed is not on offer here —
     // "3 days ago" carries no amount at all, and reading one out of it is how
     // a three-day-old purchase was confirmed back as "Ksh 3".
     return {
-        amount: parseAmountAnswer(withoutDatePhraseNumerals(text)),
-        detectedCurrency: detectCurrency(text),
+        amount: parseAmountAnswer(withoutDatePhraseNumerals(readableText)),
+        detectedCurrency: detectCurrency(readableText),
     };
 }
 
