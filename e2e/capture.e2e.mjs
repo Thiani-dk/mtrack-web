@@ -98,18 +98,21 @@ check('the date is not abandoned', !/leave the date off/.test(await transcript()
 
 await say('4 May 2026');
 const settledTranscript = await transcript();
-// The date is settled when the flow stops asking about it and moves on to
-// whatever is genuinely still missing — here, who it was paid to.
+// The date is settled when the flow stops asking about it and moves on. The
+// laptop is the description and Ksh 45,000 the amount, so with the date
+// answered there is nothing left to ask and the next thing said is the
+// confirmation. It used to ask "Who was it paid to?" here, because a
+// single-item message lost its description entirely — see extractSoleItem.
 check('answering the question settles the date and the flow moves on',
     !/Is that 4 May 2026 or 5 April 2026\?\s*4 May 2026\s*(When was that|Is that)/.test(settledTranscript)
     && !/leave the date off/.test(settledTranscript)
-    && /Who was it paid to\?/.test(settledTranscript),
+    && /Right\?/.test(settledTranscript),
     (await lastBotLine()).slice(0, 100));
 
 // And the date it settled on is the one that reaches the confirmation.
-await say('Kevin');
 const dateConfirm = await lastBotLine();
 check('the confirmation carries 4 May 2026', /4 May 2026/.test(dateConfirm), dateConfirm.slice(0, 140));
+check('and the laptop, rather than a question about it', /Laptop/i.test(dateConfirm), dateConfirm.slice(0, 140));
 
 await page.screenshot({ path: join(SHOT_DIR, 'capture-date-retry.png'), fullPage: true });
 
@@ -136,7 +139,6 @@ await page.getByRole('button', { name: 'My own spending' }).click();
 await page.waitForTimeout(800);
 await say('Sold a laptop for Ksh 45,000');
 await say('4 May 2026');
-await say('Kevin');
 const botLineBefore = await lastBotLine();
 check('a bot confirmation is on screen', /Right\?$/.test(botLineBefore), botLineBefore.slice(0, 90));
 
@@ -290,9 +292,13 @@ check('and the question is answered in the same turn',
     /To answer your question/.test(both) && /Shillings/.test(both), both.slice(-260));
 check('the question clause is not mined for an amount', !/Ksh 0\b/.test(both));
 
-await say('bacon');
+// "bought bacon for 3100 today" says what, how much and when, so the
+// confirmation is already on screen — nothing further to answer. The answer to
+// the user's own question is emitted after it, so the check reads the
+// transcript rather than only the last line.
+const bothDone = await transcript();
 check('and the captured figure reaches the confirmation intact',
-    /3,100/.test(await lastBotLine()), (await lastBotLine()).slice(0, 140));
+    /Ksh 3,100[^?]*Right\?/.test(bothDone), bothDone.slice(-260));
 
 // ── 11. A question asked in the middle of being asked something ──
 //
@@ -347,10 +353,39 @@ check('"leo" closes the date slot, so the date is not asked about either',
 check('and it is not answered with "I didn\'t follow"',
     !/couldn.t pick anything out/i.test(swahili));
 
-await say('bacon and pork cuts');
+// Nothing left to answer: the items are the description, so this is already
+// the confirmation.
 const swahiliDone = await lastBotLine();
+// "leo" is today, whenever today is — the expected date is computed rather
+// than written down, so this check does not rot overnight.
+const todayLong = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 check('it confirms with the Swahili figure and the Swahili date',
-    /3,000/.test(swahiliDone) && /22 September 2026/.test(swahiliDone), swahiliDone.slice(0, 180));
+    /3,000/.test(swahiliDone) && swahiliDone.includes(todayLong), `${swahiliDone.slice(0, 180)} | want ${todayLong}`);
+
+// ── 13. A stated quantity, all the way onto the receipt card ──
+//
+// "3 x sodas Ksh 450" carries a fact the total cannot: three of them, at Ksh
+// 150 each. It was extracted, dropped on the way into the draft, and — even
+// once carried — rendered only into the PDF and the exported HTML, never onto
+// the card in the chat, which is the one surface anyone sees before pressing
+// Save. Checked in the real DOM because that was the gap.
+await startChat();
+await page.getByRole('button', { name: 'A receipt for a customer' }).click();
+await page.waitForTimeout(800);
+await say('Kibanda');
+await say('3 x sodas Ksh 450 today');
+const qtyConfirm = await lastBotLine();
+check('the confirmation puts the quantity and the unit price back',
+    /Sodas \(3 x Ksh 150\)/.test(qtyConfirm) && /Ksh 450/.test(qtyConfirm), qtyConfirm.slice(0, 180));
+check('and does not give one line a total of itself', !/total/i.test(qtyConfirm), qtyConfirm.slice(0, 180));
+
+await say('yes');
+await page.waitForTimeout(1200);
+const receipt = await transcript();
+check('the receipt card itself shows the quantity, not just the exports',
+    /Sodas \(3 x Ksh 150\.00\)/.test(receipt), receipt.slice(-320));
+
+await page.screenshot({ path: join(SHOT_DIR, 'capture-quantity.png'), fullPage: true });
 
 await browser.close();
 finish();

@@ -162,10 +162,35 @@ function round2(n: number): number {
 const QUANTITY_LEADING_RE = /^(\d{1,3})\s*(?:x|×|pcs?|pieces?|of)\s+/i;
 const QUANTITY_TRAILING_RE = /(?:^|\s)(\d{1,3})\s*(?:x|×|pcs?|pieces?)\s*$/i;
 
-function splitQuantity(description: string, amount: number): Pick<LineItem, 'description' | 'quantity' | 'unitPrice'> {
-    const plain = { description, quantity: null, unitPrice: null };
+// "3 sodas", with no "x" and no "of" — the commonest way anyone writes it, and
+// until now the only one that did not count.
+//
+// The trailing "of" is what decides it. "3 sodas" counts sodas; "2 buckets of
+// chicken wings" counts buckets, and the wings are not three of anything — so a
+// count followed by a container word and "of" is left alone, exactly as the
+// last pass decided. The count itself has to be plausible as a number of
+// things, and the word after it has to be a word: "500 shillings" is a sum of
+// money that happens to lead a description.
+const QUANTITY_BARE_RE = /^(\d{1,2})\s+([a-z][a-z-]+)\b(?!\s+of\b)/i;
 
-    const leading = description.match(QUANTITY_LEADING_RE);
+// "at 50 each", "@ 120 a piece", "200 per kg" — the figure is what ONE costs,
+// so the line total is that times the quantity rather than the figure itself.
+// Read from the words immediately after the price, where they always sit.
+const UNIT_PRICE_MARKER_RE = /^[\s,]*(?:each|ea\b|a\s*piece|apiece|per\s+\w+)/i;
+
+interface Quantified {
+    description: string;
+    quantity: number | null;
+    unitPrice: number | null;
+    // The line total. Equal to the figure the user stated, unless they stated
+    // it as a per-item price.
+    amount: number;
+}
+
+function splitQuantity(description: string, amount: number, statedPerItem: boolean): Quantified {
+    const plain = { description, quantity: null, unitPrice: null, amount };
+
+    const leading = description.match(QUANTITY_LEADING_RE) ?? description.match(QUANTITY_BARE_RE);
     const trailing = leading ? null : description.match(QUANTITY_TRAILING_RE);
     const m = leading ?? trailing;
     if (!m) return plain;
@@ -173,17 +198,17 @@ function splitQuantity(description: string, amount: number): Pick<LineItem, 'des
     const quantity = parseInt(m[1], 10);
     if (!Number.isFinite(quantity) || quantity <= 1) return plain;
 
+    // The bare form keeps the counted word — "3 sodas" is three sodas, not
+    // three of something unnamed — so only the numeral comes off.
+    const bare = leading != null && QUANTITY_LEADING_RE.test(description) === false;
     const rest = leading
-        ? description.slice(m[0].length).trim()
+        ? (bare ? description.slice(m[1].length).trim() : description.slice(m[0].length).trim())
         : description.slice(0, m.index).trim();
     if (!rest) return plain;
 
-    return {
-        description: rest,
-        quantity,
-        // The stated figure is the line total; the unit price follows from it.
-        unitPrice: round2(amount / quantity),
-    };
+    return statedPerItem
+        ? { description: rest, quantity, unitPrice: amount, amount: round2(amount * quantity) }
+        : { description: rest, quantity, unitPrice: round2(amount / quantity), amount };
 }
 
 // Second-pass boundaries, used ONLY on a segment that came back carrying more
@@ -319,9 +344,10 @@ function collectItems(typed: string, opts: AmountScanOptions): { items: LineItem
         // typed disappear and the question come back.
         const full = [...carried, description].filter(Boolean).join(', ');
         if (!full) continue;
-        const split = splitQuantity(full, match.amount);
+        const perItem = UNIT_PRICE_MARKER_RE.test(segment.slice(match.index + match.length));
+        const split = splitQuantity(full, match.amount, perItem);
         currencies.add(match.currency);
-        items.push({ ...split, description: sentenceCase(split.description), amount: match.amount });
+        items.push({ ...split, description: sentenceCase(split.description) });
     }
 
     return { items, currencies };

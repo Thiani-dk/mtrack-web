@@ -4,7 +4,7 @@ import type { ReceiptData } from './receiptGenerator';
 import { computeReceiptData, fmt, fmtCurrency, getRecipientShort } from './receiptGenerator';
 import {
     type DocRenderMeta, formatCovering, issuedDate, baseDisclaimerLines, trustDisclaimerLine,
-    claimTotals, lineItemMismatch, sanitizeDocMeta,
+    claimTotals, lineItemMismatch, lineItemText, sanitizeDocMeta,
 } from './documentRender';
 import { fmtTxDate } from './transactionDisplay';
 
@@ -158,9 +158,7 @@ function buildLine(t: ParsedTransaction, meta: DocRenderMeta, minoritySource: Pa
     const items: { text: string; amount: string }[] = [];
     if (meta.documentType === 'point_of_sale' && t.lineItems && t.lineItems.length > 0) {
         for (const li of t.lineItems) {
-            const qty = li.quantity != null && li.unitPrice != null
-                ? ` (${li.quantity} x ${fmtCurrency(li.unitPrice, t.currency)})` : '';
-            items.push({ text: `${li.description}${qty}`, amount: fmtCurrency(li.amount, t.currency) });
+            items.push({ text: lineItemText(li, t.currency), amount: fmtCurrency(li.amount, t.currency) });
         }
         const mm = lineItemMismatch(t);
         if (mm) {

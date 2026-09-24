@@ -1,5 +1,6 @@
-import type { DataSource, DocumentType, MerchantProfile, OnBehalfOfContext, ParsedTransaction } from '../types';
+import type { DataSource, DocumentType, LineItem, MerchantProfile, OnBehalfOfContext, ParsedTransaction } from '../types';
 import type { ReceiptData } from './receiptGenerator';
+import { fmtCurrency } from './receiptGenerator';
 import { stripEmojiOr, stripEmojiOptional } from './sanitizeText';
 
 // Everything the four document layouts need beyond the shared computeReceiptData
@@ -132,6 +133,17 @@ export function lineItemMismatch(t: ParsedTransaction): { itemsTotal: number; li
     const itemsTotal = round2(t.lineItems.reduce((s, li) => s + li.amount, 0));
     const lineTotal = round2(t.amount);
     return itemsTotal === lineTotal ? null : { itemsTotal, lineTotal };
+}
+
+// One itemisation row's words, wherever it is drawn.
+//
+// The PDF, the exported HTML and the chat card all show the same receipt, and
+// a quantity that appears on two of them is a discrepancy the customer is
+// holding in their hand. One function, three callers.
+export function lineItemText(li: LineItem, currency: string | null | undefined): string {
+    const qty = li.quantity != null && li.unitPrice != null
+        ? ` (${li.quantity} x ${fmtCurrency(li.unitPrice, currency)})` : '';
+    return `${li.description}${qty}`;
 }
 
 export function anyLineItemMismatch(transactions: ParsedTransaction[]): boolean {

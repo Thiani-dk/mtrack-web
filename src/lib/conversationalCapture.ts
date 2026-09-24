@@ -89,6 +89,12 @@ export interface DescriptionResult {
     // total in that case, so a caller that only knows about single amounts is
     // still correct, just less detailed.
     itemisation: ItemisationResult | null;
+    // The one priced thing a message named, when it named exactly one AND said
+    // how many. A single item is not an itemisation — see extractSoleItem —
+    // but "3 x sodas Ksh 450" carries a fact the total cannot: three of them,
+    // at Ksh 150 each. That belongs on the receipt, so it needs a line to live
+    // on. A single item with no quantity stays one plain line.
+    soleLineItem: LineItem | null;
     purposeLabel: string | null;
     date: Date | null;
     dateAmbiguous: boolean;
@@ -235,12 +241,13 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
     // An itemised message has already said what this was: the items are the
     // description. Falling through to "what did they buy?" after being handed
     // a four-line list is the question that started all this.
+    const sole = itemisation ? null : extractSoleItem(text, TYPED);
     const recipient = finalizedName ?? parties.recipient ?? parties.sender
         ?? extractFreeformName(text)
         ?? (itemisation ? itemsSummary(itemisation.items) : null)
         // One priced thing is not an itemisation, but it is still an answer to
         // "what did they buy?". Last, so a named person always wins over goods.
-        ?? (extractSoleItem(text, TYPED)?.description ?? null);
+        ?? (sole?.description ?? null);
 
     // A pasted confirmation that fully parsed already carries a trustworthy
     // date; otherwise the conversational reader has the say. A date is only
@@ -252,7 +259,12 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
         ? (finalized?.dateAmbiguous ?? false)
         : dateResult.confidence === 'needs_clarification' && dateResult.date != null;
 
-    const amount = itemisation ? itemisation.total : singleAmount;
+    // "3 sodas at 50 each" states the price of ONE. The figure the amount
+    // extractor finds is 50; the transaction is 150, and 50 on a receipt is a
+    // wrong figure, not a vague one. The item reader is the only stage that
+    // knows the difference, so where it counted a quantity, its total wins.
+    const amount = itemisation ? itemisation.total
+        : (sole && sole.quantity != null ? sole.amount : singleAmount);
 
     const missing: Array<'amount' | 'recipient' | 'date'> = [];
     if (amount == null || amount <= 0) missing.push('amount');
@@ -265,6 +277,7 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
         detectedCurrency,
         recipient,
         itemisation,
+        soleLineItem: sole && sole.quantity != null ? sole : null,
         purposeLabel: extractPurpose(text),
         date,
         dateAmbiguous,
@@ -423,6 +436,14 @@ export function absorbAnswer(current: OpenSlots, typed: string): OpenSlots {
             next.lineItems = itemisation.items;
             // The itemisation's total is the amount, and it beats a bare figure.
             next.amount = itemisation.total;
+        } else {
+            // Same rule as extractDescription: one counted thing earns a line,
+            // and its total is the amount even when the user priced it per item.
+            const sole = extractSoleItem(text, TYPED);
+            if (sole && sole.quantity != null) {
+                next.lineItems = [sole];
+                next.amount = sole.amount;
+            }
         }
     }
 
@@ -472,8 +493,17 @@ export function buildConfirmSentence(f: ConfirmFields): string {
     const money = (n: number) => fmtAmountProse(n, f.currency.code);
 
     const items = f.lineItems ?? null;
+    // "3 x Ksh 150" is what the receipt will say and what the customer will
+    // check it against, so it is what the user is asked to agree to. And a
+    // single line needs no "total": restating one figure as its own sum reads
+    // as a machine filling in a form.
+    const itemText = (i: LineItem) => {
+        const qty = i.quantity != null && i.unitPrice != null
+            ? ` (${i.quantity} x ${money(i.unitPrice)})` : '';
+        return `${i.description}${qty} ${money(i.amount)}`;
+    };
     const lead = items && items.length > 0
-        ? `${items.map(i => `${i.description} ${money(i.amount)}`).join(', ')} — total ${money(f.amount ?? 0)}`
+        ? items.map(itemText).join(', ') + (items.length > 1 ? ` — total ${money(f.amount ?? 0)}` : '')
         // A draft can reach this sentence without a recipient — the cancel
         // flow's "keep what I have" ends the questions wherever they stood. An
         // absent one is simply left out; interpolating it produced the literal

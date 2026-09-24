@@ -80,7 +80,7 @@ export function composeDescription(
             amount: r.amount ?? draft.amount,
             // An itemised message fills the amount slot with its total and the
             // description slot with the items, so neither is asked about again.
-            lineItems: r.itemisation?.items ?? draft.lineItems,
+            lineItems: r.itemisation?.items ?? (r.soleLineItem ? [r.soleLineItem] : null) ?? draft.lineItems,
             // Folded, never replaced: the first stated currency holds for the
             // whole transaction, and a silent message does not reset it.
             currency: lockCurrency(draft.currency, text),

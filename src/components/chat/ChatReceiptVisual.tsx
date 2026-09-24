@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
-import type { ParsedTransaction } from '../../types';
+import type { DocumentType, ParsedTransaction } from '../../types';
 import type { ReceiptData, DocRenderMeta } from '../../lib/receiptGenerator';
 import { fmt, fmtCurrency, getRecipientShort, getProviderSuffix, categoryKeyFor } from '../../lib/receiptGenerator';
 import { providerChipLabel } from '../../lib/transactionDisplay';
-import { formatCovering, issuedDate, trustDisclaimerLine, claimTotals, DOC_LINE_CAP, DOC_GROUP_THRESHOLD } from '../../lib/documentRender';
+import { formatCovering, issuedDate, trustDisclaimerLine, claimTotals, lineItemText, DOC_LINE_CAP, DOC_GROUP_THRESHOLD } from '../../lib/documentRender';
 import { sourceReport, SOURCE_TAG_BY_HAND, SOURCE_TAG_FROM_MESSAGES } from '../../lib/documentLayout';
 import { getUncertaintyNote, fmtTxDate, CHECK_PREFIX } from '../../lib/transactionDisplay';
 import { CountUp } from '../CountUp';
@@ -152,9 +152,9 @@ function LabelPicker({ current, onSelect }: { current: string | null; onSelect: 
 // ── Transaction row ─────────────────────────────────────────────────────────
 
 function TransactionRow({
-    t, delay, animateEntrance, sourceTag, onLabelChange, onEditTransaction,
+    t, documentType, delay, animateEntrance, sourceTag, onLabelChange, onEditTransaction,
 }: {
-    t: ParsedTransaction; delay: number; animateEntrance: boolean;
+    t: ParsedTransaction; documentType: DocumentType; delay: number; animateEntrance: boolean;
     sourceTag: string | null;
     onLabelChange?: (label: string | null) => void;
     onEditTransaction?: (patch: Partial<ParsedTransaction>) => void;
@@ -185,6 +185,22 @@ function TransactionRow({
                         {providerTag && <span className="text-[var(--text-muted)] font-normal"> · {providerTag}</span>}
                         {reason && <span className="font-normal"> — {reason}</span>}
                     </p>
+                    {/* The itemisation, on the card as well as in the PDF and
+                        the exported HTML. It was built, extracted and rendered
+                        into both exports, and left off the one surface the user
+                        actually reads before pressing Save — so "3 x Ksh 150"
+                        first appeared on a receipt already in a customer's
+                        hand. Same rule and same wording as buildLine. */}
+                    {documentType === 'point_of_sale' && t.lineItems && t.lineItems.length > 0 && (
+                        <div className="mt-1 space-y-0.5">
+                            {t.lineItems.map((li, n) => (
+                                <div key={n} className="flex justify-between gap-2 text-[10px] text-[var(--text-muted)]">
+                                    <span className="min-w-0">{lineItemText(li, t.currency)}</span>
+                                    <span className="tabular-nums flex-shrink-0">{fmtCurrency(li.amount, t.currency)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                     <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
                         {[fmtTxDate(t), sourceTag].filter(Boolean).join(' · ')}
                     </p>
@@ -530,6 +546,7 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                         <TransactionRow
                             key={t.transactionCode}
                             t={t}
+                            documentType={meta.documentType}
                             delay={TX_START + i * rowStagger}
                             animateEntrance={animateEntrance}
                             sourceTag={rowTag(t)}
@@ -565,6 +582,7 @@ export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onE
                                             <TransactionRow
                                                 key={t.transactionCode}
                                                 t={t}
+                                                documentType={meta.documentType}
                                                 delay={0}
                                                 animateEntrance={false}
                                                 sourceTag={rowTag(t)}
