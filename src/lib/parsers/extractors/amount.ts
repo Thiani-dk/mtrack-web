@@ -123,6 +123,9 @@ interface Candidate {
     index: number;
     length: number;
     score: number;
+    // Whether it was written with no currency token, and so depends on the
+    // sentence marking it as money. Only those can be misread as counts.
+    bare: boolean;
 }
 
 // One currency-tagged amount, located in the text.
@@ -188,9 +191,43 @@ function scanAmounts(msg: string, opts: AmountScanOptions = {}): Candidate[] {
 
         const currency = normalizeCurrency(prefix ?? '') ?? normalizeCurrency(suffixCur ?? '') ?? DEFAULT_CURRENCY;
         const score = scoreCandidate(msg, m.index, whole.length);
-        candidates.push({ amount: base * mult, currency, index: m.index, length: whole.length, score });
+        candidates.push({ amount: base * mult, currency, index: m.index, length: whole.length, score, bare });
     }
-    return candidates;
+    return dropCounts(msg, candidates);
+}
+
+// Words that can follow a number without the number being a count of them:
+// prepositions and conjunctions that join it to something else, and the time
+// words a date phrase is built from. "3 chapati" counts chapati; "20 for", "50
+// yesterday" and "3 days" count nothing.
+const NOT_A_COUNTED_THING =
+    /^(?:for|at|worth|of|each|and|or|to|on|in|from|per|a|an|the|plus|na|kwa|more|less|about|around)$/i;
+const TIME_WORD =
+    /^(?:today|yesterday|tomorrow|day|days|week|weeks|month|months|year|years|hour|hours|minute|minutes|am|pm|oclock)$/i;
+
+// "sold 3 chapati for 150" is a hundred and fifty shillings, not three.
+//
+// The cue-word rule has no way to tell a count from a sum: "sold" sits right
+// before the 3, so the 3 qualifies as money, scores as well as the 150 and wins
+// on position. A receipt for that sale read TOTAL PAID Ksh 3.00.
+//
+// A small number followed by the thing it counts is a count — but only where
+// something else in the message can be the price. Without that second
+// candidate the count reading would leave the message with no amount at all,
+// and "spent 50 yesterday" really is fifty. Two readings compete; the count
+// only wins when the price reading is still available elsewhere.
+function dropCounts(msg: string, candidates: Candidate[]): Candidate[] {
+    return candidates.filter((c, i) => {
+        if (!c.bare || c.amount > 99 || !Number.isInteger(c.amount)) return true;
+        // Something after it has to be able to carry the price.
+        if (!candidates.some((other, j) => j > i && other.index > c.index)) return true;
+        // The match may already have eaten the space after the digits — the
+        // pattern allows for a currency token there and consumes the gap
+        // whether or not one turns up.
+        const [, next] = msg.slice(c.index + c.length).match(/^\s*([a-z][a-z-]*)/i) ?? [];
+        if (!next || NOT_A_COUNTED_THING.test(next) || TIME_WORD.test(next)) return true;
+        return false;
+    });
 }
 
 export function extractAmount(msg: string, opts: AmountScanOptions = {}): AmountResult | null {

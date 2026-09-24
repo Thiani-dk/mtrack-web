@@ -98,6 +98,6 @@ describe('the harness itself', () => {
     it('carries every shape that has broken extraction so far', () => {
         // A deletion from the fixture file is a shape stopping being tested
         // everywhere, which is exactly how this class of bug kept returning.
-        expect(EXTRACTION_SHAPES).toHaveLength(5);
+        expect(EXTRACTION_SHAPES).toHaveLength(6);
     });
 });

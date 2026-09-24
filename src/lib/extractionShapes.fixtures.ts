@@ -153,6 +153,21 @@ export const EXTRACTION_SHAPES: readonly ExtractionShape[] = [
         },
     },
     {
+        name: 'a bare count between the verb and the price',
+        report: 'Found by the flow sweep. "sold 3 chapati for 150" was read as three '
+            + 'shillings — the cue-word rule cannot tell a count from a sum, and the 3 '
+            + 'sits right after "sold". A receipt for that sale read TOTAL PAID Ksh 3.00.',
+        amount: 150,
+        // Three of them, so the count earns a line of its own — see Phase 1.
+        items: ['Chapati'],
+        byType: {
+            expense_summary: { message: 'bought 3 chapati for 150', description: 'Chapati' },
+            personal_note: { message: 'bought 3 chapati for 150', description: 'Chapati' },
+            point_of_sale: { message: 'sold 3 chapati for 150', description: 'Chapati' },
+            on_behalf_of: { message: 'paid for 3 chapati for 150', description: 'Chapati' },
+        },
+    },
+    {
         name: 'a numeral inside a relative-date phrase, alongside a real amount',
         report: 'Fixed after "3 days ago" was confirmed back as "Ksh 3". Here as a '
             + 'guard in both directions: the date phrase owns its numeral, and the '

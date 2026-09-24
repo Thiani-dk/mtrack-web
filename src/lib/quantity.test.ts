@@ -146,3 +146,40 @@ describe('an item with no quantity', () => {
         expect(rows[1]).not.toContain('x ');
     });
 });
+
+describe('a count is not a price', () => {
+    // From the flow sweep. "sold 3 chapati for 150" was read as three shillings:
+    // the cue-word rule cannot tell a count from a sum, "sold" sits right before
+    // the 3, and the 3 then scored as well as the 150 and won on position.
+    it('reads the price, not the count, and puts the count where it belongs', () => {
+        const { draft, lineItems, rows } = throughTheDocument('sold 3 chapati for 150');
+        expect(draft.amount).toBe(150);
+        expect(lineItems?.map(i => [i.description, i.quantity, i.unitPrice, i.amount]))
+            .toEqual([['Chapati', 3, 50, 150]]);
+        expect(rows).toEqual(['Chapati (3 x Ksh 50.00)  Ksh 150.00']);
+    });
+
+    it('still reads a small figure that IS the price', () => {
+        // Nothing else in the message can carry a price, so the count reading
+        // must not win — "spent 50 yesterday" really is fifty.
+        expect(throughTheDocument('spent 50 yesterday').draft.amount).toBe(50);
+        expect(throughTheDocument('spent 12 on parking').draft.amount).toBe(12);
+        expect(throughTheDocument('worth 30 today').draft.amount).toBe(30);
+        // The one that rests on the second condition alone: "rent" is a noun
+        // like "chapati", so only the absence of any other figure to be the
+        // price keeps this reading as fifty shillings rather than as a count.
+        expect(throughTheDocument('paid 50 rent').draft.amount).toBe(50);
+        expect(throughTheDocument('spent 20 airtime').draft.amount).toBe(20);
+    });
+
+    it('does not mistake the word joining a figure to what follows for a counted thing', () => {
+        // "20 for 3 sodas" — "for" is what attaches the price to the goods, so
+        // the 20 is the price and the 3 is not competing with it.
+        expect(throughTheDocument('paid 20 for 3 sodas').draft.amount).toBe(20);
+        expect(throughTheDocument('paid 12 for parking and 30 for a soda').draft.amount).toBe(12);
+    });
+
+    it('leaves a genuine multi-item list alone', () => {
+        expect(throughTheDocument('bought bread for 60, milk for 120').draft.amount).toBe(180);
+    });
+});
