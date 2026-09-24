@@ -236,12 +236,21 @@ function itemFragment(segment: string): string | null {
     //
     // A bare noun phrase — no transaction verb to anchor it, and no subject
     // pronoun either — is exactly what a descriptive fragment looks like: "2
-    // buckets of chicken wings", "one sweet (honey dipped)". Those ran over the
-    // old three-word ceiling and were dropped, which is how a message whose
-    // first six words said what was bought still got asked what was bought.
-    // Anything carrying a pronoun is someone telling a story and keeps the
-    // tight ceiling.
-    const limit = hadVerb ? 4 : NARRATING_RE.test(fragment) ? 3 : 6;
+    // buckets of chicken wings", "2 crates of milk for the office", "one sweet
+    // (honey dipped)". Those ran over the old three-word ceiling and were
+    // dropped, which is how a message whose first six words said what was
+    // bought still got asked what was bought.
+    //
+    // The pronoun is what actually separates the two: every piece of narration
+    // this ceiling was written to catch has a subject in it ("hi so, i spent
+    // quite a lot today", "they were out of everything useful"). Anything that
+    // does keeps the tight ceiling; the generous one below is a backstop
+    // against a runaway clause, not the real test.
+    //
+    // Tested against the clause as written, not the tidied fragment: tidying
+    // strips a leading pronoun as noise, so "they were out of everything
+    // useful" would otherwise arrive here looking like a noun phrase.
+    const limit = hadVerb ? 4 : NARRATING_RE.test(clause) ? 3 : 8;
     if (words.length > limit) return null;
     if (words.every(w => NON_ITEM_WORDS.has(w.toLowerCase().replace(/[^a-z]/gi, '')))) return null;
 

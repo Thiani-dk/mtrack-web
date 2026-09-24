@@ -813,3 +813,31 @@ describe('a price-less comma fragment beside a priced one', () => {
         expect(d.amount).toBe(120);
     });
 });
+
+describe('the same shapes in the other document types', () => {
+    // Each of the three extraction bugs was reported in ONE mode and fixed
+    // there. Nothing in extraction is type-aware — composeDescription never
+    // sees the document type — but that was an assumption until it was tested,
+    // and the assumption is what let the same shape surface three times in
+    // three different modes. The exhaustive matrix lives in
+    // extractionShapes.test.ts; these are the cells that had to be repaired.
+    it('keeps a long noun phrase in front of its descriptive sub-clauses', () => {
+        // The reimbursement wording of the chicken-wings shape. "2 crates of
+        // milk for the office" is seven words, and the ceiling on a price-less
+        // fragment dropped it — leaving the claim described as "One full
+        // cream, one skimmed", with the milk itself missing.
+        const d = describe1('2 crates of milk for the office, one full cream, one skimmed. worth 2999 ksh');
+        expect(d.recipient).toBe('2 crates of milk for the office, one full cream, one skimmed');
+        expect(d.amount).toBe(2999);
+    });
+
+    it('still refuses a fragment that is narration rather than a thing', () => {
+        // The ceiling that let the milk through is generous, so the subject
+        // pronoun is what now keeps a scene-setting clause out of the goods.
+        // Both of these are longer than the old ceiling allowed.
+        for (const preamble of ['it was a long day for me', 'they were out of everything useful']) {
+            const d = describe1(`${preamble}, bacon for 3100, tomatoes at 400`);
+            expect(d.lineItems?.map(i => i.description)).toEqual(['Bacon', 'Tomatoes']);
+        }
+    });
+});
