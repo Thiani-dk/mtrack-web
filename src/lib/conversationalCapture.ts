@@ -199,6 +199,24 @@ function conversationalDirectionHint(text: string): DirectionResult | null {
         return { type: 'received', confidence: 95, source: 'keyword' };
     }
 
+    // Selling is money in, whoever is writing the document. "sold" and "sell"
+    // were simply absent from this list, so every sale phrased that way came
+    // back unresolved and the flow stopped to ask "money in or out?" about a
+    // sales receipt.
+    if (/\b(?:sold|sell|selling|sells)\b/.test(t)) {
+        return { type: 'received', confidence: 95, source: 'keyword' };
+    }
+
+    // Someone ELSE doing the buying is money coming in.
+    //
+    // These verbs are read from the user's point of view — "bought" means the
+    // user bought, and the money left. "They bought 3 chapati for 150" is the
+    // opposite, and was recorded as money OUT at confidence 95, so no question
+    // was asked and a sales receipt carried the sign inverted.
+    if (THIRD_PARTY_BUYER_RE.test(t)) {
+        return { type: 'received', confidence: 95, source: 'keyword' };
+    }
+
     // Money leaving the user.
     if (/\b(?:i\s+)?(?:paid|pay|paying|sent|send|sending|gave|give|giving|spent|spend|spending|bought|buy|buying|settled|settle)\b/.test(t)) {
         return { type: 'sent', confidence: 95, source: 'keyword' };
@@ -206,6 +224,13 @@ function conversationalDirectionHint(text: string): DirectionResult | null {
 
     return null;
 }
+
+// A buyer who is not the person writing this. Deliberately requires the
+// subject to sit directly in front of the verb: "they bought", "the customer
+// paid" — not merely the word "they" appearing somewhere in the sentence,
+// which would flip "I bought it for them".
+const THIRD_PARTY_BUYER_RE =
+    /\b(?:they|she|he|customer|client|buyer|guy|lady|mama|someone|somebody)\s+(?:just\s+|also\s+)?(?:bought|buy|paid|pay|took|takes|ordered|order|got)\b/;
 
 export function extractDescription(typed: string, now: Date = new Date()): DescriptionResult {
     const text = readable(typed);
