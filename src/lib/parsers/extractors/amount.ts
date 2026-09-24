@@ -1,5 +1,6 @@
 import type { AmountResult } from '../types';
 import { CURRENCY_SUFFIX_SOURCE, DEFAULT_CURRENCY, normalizeCurrency } from './currency';
+import { PARTY_NAME_SOURCE, trimToName } from '../names';
 
 export type { AmountResult };
 
@@ -61,6 +62,31 @@ const MONEY_CUE_RE =
 // A trailing "/=" is how a Kenyan price is written without naming Shillings.
 const TRAILING_SLASH_RE = /^\s*\/=/;
 
+// The name of whoever the money went to, sitting between the cue word and the
+// figure: "paid Kevin 500", "sent Mama Njeri 1,200".
+//
+// This is probably the commonest way an English sentence states a payment, and
+// the cue rule — which tolerates whitespace and nothing else — refused every
+// one of them. "paid the 500" failed for the same reason, which is what
+// confirmed it was distance and not anything about names.
+//
+// Deliberately only a name. The adjacency rule is what stops reference codes,
+// times, years and quantities being read as money, and a widened window of
+// characters would let all of those back. A capitalised run that could be a
+// person is a narrow, checkable exception; "the" is not, and still fails.
+const CUE_ACROSS_NAME_RE = new RegExp(String.raw`\s(${PARTY_NAME_SOURCE})\s*$`);
+
+// Whether a money cue word governs the figure that follows `before`.
+function cueReaches(before: string): boolean {
+    if (MONEY_CUE_RE.test(before)) return true;
+    const m = before.match(CUE_ACROSS_NAME_RE);
+    // Every word of the span has to be plausible as part of a name. "paid
+    // Kevin Ksh 500" is already currency-tagged and never reaches here, but
+    // "paid Kevin Tuesday 500" must not become five hundred either.
+    if (!m || trimToName(m[1]) !== m[1]) return false;
+    return MONEY_CUE_RE.test(before.slice(0, m.index));
+}
+
 // Numbers a cue word can sit next to that are still not money.
 const NOT_MONEY_AFTER_RE = /^\s*(?:am|pm|a\.m\.|p\.m\.|o'clock|hrs?|%|x\b|×|pcs?\b|pieces?\b|st\b|nd\b|rd\b|th\b)/i;
 
@@ -69,7 +95,10 @@ const DATE_CHAR_BEFORE_RE = /[/:\-.]$/;
 const DATE_CHAR_AFTER_RE = /^[/:]/;
 
 function isBareMoney(msg: string, index: number, length: number): boolean {
-    const before = msg.slice(Math.max(0, index - 24), index);
+    // Wide enough to hold a cue word and the longest name span allowed after
+    // it. The window is only a bound on the search, not on what counts: the
+    // patterns below are anchored to the end of it.
+    const before = msg.slice(Math.max(0, index - 64), index);
     const after = msg.slice(index + length);
 
     // "12/09/2026", "7:30" — a number wedged into a date or a time, however
@@ -77,8 +106,13 @@ function isBareMoney(msg: string, index: number, length: number): boolean {
     if (DATE_CHAR_BEFORE_RE.test(before) || DATE_CHAR_AFTER_RE.test(after)) return false;
     // "around 7pm" is a time, "3 x" is a quantity, "20%" is a rate.
     if (NOT_MONEY_AFTER_RE.test(after)) return false;
+    // A digit glued to the end of a word is part of that word, not a sum:
+    // "QGH4R7TY9P" is a reference code, and its 4 is not four shillings. A
+    // currency written against the number ("Ksh500") is matched as a
+    // currency-tagged amount and never reaches this bare-number path.
+    if (/[A-Za-z]$/.test(before)) return false;
 
-    return MONEY_CUE_RE.test(before) || TRAILING_SLASH_RE.test(after);
+    return cueReaches(before) || TRAILING_SLASH_RE.test(after);
 }
 
 interface Candidate {

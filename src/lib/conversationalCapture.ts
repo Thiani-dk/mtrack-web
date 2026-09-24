@@ -11,6 +11,7 @@ import {
     parseConversationalDate, withoutDatePhraseNumerals, type ConversationalDateResult,
 } from './parsers/conversationalDate';
 import { normalizeForKeywords } from './parsers/fuzzy';
+import { PARTY_NAME_SOURCE, trimToName } from './parsers/names';
 import { normalizeSwahiliNumerals, SWAHILI_FROM_RE, swahiliVerbDirection } from './parsers/swahili';
 import { hasTransactionVerb } from './parsers/classify';
 import { partyFollowOn } from './partyQuestion';
@@ -152,15 +153,18 @@ function isMoneyPhrase(phrase: string): boolean {
 // "paid Kevin", "gave Mary", "to James", "sent to Achieng" — a capitalised name
 // token after a payment verb or preposition. Deliberately conservative.
 function extractFreeformName(text: string): string | null {
-    const m = text.match(/\b(?:paid|pay|gave|give|sent to|sent|to|for)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})\b/);
+    const m = text.match(FREEFORM_NAME_RE);
     if (!m) return null;
-    const name = m[1].trim();
-    // Reject month names and other common non-name capitalised words.
-    if (/^(January|February|March|April|May|June|July|August|September|October|November|December|Ksh|Ksh)$/i.test(name)) {
-        return null;
-    }
-    return name;
+    // Trimmed word by word rather than accepted or rejected whole: "paid Kevin
+    // Ksh 500" used to be filed as a payment to someone called "Kevin Ksh",
+    // because the run of capitalised words was only rejected when ALL of it
+    // was a month or a currency. See parsers/names.ts, which the amount reader
+    // shares so the two stages cannot disagree about where a name ends.
+    return trimToName(m[1]);
 }
+
+const FREEFORM_NAME_RE = new RegExp(
+    String.raw`\b(?:paid|pay|gave|give|sent to|sent|to|for)\s+(${PARTY_NAME_SOURCE})\b`);
 
 // The SMS direction oracle handles house-style confirmations. Free typing is
 // different: "paid Kevin 500", "gave mum 2k", "Jane sent me 800" carry a clear
