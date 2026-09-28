@@ -1,5 +1,6 @@
 import type { DocumentType, ParsedTransaction } from '../../types';
 import { parseAllMessages } from '../parsers';
+import { buildSelfReportedTransaction } from '../conversationalCapture';
 import type { CaptureSlot } from '../conversationalCapture';
 import { chooseMode, emptyConvState, MODE_VALUES, openConversation, receive } from './engine';
 import type { BotTurn, ConvState, Effect, PendingPrompt, TurnResult } from './types';
@@ -28,6 +29,9 @@ export interface TurnRecord {
 export class Conversation {
     state: ConvState | null;
     transactions: ParsedTransaction[] = [];
+    // Approved own-spending lines already on the device, for the scenarios
+    // that ask what was spent. Set by a scenario's `saved` fixture.
+    ownSpending: ParsedTransaction[] = [];
     readonly history: TurnRecord[] = [];
     // The bot's opening, before any user message.
     readonly opening: BotTurn[];
@@ -70,7 +74,9 @@ export class Conversation {
 
     send(text: string): TurnRecord {
         return this.apply(
-            receive(this.state, text, { now: SCENARIO_NOW, transactions: this.transactions }),
+            receive(this.state, text, {
+                now: SCENARIO_NOW, transactions: this.transactions, ownSpending: this.ownSpending,
+            }),
             text, false,
         );
     }
@@ -81,7 +87,9 @@ export class Conversation {
             return this.apply(chooseMode(this.state, value), value, true);
         }
         return this.apply(
-            receive(this.state, value, { now: SCENARIO_NOW, transactions: this.transactions }),
+            receive(this.state, value, {
+                now: SCENARIO_NOW, transactions: this.transactions, ownSpending: this.ownSpending,
+            }),
             value, true,
         );
     }
@@ -317,9 +325,21 @@ export interface Step {
     expect?: Assertion[];
 }
 
+// An approved own-spending line already on the device, for the scenarios that
+// ask what was spent. Built through buildSelfReportedTransaction, the same
+// function the capture flow uses, so a fixture cannot drift from a real line.
+export interface SavedLine {
+    amount: number;
+    payee: string;
+    // Days before SCENARIO_NOW.
+    daysAgo: number;
+}
+
 export interface Scenario {
     id: string;
     title: string;
+    // What is already saved and approved on the device when this starts.
+    saved?: SavedLine[];
     // Which document types this path applies to. Defaults to all four.
     types?: readonly DocumentType[];
     // Skip the mode preamble and start in the open input state of this type.
@@ -375,6 +395,12 @@ export interface RunOutcome {
 
 export function runScenario(scenario: Scenario, documentType: DocumentType): RunOutcome {
     const c = scenario.startInCapture ? openInCapture(documentType) : new Conversation();
+    c.ownSpending = (scenario.saved ?? []).map(line => buildSelfReportedTransaction({
+        amount: line.amount,
+        recipient: line.payee,
+        date: new Date(SCENARIO_NOW.getTime() - line.daysAgo * 86400000),
+        direction: { type: 'sent', confidence: 95, source: 'keyword' },
+    }));
     const steps: StepOutcome[] = [];
     for (const step of scenario.steps) {
         const record = step.tap !== undefined ? c.tap(step.tap) : c.send(step.send ?? '');

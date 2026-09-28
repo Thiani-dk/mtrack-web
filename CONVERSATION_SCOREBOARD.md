@@ -6,7 +6,7 @@ A scenario may never be marked passing by loosening its assertion. Any change
 to an expectation is recorded in the "reason" column of the change log at the
 bottom of this file.
 
-**104 of 107 scenarios pass.**
+**109 of 109 scenarios pass.**
 
 | Section | pass | fail | blocked | decision |
 |---|---|---|---|---|
@@ -23,7 +23,7 @@ bottom of this file.
 | K. Emotional content | 5 | 0 | 0 | 0 |
 | L. Input robustness | 6 | 0 | 0 | 0 |
 | M. Session and return | 1 | 0 | 0 | 0 |
-| N. Spending questions | 0 | 3 | 0 | 0 |
+| N. Spending questions | 5 | 0 | 0 | 0 |
 
 ## Every scenario
 
@@ -147,9 +147,11 @@ bottom of this file.
 | **M. Session and return** | | | |
 | M3 | Several documents in one session, no state bleeding | pass |  |
 | **N. Spending questions** | | | |
-| N1 | How much did I spend this month | fail | spending questions are not answered |
-| N2 | A question the stored data cannot answer precisely | fail | spending questions are not answered |
-| N3 | No saved documents yet | fail | spending questions are not answered |
+| N1 | How much did I spend this month | pass |  |
+| N1b | A named month, and a merchant the data really holds | pass |  |
+| N1c | Only approved own spending is counted | pass |  |
+| N2 | A question the stored data cannot answer precisely | pass |  |
+| N3 | No saved documents yet | pass |  |
 
 ## Expectation change log
 

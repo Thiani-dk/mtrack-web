@@ -10,7 +10,7 @@ import { copyEntry, render } from '../../lib/conversation/copy';
 import type { BotTurn, ConvState, TurnResult } from '../../lib/conversation/types';
 import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
-import { getDocument } from '../../lib/documentStore';
+import { getAllDocuments, getDocument } from '../../lib/documentStore';
 import { buildDraft } from '../../lib/draftDocument';
 import { pipelineEligibility } from '../../lib/documentPipeline';
 import { useChatSession, markNewlyCreatedMessage } from '../../lib/useChatSession';
@@ -875,6 +875,24 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         askPurposeFor(queue[0], transactions);
     }, [setDocFlow, askPurposeFor]);
 
+    // Every line from every APPROVED own-spending document on this device, for
+    // answering "how much did I spend this month?". Read once and refreshed
+    // after each approval, so the engine stays a pure function and IndexedDB
+    // stays in the component. point_of_sale and on_behalf_of are filtered out
+    // by the same pipelineEligibility gate the aggregate uses: a customer's
+    // money is not the user's spending.
+    const ownSpendingRef = useRef<ParsedTransaction[]>([]);
+    const refreshOwnSpending = useCallback(async () => {
+        if (isDemoSession) return;
+        const docs = await getAllDocuments();
+        ownSpendingRef.current = docs
+            .filter(d => d.status === 'approved')
+            .filter(d => pipelineEligibility(d.documentType).aggregation)
+            .flatMap(d => d.transactions);
+    }, [isDemoSession]);
+
+    useEffect(() => { void refreshOwnSpending(); }, [refreshOwnSpending]);
+
     // ── The conversation ─────────────────────────────────────────────────
     //
     // Everything the bot says, and everything it waits for next, is decided in
@@ -992,6 +1010,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         await applyResult(receive(docFlowRef.current, text, {
             now: new Date(),
             transactions: receiptMsg?.transactions ?? [],
+            ownSpending: ownSpendingRef.current,
         }));
     }, [isDemoSession, demoMessages, activeSession, applyResult]);
 
@@ -1047,9 +1066,11 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             await recordSession(transactions, false);
         }
 
+        await refreshOwnSpending();
+
         await sleep(300);
         addMessage({ role: 'bot', kind: 'text', text: copyEntry('approve.saved').variants[0] });
-    }, [isDemoSession, activeSession, persistDocument, setDocFlow, updateMessage, recordSession, addMessage]);
+    }, [isDemoSession, activeSession, persistDocument, setDocFlow, updateMessage, recordSession, addMessage, refreshOwnSpending]);
 
     const handleNearDuplicateKeep = useCallback((messageId: string) => {
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;

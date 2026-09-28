@@ -982,27 +982,59 @@ const M: Scenario[] = [
 
 // ── N. Asking about their own spending ──────────────────────────────────────
 
+// Three lines already approved on this device: two in September 2026, one in
+// August, so a month boundary is actually crossed.
+const SAVED: Scenario['saved'] = [
+    { amount: 3100, payee: 'Naivas', daysAgo: 1 },
+    { amount: 850, payee: 'Java House', daysAgo: 5 },
+    { amount: 2000, payee: 'Naivas', daysAgo: 40 },
+];
+
 const N: Scenario[] = [
     {
         id: 'N1', title: 'How much did I spend this month', types: ['expense_summary'],
-        startInCapture: true, status: 'fail',
-        note: 'spending questions are not answered',
+        startInCapture: true, saved: SAVED, status: 'pass',
         steps: [
-            { send: 'how much did I spend this month?', expect: [used('spend.answer', 'spend.none')] },
+            {
+                send: 'how much did I spend this month?',
+                expect: [used('spend.answer'), echoes('3,950', 'September 2026'), endsWithNextStep()],
+            },
+        ],
+    },
+    {
+        id: 'N1b', title: 'A named month, and a merchant the data really holds',
+        types: ['expense_summary'], startInCapture: true, saved: SAVED, status: 'pass',
+        steps: [
+            { send: 'how much did I spend in August?', expect: [echoes('2,000', 'August 2026')] },
+            { send: 'how much did I spend at Naivas this month?', expect: [echoes('3,100', 'Naivas')] },
+        ],
+    },
+    {
+        id: 'N1c', title: 'Only approved own spending is counted',
+        types: ['expense_summary'], startInCapture: true, saved: SAVED, status: 'pass',
+        steps: [
+            // The three approved own-spending lines total 5,950 across all
+            // time. What must never appear here is a figure that swept in a
+            // point_of_sale or on_behalf_of line, which is a customer's money
+            // and money owed back.
+            { send: 'total so far?', expect: [echoes('5,950'), used('spend.onlyApproved')] },
         ],
     },
     {
         id: 'N2', title: 'A question the stored data cannot answer precisely',
-        types: ['expense_summary'], startInCapture: true, status: 'fail',
-        note: 'spending questions are not answered',
+        types: ['expense_summary'], startInCapture: true, saved: SAVED, status: 'pass',
         steps: [
-            { send: 'how much did I spend this week?', expect: [used('spend.nearestPeriod', 'spend.none')] },
+            {
+                send: 'how much did I spend this week?',
+                // Honest about the limit, then the nearest period it CAN give
+                // exactly, named. Never an estimate.
+                expect: [used('spend.nearestPeriod'), echoes('September 2026', '3,950')],
+            },
         ],
     },
     {
         id: 'N3', title: 'No saved documents yet', types: ['expense_summary'], startInCapture: true,
-        status: 'fail',
-        note: 'spending questions are not answered',
+        status: 'pass',
         steps: [
             { send: 'total so far?', expect: [used('spend.none'), endsWithNextStep()] },
         ],

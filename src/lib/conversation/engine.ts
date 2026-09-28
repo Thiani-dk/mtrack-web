@@ -25,6 +25,7 @@ import {
     volunteeredPlace, type EnrichSlot,
 } from './enrichment';
 import { classifyEdge, countsAsOffTopic, type EdgeCategory } from './edgeIntent';
+import { answerSpending, readSpendingQuestion, spentLines } from './spendingQuestions';
 import { fmtAmountProse, fmtProseCurrency, UNDATED } from '../transactionDisplay';
 import type { CopyId } from './copy';
 import { TurnBuilder } from './turns';
@@ -380,6 +381,14 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             options: optionsFrom(CANCEL_CONFIRM_VALUES, CANCEL_OPTION_COPY),
         });
         return { ...state, pending: 'cancel-confirm' };
+    }
+
+    // "How much did I spend this month?" is the one question about the past
+    // this can answer, and it answers it from this device only.
+    const spendingQuestion = readSpendingQuestion(t, ctx.now);
+    if (spendingQuestion && state.pending !== 'cancel-confirm' && state.pending !== 'correction-target') {
+        answerSpendingQuestion(b, state, spendingQuestion, ctx);
+        return state;
     }
 
     // A greeting, wherever it arrives. Outranks the edge ladder, which would
@@ -880,6 +889,49 @@ function fieldOptions(b: TurnBuilder): ChatOption[] {
         { id: 'confirm-description', label: b.text('confirm.field.description'), value: 'description' },
         { id: 'confirm-start', label: b.text('confirm.field.start'), value: 'start-again' },
     ];
+}
+
+// The figure, said plainly, with the period named and nothing estimated.
+function answerSpendingQuestion(
+    b: TurnBuilder, state: ConvState,
+    question: ReturnType<typeof readSpendingQuestion> & object,
+    ctx: TurnContext,
+): void {
+    const answer = answerSpending(question, spentLines(ctx.ownSpending), ctx.now);
+    const money = (n: number) => fmtAmountProse(n, answer.currency);
+    const lines = answer.lineCount === 1 ? 'line' : 'lines';
+
+    if (answer.kind === 'none') {
+        b.say('spend.none');
+        return;
+    }
+    if (answer.kind === 'noneInPeriod') {
+        b.say('spend.noneInPeriod', { period: answer.periodLabel });
+        stepBack(b, state, 'offTopic');
+        return;
+    }
+    if (answer.kind === 'nearest') {
+        b.say('spend.nearestPeriod', {
+            period: answer.periodLabel, total: money(answer.total), count: answer.lineCount, lines,
+        });
+        stepBack(b, state, 'offTopic');
+        return;
+    }
+    if (answer.merchant) {
+        b.say('spend.answerMerchant', {
+            total: money(answer.total), merchant: answer.merchant,
+            period: answer.periodLabel, count: answer.lineCount, lines,
+        });
+    } else if (answer.periodLabel === 'all time') {
+        b.say('spend.answerTotal', { total: money(answer.total), count: answer.lineCount, lines });
+    } else {
+        b.say('spend.answer', {
+            total: money(answer.total), period: answer.periodLabel,
+            count: answer.lineCount, lines,
+        });
+    }
+    b.say('spend.onlyApproved');
+    stepBack(b, state, 'offTopic');
 }
 
 // ── The redirect composer ───────────────────────────────────────────────────

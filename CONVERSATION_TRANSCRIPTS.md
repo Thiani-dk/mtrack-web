@@ -2861,37 +2861,66 @@ M-Track  If you've got the M-Pesa messages for these, copy them in. They carry t
 
 ### N1 · How much did I spend this month · expense_summary
 
-_fail: spending questions are not answered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  how much did I spend this month?
-M-Track  I don't have a good answer for that one, sorry.   [help.unknown]
+M-Track  Ksh 3,950 in September 2026, across 2 lines.   [spend.answer]
+M-Track  That counts your own spending only, from documents you approved.   [spend.onlyApproved]
 M-Track  What did you spend on?   [edge.backToCapture]
-   ^ MISSES: expected spend.answer or spend.none, said help.unknown, edge.backToCapture
 ```
 
-### N2 · A question the stored data cannot answer precisely · expense_summary
+### N1b · A named month, and a merchant the data really holds · expense_summary
 
-_fail: spending questions are not answered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
-You says  how much did I spend this week?
-M-Track  Which day last week? And how much?   [date.retry]
-   ^ MISSES: expected spend.nearestPeriod or spend.none, said date.retry, follow.amount
+You says  how much did I spend in August?
+M-Track  Ksh 2,000 in August 2026, across 1 line.   [spend.answer]
+M-Track  That counts your own spending only, from documents you approved.   [spend.onlyApproved]
+M-Track  What did you spend on?   [edge.backToCapture]
+You says  how much did I spend at Naivas this month?
+M-Track  Ksh 3,100 at Naivas in September 2026, across 1 line.   [spend.answerMerchant]
+M-Track  That counts your own spending only, from documents you approved.   [spend.onlyApproved]
+M-Track  What's the next one?   [edge.backToCapture]
 ```
 
-### N3 · No saved documents yet · expense_summary
+### N1c · Only approved own spending is counted · expense_summary
 
-_fail: spending questions are not answered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  total so far?
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And who was that to?   [ask.date]
-   ^ MISSES: expected spend.none, said ask.date, follow.party.expense_summary
+M-Track  Ksh 5,950 in all, across 3 lines.   [spend.answerTotal]
+M-Track  That counts your own spending only, from documents you approved.   [spend.onlyApproved]
+M-Track  What did you spend on?   [edge.backToCapture]
+```
+
+### N2 · A question the stored data cannot answer precisely · expense_summary
+
+_pass_
+
+```
+M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
+M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
+You says  how much did I spend this week?
+M-Track  I don't keep week boundaries, so I can't split it that way. What I can tell you exactly is September 2026: Ksh 3,950, across 2 lines.   [spend.nearestPeriod]
+M-Track  What did you spend on?   [edge.backToCapture]
+```
+
+### N3 · No saved documents yet · expense_summary
+
+_pass_
+
+```
+M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
+M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
+You says  total so far?
+M-Track  Nothing saved yet, so there's nothing to add up. What did you spend?   [spend.none]
 ```

@@ -674,6 +674,41 @@ export const COPY = {
         ],
     },
 
+    // Answering a question about their own spending, from this device only
+    'spend.answer': {
+        kind: 'statement',
+        variants: ['{total} in {period}, across {count} {lines}.'],
+    },
+    'spend.answerTotal': {
+        kind: 'statement',
+        variants: ['{total} in all, across {count} {lines}.'],
+    },
+    'spend.answerMerchant': {
+        kind: 'statement',
+        variants: ['{total} at {merchant} in {period}, across {count} {lines}.'],
+    },
+    'spend.nearestPeriod': {
+        kind: 'statement',
+        variants: [
+            "I don't keep week boundaries, so I can't split it that way. What I can tell you "
+            + 'exactly is {period}: {total}, across {count} {lines}.',
+        ],
+    },
+    'spend.noneInPeriod': {
+        kind: 'statement',
+        variants: ['Nothing saved for {period}.'],
+    },
+    'spend.none': {
+        kind: 'question',
+        variants: [
+            "Nothing saved yet, so there's nothing to add up. What did you spend?",
+        ],
+    },
+    'spend.onlyApproved': {
+        kind: 'statement',
+        variants: ['That counts your own spending only, from documents you approved.'],
+    },
+
     // Saving
     'approve.saved': { kind: 'terminal', variants: ['Approved and saved. It is in your history now.'] },
     'system.error': {

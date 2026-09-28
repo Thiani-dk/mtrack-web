@@ -115,4 +115,11 @@ export interface TurnContext {
     // The document's transactions as they currently stand, for the paths that
     // edit them (purpose labelling). The message list stays authoritative.
     transactions: ParsedTransaction[];
+    // Every line from every APPROVED expense_summary / personal_note document
+    // on this device, for answering "how much did I spend?". Never any
+    // point_of_sale or on_behalf_of line: those are a customer's money and
+    // money owed back, and counting either would give a confidently wrong
+    // figure. Supplied by the caller, which is the only thing that can read
+    // IndexedDB.
+    ownSpending: ParsedTransaction[];
 }
