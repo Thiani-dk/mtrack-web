@@ -327,10 +327,44 @@ export function normalizePricedList(text: string): string {
     return rebuild(text, segments, matched);
 }
 
-// Both list shapes, in the order that leaves each doing only its own job.
+// "Team lunch at Java House, 2,400, yesterday" — the thing, the price and the
+// date, each in its own comma-separated slot.
+//
+// A very natural way to type a line, and it read as no price at all: the
+// figure sits alone in its segment with no cue word anywhere near it. The
+// evidence here is the SHAPE — exactly one segment that is nothing but a
+// figure, beside segments that carry no figure at all. That is not how anyone
+// writes a count or a reference.
+const BARE_FIGURE_SEGMENT_RE = new RegExp(String.raw`^\s*(${FIGURE})\s*$`);
+
+export function normalizeFigureSegment(text: string): string {
+    if (NAMES_A_CURRENCY.test(text)) return text;
+    // A comma inside a number is not a separator: splitting "2,400" naively
+    // gave "2" and "400" and the rule never fired on the very shape it exists
+    // for.
+    const segments = text.split(/,(?!\d)/);
+    if (segments.length < 2 || segments.length > 4) return text;
+
+    const figureIndex = segments.findIndex(seg => BARE_FIGURE_SEGMENT_RE.test(seg));
+    if (figureIndex < 1) return text;
+    // Every other segment must be figure-free, or this is a list and
+    // normalizePricedList is the rule that applies.
+    if (segments.some((seg, i) => i !== figureIndex && /\d/.test(seg))) return text;
+    // And something must have been named, or there is nothing to price.
+    if (!/[a-z]{3}/i.test(segments.slice(0, figureIndex).join(' '))) return text;
+
+    const figure = BARE_FIGURE_SEGMENT_RE.exec(segments[figureIndex])![1];
+    segments[figureIndex] = ` for ${figure}`;
+    return segments.join(',');
+}
+
+// Every list shape, in the order that leaves each doing only its own job.
 export function normalizePricedText(text: string): string {
     const asList = normalizePricedList(text);
-    return asList === text ? normalizeLonePricedThing(text) : asList;
+    if (asList !== text) return asList;
+    const asLone = normalizeLonePricedThing(text);
+    if (asLone !== text) return asLone;
+    return normalizeFigureSegment(text);
 }
 
 // Puts the list back together with the separators it arrived with, so nothing

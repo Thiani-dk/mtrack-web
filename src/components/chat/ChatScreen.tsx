@@ -25,6 +25,7 @@ import {
     demoPartyOptions, demoErrandOptions, demoCategoryOptions, demoPlaceOptions,
     demoAmountOptions, demoPurposeOptions, demoLoopOptions, demoPartyName,
     buildDemoTransaction, buildDemoPasteMessage, DEMO_CATEGORIES, DEMO_PLENTY_COUNT,
+    DEMO_CORRECTION, DEMO_SENTENCE,
     type DemoStep, type DemoCategory, type DemoParty,
 } from '../../lib/demoFlow';
 import { generateInsights, computeDaySpan, detectRecurring, type InsightContext } from '../../lib/insights';
@@ -94,6 +95,17 @@ interface DemoFlow {
     pasteFake: string | null;
     pasteSourceCode: string | null;
     pastePurpose: string | null;
+    // The real conversation state, for the showcase moments. The sentence and
+    // the correction run through lib/conversation/engine exactly as they would
+    // in a real session: the demo shows what ships, or it shows nothing worth
+    // seeing. Still entirely ephemeral.
+    conv: ConvState | null;
+    // Which showcase moments this run actually triggered. The closing summary
+    // names only these, because a recap of things the user did not do is a
+    // feature list, and a feature list is what the demo exists instead of.
+    usedSentence: boolean;
+    usedCorrection: boolean;
+    usedSideChip: boolean;
 }
 
 function fmtShortDate(d: Date): string {
@@ -149,6 +161,7 @@ const DEMO_PURPOSE_INTRO =
     "Last part. Let's say what each line was for. An unexplained line is what gets a claim sent back.";
 const DEMO_PRE_RECEIPT = "That's everything. Here's the claim you just built.";
 const DEMO_TAP_NUDGE = 'Tap one of the options above to keep going.';
+const DEMO_SENTENCE_CHECK = 'One message, every field. Is that right?';
 const demoPasteIntro = (who: string) =>
     `One more thing. Most of the time you'll copy the actual M-Pesa message instead of tapping it in. Here's what the ${who} one would look like.`;
 const DEMO_PASTE_ASK = 'Copy that and send it back to me, the way you would a real one.';
@@ -162,11 +175,23 @@ const demoPasteCallout = (t: ParsedTransaction): string => {
 
 // A recap of what the user just did — not a feature list. Only names steps the
 // run actually walked through.
-const demoSummary = (pasteLanded: boolean): string => {
-    const pasteClause = pasteLanded
-        ? ', copied a real message and watched the details come across on their own,'
-        : ',';
-    return `That's it. You just built a claim by tapping through it${pasteClause} labelled what each line was for, and got a document with the fees included in the total.\n\n`
+const demoSummary = (moments: {
+    pasteLanded: boolean; sentence: boolean; correction: boolean; sideChip: boolean;
+}): string => {
+    // Only what actually happened. A recap that lists moments the user never
+    // triggered is a feature list, and a feature list is the thing this demo
+    // exists instead of.
+    const did = ['built a claim by tapping through it'];
+    if (moments.sentence) did.push('said a whole line in one sentence and watched it come apart into fields');
+    if (moments.correction) did.push('changed a figure in one message');
+    if (moments.pasteLanded) did.push('pasted a real message and watched the details come across on their own');
+    if (moments.sideChip) did.push('asked it something off the subject and got a straight answer');
+    did.push('labelled what each line was for');
+
+    const list = did.length > 1
+        ? `${did.slice(0, -1).join(', ')}, and ${did[did.length - 1]}`
+        : did[0];
+    return `That's it. You just ${list}, and got a document with the fees included in the total.\n\n`
         + `There's also an Active Mode for tracking a lot of sales quickly at a stand or on a busy day.\n\n`
         + `The real thing works the same way. Ready to make one?`;
 };
@@ -536,6 +561,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 draftCategory: null, customCategoryLabel: '', draftPlace: null,
                 txns: [], txnCategory: {}, purposeQueue: [], awaitingText: null,
                 pasteFake: null, pasteSourceCode: null, pastePurpose: null,
+                conv: null, usedSentence: false, usedCorrection: false, usedSideChip: false,
             });
             await sleep(600);
             addDemoMessage({ role: 'bot', kind: 'options', text: DEMO_PARTY_Q, options: demoPartyOptions() });
@@ -571,7 +597,17 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         });
         setDemoFlow(f => (f ? { ...f, step: 'summary' } : f));
         await sleep(700);
-        addDemoMessage({ role: 'bot', kind: 'options', text: demoSummary(pasteLanded), options: DEMO_SUMMARY_OPTIONS });
+        const f = demoFlowRef.current;
+        addDemoMessage({
+            role: 'bot', kind: 'options',
+            text: demoSummary({
+                pasteLanded,
+                sentence: f?.usedSentence ?? false,
+                correction: f?.usedCorrection ?? false,
+                sideChip: f?.usedSideChip ?? false,
+            }),
+            options: DEMO_SUMMARY_OPTIONS,
+        });
     }, [addDemoMessage, setDemoFlow]);
 
     // Pass 2 — the paste lesson. Build one fake M-Pesa message from the biggest
@@ -655,10 +691,103 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         });
     }, [setDemoFlow, addDemoMessage]);
 
+    // A showcase message, run through the real engine and shown as the user's
+    // own turn. The demo is ephemeral, so the ConvState lives on DemoFlow and
+    // nothing is persisted, but the ROUTING is the production one: if the
+    // engine could not read this sentence, the demo would show it failing.
+    const runDemoThroughEngine = useCallback(async (
+        flow: DemoFlow, text: string, showAsUser: boolean,
+    ): Promise<{ turns: BotTurn[]; state: ConvState | null; committed: ParsedTransaction[] }> => {
+        if (showAsUser) addDemoMessage({ role: 'user', kind: 'text', text });
+        const state = flow.conv ?? {
+            ...emptyConvState('on_behalf_of'),
+            pending: 'input' as const,
+            onBehalfOf: { preparedBy: null, partyName: flow.partyName || 'Someone', purpose: flow.errandLabel || null },
+        };
+        const result = receive(state, text, {
+            now: new Date(), transactions: flow.txns, ownSpending: [],
+        });
+        for (const turn of result.turns) {
+            await sleep(400);
+            addDemoMessage(messageFor(turn));
+        }
+        const committed = result.effects
+            .filter((e): e is Extract<typeof e, { kind: 'commit' }> => e.kind === 'commit')
+            .map(e => e.transaction);
+        return { turns: result.turns, state: result.state, committed };
+    }, [addDemoMessage]);
+
+    // "Say it in one sentence", then "Actually it was 2,600", then yes.
+    //
+    // Three taps that show the three things the tap-only build cannot: that
+    // the bot reads a whole sentence, that a correction takes one message, and
+    // that the change is shown before and after rather than applied silently.
+    const handleDemoSentence = useCallback(async (flow: DemoFlow, value: string) => {
+        if (value === 'sentence') {
+            const { state } = await runDemoThroughEngine(flow, DEMO_SENTENCE, true);
+            setDemoFlow({ ...flow, conv: state, usedSentence: true, step: 'category' });
+            await sleep(400);
+            addDemoMessage({
+                role: 'bot', kind: 'options', text: DEMO_SENTENCE_CHECK,
+                options: [
+                    { id: 'demo-sentence-yes', label: "Yes, that's it", value: 'sentence-yes' },
+                    { id: 'demo-sentence-fix', label: DEMO_CORRECTION, value: 'sentence-fix' },
+                ],
+            });
+            return;
+        }
+
+        if (value === 'sentence-fix') {
+            const { state } = await runDemoThroughEngine(flow, DEMO_CORRECTION, true);
+            setDemoFlow({ ...flow, conv: state, usedCorrection: true });
+            await sleep(400);
+            addDemoMessage({
+                role: 'bot', kind: 'options', text: DEMO_SENTENCE_CHECK,
+                options: [{ id: 'demo-sentence-yes', label: "Yes, that's it", value: 'sentence-yes' }],
+            });
+            return;
+        }
+
+        // Yes: the line is committed by the real engine and joins the claim.
+        const { state, committed } = await runDemoThroughEngine(flow, 'yes', true);
+        const txns = [...flow.txns, ...committed];
+        const txnCategory = { ...flow.txnCategory };
+        for (const t of committed) txnCategory[t.transactionCode] = 'food';
+        const next: DemoFlow = { ...flow, conv: state, txns, txnCategory, step: 'loop' };
+        setDemoFlow(next);
+        await sleep(400);
+        addDemoMessage({
+            role: 'bot', kind: 'options',
+            text: txns.length >= DEMO_PLENTY_COUNT ? DEMO_LOOP_Q_PLENTY : DEMO_LOOP_Q,
+            options: demoLoopOptions(),
+        });
+    }, [runDemoThroughEngine, setDemoFlow, addDemoMessage]);
+
     const handleDemoOption = useCallback(async (messageId: string, value: string) => {
         updateDemoMessage(messageId, { answered: true, answeredValue: value });
         const flow = demoFlowRef.current;
         if (!flow) return;
+
+        // A side chip: one question off the subject, answered by the real
+        // engine, then the demo puts its own question straight back.
+        if (value.startsWith('side:')) {
+            const asked = value.slice('side:'.length);
+            setDemoFlow({ ...flow, usedSideChip: true });
+            await runDemoThroughEngine(flow, asked, true);
+            await sleep(400);
+            addDemoMessage({
+                role: 'bot', kind: 'options',
+                text: flow.txns.length >= DEMO_PLENTY_COUNT ? DEMO_LOOP_Q_PLENTY : DEMO_LOOP_Q,
+                options: demoLoopOptions(),
+            });
+            return;
+        }
+
+        // The one-sentence moment, and the correction that follows it.
+        if (value === 'sentence' || value === 'sentence-fix' || value === 'sentence-yes') {
+            await handleDemoSentence(flow, value);
+            return;
+        }
 
         if (value === 'else') {
             setDemoFlow({ ...flow, awaitingText: flow.step });
@@ -728,7 +857,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
                 }
                 break;
         }
-    }, [updateDemoMessage, addDemoMessage, setDemoFlow, addDemoLine, startDemoPurposes, applyDemoPurpose, newSession, onBack, onOpenActiveMode]);
+    }, [updateDemoMessage, addDemoMessage, setDemoFlow, addDemoLine, startDemoPurposes, applyDemoPurpose, newSession, onBack, onOpenActiveMode, handleDemoSentence, runDemoThroughEngine]);
 
     // The "Something else" free-text path. Tapping is always enough to finish
     // the demo; this only runs when the user chose to type instead.

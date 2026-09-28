@@ -296,7 +296,11 @@ check('the itemised message needs no further questions',
 
 await say('the bacon was actually 3500');
 const corrected = await transcript();
-check('the correction names what it changed', /3,100\s*→\s*Ksh\s*3,500/.test(corrected), corrected.slice(-260));
+// The before and the after, in that order. The arrow that used to join them
+// was an em dash relative and the echo is registry copy now; what the check is
+// really about is that the change is visible, not how it is punctuated.
+check('the correction names what it changed',
+    /3,100[^\d]{1,20}3,500/.test(corrected), corrected.slice(-260));
 check('and states the new total', /3,930/.test(corrected));
 check('it does not restart from the date question',
     !/let.s go through it/i.test(corrected), corrected.slice(-200));
@@ -314,7 +318,8 @@ check('an ambiguous correction asks which item', /Which one/.test(asked), asked.
 await page.getByRole('button', { name: /^Tomatoes/ }).click();
 await page.waitForTimeout(900);
 const afterPick = await transcript();
-check('picking the item applies the change to that one', /400\s*→\s*Ksh\s*3,500/.test(afterPick), afterPick.slice(-220));
+check('picking the item applies the change to that one',
+    /400[^\d]{1,20}3,500/.test(afterPick), afterPick.slice(-220));
 
 // ── 10. A message that says two things at once ──
 await startChat();

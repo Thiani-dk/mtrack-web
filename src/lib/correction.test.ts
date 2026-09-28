@@ -52,9 +52,14 @@ describe('resolving which fact a correction is about', () => {
 describe('what a correction shows the user', () => {
     it('names the change, rather than applying it silently', () => {
         const out = resolveCorrection(THREE_ITEMS, 'the bacon was actually 3500', NOW);
+        // Both figures, in that order: the point is that the user can see what
+        // the change was, not merely that something changed. The arrow that
+        // used to join them was an em dash relative and is gone; what matters
+        // is the before and the after, which are still both there.
         expect(out.kind === 'applied' && out.echo).toContain('3,100');
         expect(out.kind === 'applied' && out.echo).toContain('3,500');
-        expect(out.kind === 'applied' && out.echo).toContain('→');
+        expect(out.kind === 'applied' && out.echo.indexOf('3,100'))
+            .toBeLessThan(out.kind === 'applied' ? out.echo.indexOf('3,500') : 0);
     });
 
     it('states the new total, since a line change moves it', () => {

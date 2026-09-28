@@ -321,6 +321,16 @@ export const COPY = {
 
     // Corrections
     'correction.applied': { kind: 'acknowledgement', variants: ['{echo}'] },
+    // The echo itself, assembled in correction.ts. Here so the voice lint can
+    // see it: every one of these carried an em dash, in the sentence whose
+    // whole job is to make a change visible.
+    'correction.echo.changed': { kind: 'acknowledgement', variants: ['Updated. {before} is now {after}.'] },
+    'correction.echo.set': { kind: 'acknowledgement', variants: ['Got it, {after}.'] },
+    'correction.echo.item': {
+        kind: 'acknowledgement',
+        variants: ['Updated. {item}: {before} is now {after}. New total {total}.'],
+    },
+    'correction.echo.date': { kind: 'acknowledgement', variants: ['Updated. The date is {after}.'] },
     'correction.ambiguous': { kind: 'question', variants: ['{question}'] },
     'correction.unresolved': {
         kind: 'question',

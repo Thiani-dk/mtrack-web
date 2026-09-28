@@ -4,6 +4,13 @@ import { lockCurrency, parseConversationalDate } from './conversationalCapture';
 import { extractAmount } from './parsers/extractors/amount';
 import { detectCurrency } from './parsers/extractors/currency';
 import { fmtAmountProse } from './transactionDisplay';
+import { copyEntry, render, type CopyId } from './conversation/copy';
+
+// Every echo below comes from the registry, so the sentence that makes a
+// change visible is linted with the rest of the voice.
+function echo(id: CopyId, params: Record<string, string>): string {
+    return render(copyEntry(id).variants[0], params);
+}
 
 // Working out WHICH fact a correction is about, and applying it visibly.
 //
@@ -179,8 +186,8 @@ export function resolveCorrection(
             target: { kind: 'amount' },
             draft: { ...draft, amount: newAmount },
             echo: before != null && before > 0
-                ? `Updated — ${money(before)} → ${money(newAmount)}.`
-                : `Got it — ${money(newAmount)}.`,
+                ? echo('correction.echo.changed', { before: money(before), after: money(newAmount) })
+                : echo('correction.echo.set', { after: money(newAmount) }),
         };
     }
 
@@ -190,7 +197,7 @@ export function resolveCorrection(
             kind: 'applied',
             target: { kind: 'date' },
             draft: { ...draft, date: newDate, dateInterpretation: dateRead.interpretation, dateAmbiguous: false },
-            echo: `Updated — the date is ${dateRead.interpretation ?? 'changed'}.`,
+            echo: echo('correction.echo.date', { after: dateRead.interpretation ?? 'changed' }),
         };
     }
 
@@ -201,7 +208,7 @@ export function resolveCorrection(
             kind: 'applied',
             target: { kind: 'currency' },
             draft: { ...draft, currency: lockCurrency({ code: newCurrency, explicit: false }, text) },
-            echo: `Updated — ${before} → ${newCurrency}.`,
+            echo: echo('correction.echo.changed', { before, after: newCurrency }),
         };
     }
 
@@ -213,7 +220,9 @@ export function resolveCorrection(
             kind: 'applied',
             target: { kind: 'recipient' },
             draft: { ...draft, recipient: name[1] },
-            echo: before ? `Updated — ${before} → ${name[1]}.` : `Got it — ${name[1]}.`,
+            echo: before
+                ? echo('correction.echo.changed', { before, after: name[1] })
+                : echo('correction.echo.set', { after: name[1] }),
         };
     }
 
@@ -242,8 +251,12 @@ function applyToItem(
         kind: 'applied',
         target: { kind: 'line-item', index },
         draft: { ...draft, lineItems: updated, amount: totalOf(updated) },
-        echo: `Updated — ${before.description}: ${money(before.amount)} → ${money(amount)}. `
-            + `New total ${money(totalOf(updated))}.`,
+        echo: echo('correction.echo.item', {
+            item: before.description,
+            before: money(before.amount),
+            after: money(amount),
+            total: money(totalOf(updated)),
+        }),
     };
 }
 

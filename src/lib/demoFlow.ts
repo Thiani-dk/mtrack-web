@@ -123,8 +123,38 @@ export function demoErrandOptions(party: DemoParty): ChatOption[] {
     ];
 }
 
+// The showcase moment. One chip sends a whole sentence the way a person would
+// actually type it, so the demo shows the bot reading real language rather
+// than only filling in taps. Sits at the top of the category question, which
+// is where the three-tap build would otherwise begin.
+export const DEMO_SENTENCE = 'Team lunch at Java House, 2,400, yesterday';
+export const DEMO_CORRECTION = 'Actually it was 2,600';
+
+export function demoSentenceOption(): ChatOption {
+    return {
+        id: 'demo-sentence',
+        label: 'Say it in one sentence',
+        sublabel: DEMO_SENTENCE,
+        value: 'sentence',
+    };
+}
+
+// Off the shortest path on purpose. Each one demonstrates something the demo
+// otherwise cannot show, and each resumes exactly where it was.
+export function demoSideOptions(): ChatOption[] {
+    return [
+        { id: 'demo-side-help', label: 'What can you do?', value: 'side:what can you do?' },
+        { id: 'demo-side-privacy', label: 'Is my data safe?', value: 'side:is my data safe?' },
+        {
+            id: 'demo-side-random', label: 'Ask it something random',
+            value: "side:what's the capital of France?",
+        },
+    ];
+}
+
 export function demoCategoryOptions(): ChatOption[] {
     return [
+        demoSentenceOption(),
         ...CATEGORY_ORDER.map(c => ({ id: c, label: DEMO_CATEGORIES[c].label, value: c })),
         ELSE_OPTION,
     ];
@@ -162,6 +192,7 @@ export function demoLoopOptions(): ChatOption[] {
     return [
         { id: 'another', label: 'Add another', value: 'another' },
         { id: 'enough', label: "That's enough", value: 'enough' },
+        ...demoSideOptions(),
     ];
 }
 

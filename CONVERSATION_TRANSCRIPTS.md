@@ -1337,7 +1337,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  no, 600
-M-Track  Updated — Ksh 3,100 → Ksh 600.   [correction.applied]
+M-Track  Updated. Ksh 3,100 is now Ksh 600.   [correction.applied]
 M-Track  Ksh 600 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1351,7 +1351,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  no, 600
-M-Track  Updated — Ksh 3,100 → Ksh 600.   [correction.applied]
+M-Track  Updated. Ksh 3,100 is now Ksh 600.   [correction.applied]
 M-Track  Ksh 600 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1365,7 +1365,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  no, 600
-M-Track  Updated — Ksh 3,100 → Ksh 600.   [correction.applied]
+M-Track  Updated. Ksh 3,100 is now Ksh 600.   [correction.applied]
 M-Track  Ksh 600 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1379,7 +1379,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  change the date to Monday
-M-Track  Updated — the date is 21 September 2026.   [correction.applied]
+M-Track  Updated. The date is 21 September 2026.   [correction.applied]
 M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1393,7 +1393,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  change the date to Monday
-M-Track  Updated — the date is 21 September 2026.   [correction.applied]
+M-Track  Updated. The date is 21 September 2026.   [correction.applied]
 M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1407,7 +1407,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  change the date to Monday
-M-Track  Updated — the date is 21 September 2026.   [correction.applied]
+M-Track  Updated. The date is 21 September 2026.   [correction.applied]
 M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1641,7 +1641,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
 M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually the bacon was 3500
-M-Track  Updated — Bacon: Ksh 3,100 → Ksh 3,500. New total Ksh 3,930.   [correction.applied]
+M-Track  Updated. Bacon: Ksh 3,100 is now Ksh 3,500. New total Ksh 3,930.   [correction.applied]
 M-Track  Bacon Ksh 3,500, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,930, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1655,7 +1655,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
 M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually the bacon was 3500
-M-Track  Updated — Bacon: Ksh 3,100 → Ksh 3,500. New total Ksh 3,930.   [correction.applied]
+M-Track  Updated. Bacon: Ksh 3,100 is now Ksh 3,500. New total Ksh 3,930.   [correction.applied]
 M-Track  Bacon Ksh 3,500, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,930, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1669,7 +1669,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
 M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually the bacon was 3500
-M-Track  Updated — Bacon: Ksh 3,100 → Ksh 3,500. New total Ksh 3,930.   [correction.applied]
+M-Track  Updated. Bacon: Ksh 3,100 is now Ksh 3,500. New total Ksh 3,930.   [correction.applied]
 M-Track  Bacon Ksh 3,500, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,930, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1683,7 +1683,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually it was on Monday
-M-Track  Updated — the date is 21 September 2026.   [correction.applied]
+M-Track  Updated. The date is 21 September 2026.   [correction.applied]
 M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1697,7 +1697,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually it was on Monday
-M-Track  Updated — the date is 21 September 2026.   [correction.applied]
+M-Track  Updated. The date is 21 September 2026.   [correction.applied]
 M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
@@ -1711,7 +1711,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually it was on Monday
-M-Track  Updated — the date is 21 September 2026.   [correction.applied]
+M-Track  Updated. The date is 21 September 2026.   [correction.applied]
 M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
