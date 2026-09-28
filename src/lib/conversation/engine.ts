@@ -20,6 +20,10 @@ import { parseAllMessages } from '../parsers';
 import { readAmountPhrase, type AmountChoice } from './amountPhrases';
 import { asksWhatOptionsMean, isGreeting, modeValue, readModeChoice } from './openingIntent';
 import { asksForExample, readRequest, saysDontKnow } from './requestIntent';
+import {
+    asksToBeAsked, enrichmentQueue, isGenericDescription, isSkip, MAX_ENRICH_SKIPS,
+    volunteeredPlace, type EnrichSlot,
+} from './enrichment';
 import { fmtAmountProse, fmtProseCurrency, UNDATED } from '../transactionDisplay';
 import type { CopyId } from './copy';
 import { TurnBuilder } from './turns';
@@ -73,6 +77,8 @@ export function emptyConvState(documentType: DocumentType = 'expense_summary'): 
         lastCopyId: null,
         namedGoods: null,
         slotAttempts: 0,
+        enrichQueue: [],
+        enrichSkips: 0,
     };
 }
 
@@ -232,8 +238,49 @@ function advanceAfterField(
     const stillOpen = openSlots(draft).length > 0;
     if (accepted && stillOpen) b.say('ack.answer', { answer: accepted });
     const next = askNextField(b, draft, state.documentType, state.describedCount, state.namedGoods);
-    if (next.pending === 'confirm') b.say('confirm.summary', { sentence: confirmSentence(draft) });
-    return { ...state, draft, pending: next.pending, batchedSlot: next.batchedSlot };
+    if (next.pending !== 'confirm') {
+        return { ...state, draft, pending: next.pending, batchedSlot: next.batchedSlot };
+    }
+    return confirmOrEnrich(b, { ...state, batchedSlot: next.batchedSlot }, draft);
+}
+
+// Everything is captured. Either the description is worth keeping and the
+// confirmation goes out, or it is a category rather than a thing and earns at
+// most two questions first. Never in reply to a pasted message: the SMS path
+// has a merchant name from the message itself and nothing to ask about.
+function confirmOrEnrich(b: TurnBuilder, state: ConvState, draft: CaptureDraft): ConvState {
+    const queue = enrichmentFor(state, draft);
+    if (queue.length === 0) {
+        b.say('confirm.summary', { sentence: confirmSentence(draft) });
+        return { ...state, draft, pending: 'confirm', enrichQueue: [] };
+    }
+    askEnrichment(b, queue[0]);
+    return { ...state, draft, pending: 'enrich', enrichQueue: queue };
+}
+
+function enrichmentFor(state: ConvState, draft: CaptureDraft): EnrichSlot[] {
+    if (state.enrichSkips >= MAX_ENRICH_SKIPS) return [];
+    if (draft.lineItems && draft.lineItems.length > 1) return [];
+    if (!isGenericDescription(draft.recipient)) return [];
+    return enrichmentQueue(state.documentType);
+}
+
+function askEnrichment(b: TurnBuilder, slot: EnrichSlot): void {
+    b.say(`enrich.${slot}` as CopyId, {}, {
+        options: [{ id: 'enrich-skip', label: b.text('enrich.option.skip'), value: 'skip' }],
+    });
+}
+
+// Where an enrichment answer lands. Both are fields the document already has
+// and already prints: the place becomes the party column, the goods become the
+// purpose column. Nothing new is stored and nothing new is rendered.
+function applyEnrichment(draft: CaptureDraft, slot: EnrichSlot, answer: string): CaptureDraft {
+    const value = answer.trim();
+    if (!value) return draft;
+    const cased = value.charAt(0).toUpperCase() + value.slice(1);
+    if (slot === 'where') return { ...draft, recipient: cased };
+    if (slot === 'order') return { ...draft, recipient: cased };
+    return { ...draft, purposeLabel: cased };
 }
 
 // The question currently on the table, so an interruption can be answered and
@@ -648,7 +695,47 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
                 batchedSlot: null,
             };
         }
+        // One enrichment question, answered or skipped.
+        case 'enrich': {
+            const [slot, ...rest] = state.enrichQueue;
+            if (isSkip(t)) {
+                // Each question is skippable on its own; the count is what is
+                // session-wide. Two skips anywhere and the offer is withdrawn
+                // for good, so the next vague line is simply confirmed.
+                const skips = state.enrichSkips + 1;
+                if (rest.length > 0 && skips < MAX_ENRICH_SKIPS) {
+                    askEnrichment(b, rest[0]);
+                    return { ...state, enrichSkips: skips, enrichQueue: rest };
+                }
+                b.say('confirm.summary', { sentence: confirmSentence(state.draft) });
+                return { ...state, enrichSkips: skips, enrichQueue: [], pending: 'confirm' };
+            }
+            const enriched = applyEnrichment(state.draft, slot, t);
+            b.say('enrich.attached', { detail: t.trim() });
+            if (rest.length > 0) {
+                askEnrichment(b, rest[0]);
+                return { ...state, draft: enriched, enrichQueue: rest };
+            }
+            b.say('confirm.summary', { sentence: confirmSentence(enriched) });
+            return { ...state, draft: enriched, pending: 'confirm', enrichQueue: [] };
+        }
         case 'confirm': {
+            // Detail volunteered after the fact, or a request to be asked for
+            // it. Neither is a rejection of the draft.
+            const place = volunteeredPlace(t);
+            if (place && isGenericDescription(state.draft.recipient)) {
+                const withPlace = applyEnrichment(state.draft, 'where', place);
+                b.say('enrich.attached', { detail: place });
+                b.say('confirm.summary', { sentence: confirmSentence(withPlace) });
+                return { ...state, draft: withPlace };
+            }
+            if (asksToBeAsked(t)) {
+                const queue = enrichmentQueue(state.documentType);
+                if (queue.length > 0) {
+                    askEnrichment(b, queue[0]);
+                    return { ...state, pending: 'enrich', enrichQueue: queue, enrichSkips: 0 };
+                }
+            }
             const added = foldAddition(state.draft, t, ctx.now);
             if (isAffirmative(t)) return commit(b, state, state.draft, ctx);
 
@@ -991,12 +1078,30 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
         ? { ...draft, recipient: sentenceCase(namedGoods) }
         : draft;
 
-    const asked = askNextField(b, withGoods, state.documentType, describedCount, namedGoods);
-    if (asked.pending === 'confirm') b.say('confirm.summary', { sentence: confirmSentence(withGoods) });
-    const next = fireNudge({
-        ...state, draft: withGoods, pending: asked.pending, describedCount, zeroAttempts: 0,
-        batchedSlot: asked.batchedSlot, namedGoods,
-    });
+    // A claim asks "Where was this spent?", and a category is not a place.
+    // Filing "food" there would print the word Food in the column a reviewer
+    // reads as the merchant, so it becomes the purpose instead and the place
+    // is still asked for. The claim walks a purpose for every line anyway, so
+    // nothing here is a second pass over the same ground.
+    const placed: CaptureDraft = state.documentType === 'on_behalf_of'
+        && isGenericDescription(withGoods.recipient)
+        ? {
+            ...withGoods,
+            recipient: null,
+            purposeLabel: withGoods.purposeLabel ?? sentenceCase(withGoods.recipient!),
+        }
+        : withGoods;
+
+    const asked = askNextField(b, placed, state.documentType, describedCount, namedGoods);
+    const settled: ConvState = asked.pending === 'confirm'
+        ? confirmOrEnrich(b, {
+            ...state, describedCount, zeroAttempts: 0, batchedSlot: asked.batchedSlot, namedGoods,
+        }, placed)
+        : {
+            ...state, draft: placed, pending: asked.pending, describedCount, zeroAttempts: 0,
+            batchedSlot: asked.batchedSlot, namedGoods,
+        };
+    const next = fireNudge(settled);
     answerQuestions();
     return next;
 }

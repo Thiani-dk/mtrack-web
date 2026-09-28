@@ -4,6 +4,7 @@ import type {
 import type { CaptureDraft } from '../captureDraft';
 import type { CaptureSlot } from '../conversationalCapture';
 import type { CopyId, CopyKind } from './copy';
+import type { EnrichSlot } from './enrichment';
 
 // Which question the conversation is currently waiting on an answer to.
 // Unchanged from the shape that lived in ChatScreen as DocFlow.pending.
@@ -14,6 +15,8 @@ export type PendingPrompt =
     // Two honest readings of one figure (a range, a split bill). Settled by a
     // tap rather than guessed.
     | 'amount-choice'
+    // An enrichment question about a description too vague to keep.
+    | 'enrich'
     // Which field the user said was wrong at the confirmation.
     | 'confirm-field'
     | 'input';
@@ -75,6 +78,12 @@ export interface ConvState {
     // whichever slot that is. The date slot has always had its own cap; every
     // other question could be put in the same words forever.
     slotAttempts: number;
+    // The enrichment questions still to put for the line being captured, and
+    // how many times this session the user has declined one. Two declines and
+    // the offer is withdrawn for good: someone who has twice said no has told
+    // us. See enrichment.ts.
+    enrichQueue: EnrichSlot[];
+    enrichSkips: number;
 }
 
 // Work the conversation cannot do itself because it belongs to storage, to the

@@ -151,7 +151,11 @@ export function readAmountPhrase(text: string): AmountPhrase {
             rewrite: {
                 kind: 'selfCorrection',
                 text: substituteFigure(text, SELF_CORRECTION_RE, num(corrected[2])),
-                working: null,
+                // Said back, like every other correction. A figure the user
+                // changed mid-sentence is exactly the kind they will want to
+                // see landed, and it may otherwise not surface until the
+                // confirmation several questions later.
+                working: `${money(num(corrected[2]))}, not ${money(num(corrected[1]))}`,
             },
         };
     }

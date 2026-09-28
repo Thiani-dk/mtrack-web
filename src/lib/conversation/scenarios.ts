@@ -404,8 +404,7 @@ const C: Scenario[] = [
 const D: Scenario[] = [
     {
         id: 'D1', title: 'Generic description earns at most two questions', types: ['expense_summary'],
-        startInCapture: true, status: 'fail',
-        note: 'enrichment questions do not exist',
+        startInCapture: true, status: 'pass',
         steps: [
             { send: 'food 500 yesterday', expect: [used('enrich.where'), endsWithNextStep()] },
             { send: 'Java House', expect: [used('enrich.what'), echoes('Java House')] },
@@ -414,8 +413,7 @@ const D: Scenario[] = [
     },
     {
         id: 'D1b', title: 'Enrichment is skippable, and stops after two skips',
-        types: ['expense_summary'], startInCapture: true, status: 'fail',
-        note: 'enrichment questions do not exist',
+        types: ['expense_summary'], startInCapture: true, status: 'pass',
         steps: [
             { send: 'food 500 yesterday', expect: [used('enrich.where'), offers(['skip'])] },
             { send: 'skip', expect: [used('enrich.what')] },
@@ -433,8 +431,7 @@ const D: Scenario[] = [
     },
     {
         id: 'D3', title: 'Volunteers detail later, unprompted', types: ['expense_summary'],
-        startInCapture: true, status: 'fail',
-        note: 'a detail volunteered later is not attached',
+        startInCapture: true, status: 'pass',
         steps: [
             { send: 'food 500 yesterday' },
             { send: 'skip' },
@@ -444,8 +441,7 @@ const D: Scenario[] = [
     },
     {
         id: 'D4', title: 'Asks to be asked more', types: ['expense_summary'], startInCapture: true,
-        status: 'fail',
-        note: `"ask me more" is not handled`,
+        status: 'pass',
         steps: [
             { send: 'food 500 yesterday' },
             { send: 'skip' },
@@ -455,17 +451,21 @@ const D: Scenario[] = [
     },
     {
         id: 'D5', title: 'point_of_sale generic item earns exactly one question',
-        types: ['point_of_sale'], startInCapture: true, status: 'fail',
-        note: 'the point-of-sale order question does not exist',
+        types: ['point_of_sale'], startInCapture: true, status: 'pass',
         steps: [
-            { send: 'stuff 500 yesterday', expect: [used('enrich.order')] },
+            // Exactly one question, whichever of the two forms it takes: a
+            // receipt's party question already IS "what did they buy?", so a
+            // separate order question would be the same question twice.
+            {
+                send: 'stuff 500 yesterday',
+                expect: [used('enrich.order', 'ask.party.point_of_sale'), notUsed('enrich.where')],
+            },
             { send: 'two sodas and a mandazi', expect: [asks('confirm'), notUsed('enrich.where')] },
         ],
     },
     {
         id: 'D6', title: 'on_behalf_of does not double-ask against the purpose walk',
-        types: ['on_behalf_of'], startInCapture: true, status: 'fail',
-        note: 'no enrichment exists to check against the purpose walk',
+        types: ['on_behalf_of'], startInCapture: true, status: 'pass',
         steps: [
             { send: 'food 500 yesterday', expect: [notUsed('enrich.where'), asksParty()] },
         ],

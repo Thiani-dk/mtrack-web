@@ -203,6 +203,25 @@ export const COPY = {
         ],
     },
 
+    // Enrichment, for a description too vague to be worth keeping
+    'enrich.where': {
+        kind: 'question',
+        variants: ['Where was that?', 'Whereabouts was that?'],
+    },
+    'enrich.what': {
+        kind: 'question',
+        variants: ['And what did you get?', 'What was it you got?'],
+    },
+    'enrich.order': {
+        kind: 'question',
+        variants: ['What was in the order?', 'What did the order come to?'],
+    },
+    'enrich.option.skip': { kind: 'option', variants: ['Skip'] },
+    'enrich.attached': {
+        kind: 'acknowledgement',
+        variants: ['{detail}, got it.', 'Noted: {detail}.'],
+    },
+
     // Nudges and confirmation
     'nudge.efficiency': {
         kind: 'statement',

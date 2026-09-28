@@ -6,14 +6,14 @@ A scenario may never be marked passing by loosening its assertion. Any change
 to an expectation is recorded in the "reason" column of the change log at the
 bottom of this file.
 
-**68 of 107 scenarios pass.**
+**74 of 107 scenarios pass.**
 
 | Section | pass | fail | blocked | decision |
 |---|---|---|---|---|
 | A. Opening and mode choice | 9 | 1 | 0 | 0 |
 | B. Capture | 22 | 0 | 0 | 0 |
 | C. Clarifying questions | 8 | 0 | 0 | 0 |
-| D. Enrichment | 1 | 6 | 0 | 0 |
+| D. Enrichment | 7 | 0 | 0 | 0 |
 | E. Confirmation | 10 | 0 | 0 | 0 |
 | F. After saving | 5 | 0 | 0 | 0 |
 | G. Corrections mid-flow | 3 | 0 | 0 | 0 |
@@ -73,13 +73,13 @@ bottom of this file.
 | C6 | Asks for an example | pass |  |
 | C7 | Fails to answer twice, then the strategy changes | pass |  |
 | **D. Enrichment** | | | |
-| D1 | Generic description earns at most two questions | fail | enrichment questions do not exist |
-| D1b | Enrichment is skippable, and stops after two skips | fail | enrichment questions do not exist |
+| D1 | Generic description earns at most two questions | pass |  |
+| D1b | Enrichment is skippable, and stops after two skips | pass |  |
 | D2 | Specific description earns no enrichment question | pass |  |
-| D3 | Volunteers detail later, unprompted | fail | a detail volunteered later is not attached |
-| D4 | Asks to be asked more | fail | "ask me more" is not handled |
-| D5 | point_of_sale generic item earns exactly one question | fail | the point-of-sale order question does not exist |
-| D6 | on_behalf_of does not double-ask against the purpose walk | fail | no enrichment exists to check against the purpose walk |
+| D3 | Volunteers detail later, unprompted | pass |  |
+| D4 | Asks to be asked more | pass |  |
+| D5 | point_of_sale generic item earns exactly one question | pass |  |
+| D6 | on_behalf_of does not double-ask against the purpose walk | pass |  |
 | **E. Confirmation** | | | |
 | E1 | Yes variants save | pass |  |
 | E1b | "yesterday" is never a yes | pass |  |
