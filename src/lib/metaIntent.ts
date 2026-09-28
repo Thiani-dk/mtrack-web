@@ -172,7 +172,13 @@ export function classifyIntent({ text, extraction, nothingExtracted }: MetaInten
         || extraction.hasTransactionShape;
     // An explicit "how do I" / "can you" beats a stray field; a bare trailing
     // "?" is weaker evidence and only counts when nothing was extracted at all.
-    const questionShaped = META_QUESTION_RE.test(t) ? !hasTransactionContent : t.endsWith('?') && nothingExtracted;
+    // A trailing "?" only counts as a question when there are words in front
+    // of it. "???" is not a question about the app, and answering it with one
+    // of the help entries was nonsense.
+    const hasWords = /[a-z]{2}/i.test(t);
+    const questionShaped = META_QUESTION_RE.test(t)
+        ? !hasTransactionContent
+        : t.endsWith('?') && nothingExtracted && hasWords;
     if (questionShaped) return 'meta_question';
 
     // 4. Multi-intent: a discourse boundary with something real on both sides.

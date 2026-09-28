@@ -24,6 +24,7 @@ import {
     asksToBeAsked, enrichmentQueue, isGenericDescription, isSkip, MAX_ENRICH_SKIPS,
     volunteeredPlace, type EnrichSlot,
 } from './enrichment';
+import { classifyEdge, countsAsOffTopic, type EdgeCategory } from './edgeIntent';
 import { fmtAmountProse, fmtProseCurrency, UNDATED } from '../transactionDisplay';
 import type { CopyId } from './copy';
 import { TurnBuilder } from './turns';
@@ -79,6 +80,7 @@ export function emptyConvState(documentType: DocumentType = 'expense_summary'): 
         slotAttempts: 0,
         enrichQueue: [],
         enrichSkips: 0,
+        offTopicStreak: 0,
     };
 }
 
@@ -380,6 +382,25 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
         return { ...state, pending: 'cancel-confirm' };
     }
 
+    // A greeting, wherever it arrives. Outranks the edge ladder, which would
+    // otherwise read "niaje" as small talk and redirect away from a hello.
+    if (isGreeting(t) && state.pending !== 'cancel-confirm' && state.pending !== 'correction-target') {
+        b.say('open.greetBack');
+        stepBack(b, state, 'smallTalk');
+        return state;
+    }
+
+    // The edge. Runs before anything reads the message as data, because a
+    // message this catches is one the capture path would otherwise mine for an
+    // amount it never contained. It never catches a real record: see the tense
+    // rule in edgeIntent. Asking the app to DO something is checked first:
+    // "send it to my boss" is about sharing a document, not moving money.
+    if (state.pending !== 'cancel-confirm' && state.pending !== 'correction-target'
+        && readRequest(t) === null) {
+        const edge = classifyEdge(t);
+        if (edge) return handleEdge(b, state, edge);
+    }
+
     // A question ABOUT the app, asked in the middle of being asked something.
     // Answer it, then put the parked question back verbatim — the interruption
     // must not count as an answer to anything, so the pending state is
@@ -391,11 +412,12 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
         const e = extractDescription(t, ctx.now);
         const intent = classifyIntent({ text: t, extraction: e, nothingExtracted: understoodNothing(e) });
         if (intent === 'meta_question') {
-            const parked = parkedQuestion(state);
-            b.say('meta.answerAndResume', {
-                answer: b.text(answerOrAdmitCopyId(t)),
-                question: parked.text,
-            }, { resumedCopyId: parked.copyId });
+            // The answer and the question it puts back are two ideas, so they
+            // are two turns. That is also what lets a scenario assert on WHICH
+            // answer was given: folded into one string, the answer's own
+            // registry id was invisible.
+            b.say(answerOrAdmitCopyId(t));
+            stepBack(b, state, 'offTopic');
             return state;
         }
     }
@@ -442,6 +464,21 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             return { ...state, pending: 'correction-target', pendingCorrectionAmount: outcome.amount };
         }
         b.say(outcome.copyId);
+        return state;
+    }
+
+    // A transaction message pasted in the middle of a typed capture.
+    //
+    // It is not an answer to whatever was asked: it is a complete record of its
+    // own, with its own amount, date and merchant. Reading it as a date answer
+    // (or, worse, mining it for an amount) is how a pasted message used to
+    // half-land. So it goes down the SMS path, the half-built line is left
+    // exactly as it was, and both facts are said out loud.
+    if (SLOT_OF_PENDING[state.pending] && parseAllMessages(t).transactions.length > 0) {
+        b.effect({ kind: 'parse-batch', text: t });
+        b.say('capture.smsMidFlow');
+        const parked = parkedQuestion(state);
+        b.say('edge.backToQuestion', { question: parked.text }, { resumedCopyId: parked.copyId });
         return state;
     }
 
@@ -493,11 +530,6 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
         // might reasonably open with is handled here rather than met with
         // "tap one of the options above".
         case 'mode': {
-            if (isGreeting(t)) {
-                b.say('open.greetBack');
-                b.say('open.modeQuestion', {}, { options: modeOptions() });
-                return state;
-            }
             if (asksWhatOptionsMean(t)) {
                 b.say('open.modeExplained');
                 b.say('open.modeQuestion', {}, { options: modeOptions() });
@@ -802,6 +834,10 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             };
         }
         case 'input': {
+            if (t === 'carry-on') {
+                b.say('edge.backToCapture');
+                return { ...state, offTopicStreak: 0 };
+            }
             if (request === 'another') {
                 // The same mode, a clean draft. Nothing already on the
                 // document is touched.
@@ -844,6 +880,99 @@ function fieldOptions(b: TurnBuilder): ChatOption[] {
         { id: 'confirm-description', label: b.text('confirm.field.description'), value: 'description' },
         { id: 'confirm-start', label: b.text('confirm.field.start'), value: 'start-again' },
     ];
+}
+
+// ── The redirect composer ───────────────────────────────────────────────────
+
+// One formula for every edge category: a brief honest acknowledgement of the
+// limit, then a concrete next step relevant to where the conversation actually
+// is. If a question is parked, it comes back. If not, the way back is offered.
+//
+// Written once, on purpose. Nineteen bespoke replies would drift into nineteen
+// different voices, and the variation that matters is in the registry.
+const EDGE_ANSWER: Record<EdgeCategory, CopyId> = {
+    crisis: 'emotion.crisis',
+    capability: 'edge.cannotMoveMoney',
+    advice: 'edge.advice',
+    privacy: 'help.privacy',
+    identity: 'help.identity',
+    whoMadeYou: 'help.whoMadeYou',
+    coverage: 'help.coverage',
+    taxInvoice: 'help.notTaxInvoice',
+    noConnection: 'help.noConnection',
+    frustration: 'emotion.frustration',
+    moneyStress: 'emotion.moneyStress',
+    goodNews: 'emotion.goodNews',
+    smallTalk: 'edge.smallTalk',
+    entertainment: 'edge.entertainment',
+    otherApp: 'edge.otherApp',
+    personal: 'edge.personal',
+    language: 'edge.language',
+    offTopic: 'edge.offTopic',
+};
+
+function handleEdge(b: TurnBuilder, state: ConvState, category: EdgeCategory): ConvState {
+    const streak = countsAsOffTopic(category) ? state.offTopicStreak + 1 : 0;
+
+    // Crisis stops everything. No next step, no question, no getting back to
+    // the receipt. The draft is untouched and waiting whenever they return.
+    if (category === 'crisis') {
+        b.say('emotion.crisis');
+        return { ...state, offTopicStreak: 0 };
+    }
+
+    // Third in a row: shorter, and options rather than the same sentence again.
+    // The options are whatever is actually useful from here, which is the mode
+    // choice at the front door and a way back into the capture once it is
+    // under way. Offering the mode options mid-capture would invite restarting
+    // a document the user is halfway through.
+    if (streak >= 3) {
+        const options = state.pending === 'mode'
+            ? modeOptions()
+            : [
+                { id: 'edge-paste-msg', label: b.text('zero.option.paste'), value: 'paste' },
+                { id: 'edge-carry-on', label: b.text('edge.option.carryOn'), value: 'carry-on' },
+            ];
+        b.say('edge.offTopicAgain', {}, { options });
+        return { ...state, offTopicStreak: streak };
+    }
+
+    b.say(EDGE_ANSWER[category]);
+
+    // Frustration gets the simplest path offered, not just sympathy.
+    if (category === 'frustration') {
+        b.say('zero.escape', {}, {
+            options: [
+                { id: 'edge-paste', label: b.text('emotion.option.paste'), value: 'paste' },
+                { id: 'edge-one', label: b.text('emotion.option.oneAtATime'), value: 'one-at-a-time' },
+            ],
+        });
+        return { ...state, offTopicStreak: streak };
+    }
+
+    stepBack(b, state, category);
+    return { ...state, offTopicStreak: streak };
+}
+
+// The way back, chosen from where the conversation actually is.
+function stepBack(b: TurnBuilder, state: ConvState, category: EdgeCategory): void {
+    if (state.pending === 'mode') {
+        b.say('open.modeQuestion', {}, { options: modeOptions() });
+        return;
+    }
+    // Money stress is the one place the offer is better than the question: they
+    // said something about their money, and where it went is the honest thing
+    // this can actually give them.
+    if (category === 'moneyStress') {
+        b.say('edge.offerSpending');
+        return;
+    }
+    const parked = parkedQuestion(state);
+    if (state.pending === 'input') {
+        b.say('edge.backToCapture');
+        return;
+    }
+    b.say('edge.backToQuestion', { question: parked.text }, { resumedCopyId: parked.copyId });
 }
 
 function askPurposeFor(b: TurnBuilder, code: string, transactions: TurnContext['transactions']): void {
@@ -917,11 +1046,8 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
     // fallback — "I couldn't pick anything out of that" in reply to a perfectly
     // clear question would be nonsense.
     if (segments.data.length === 0 && questionIds.length > 0) {
-        const parked = parkedQuestion(state);
-        b.say('meta.answerAndResume', {
-            answer: b.text(questionIds[0]),
-            question: parked.text,
-        }, { resumedCopyId: parked.copyId });
+        b.say(questionIds[0]);
+        stepBack(b, state, 'offTopic');
         return state;
     }
     // Only the data half is folded into the draft; the question half would

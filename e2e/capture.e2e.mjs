@@ -327,13 +327,14 @@ const parked = await lastBotLine();
 check('a question is on the table', /When was (?:that|the [a-z ]+)\?/.test(parked), parked.slice(0, 100));
 
 await say('wait, what currencies do you support?');
-const answered = await lastBotLine();
-check('the question is answered', /Shillings/.test(answered), answered.slice(0, 160));
-// Not the connective's wording, which is registry copy and free to change,
-// but the two facts: the answer and the parked question arrive together, and
-// the question comes back with its own capital rather than lowercased mid-line.
+// The answer and the question it puts back are two ideas, so they arrive as
+// two bubbles. Assert on the transcript since the answer is no longer the last
+// line; what matters is that both landed, in that order.
+const answered = await transcript();
+const afterAsking = answered.split('what currencies do you support?').pop() ?? '';
+check('the question is answered', /Shillings/.test(afterAsking), afterAsking.slice(0, 160));
 check('and the parked question comes straight back',
-    /Shillings/.test(answered) && /When was (?:that|the [a-z ]+)\?/.test(answered));
+    /When was (?:that|the [a-z ]+)\?/.test(afterAsking), afterAsking.slice(-120));
 check('it is not treated as gibberish', !/couldn.t pick anything out/i.test(await transcript()));
 
 await say('yesterday');

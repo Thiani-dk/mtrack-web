@@ -394,7 +394,6 @@ export const COPY = {
     },
 
     // Meta questions
-    'meta.answerAndResume': { kind: 'help', variants: ['{answer}\n\nBack to it: {question}'] },
     'meta.answerAfterData': { kind: 'help', variants: ['To answer your question: {answer}'] },
 
     // Committing a line
@@ -518,6 +517,161 @@ export const COPY = {
     'ask.stuck': {
         kind: 'statement',
         variants: ["That one isn't landing. Let's try another way."],
+    },
+
+    // ── The edge ────────────────────────────────────────────────────────────
+    //
+    // The formula, every time: a brief honest acknowledgement of the limit,
+    // then a concrete next step. Never a lecture, never an apology paragraph,
+    // and never a claim about what M-Track might do one day.
+    'edge.offTopic': {
+        kind: 'redirect',
+        variants: [
+            "That one's outside what I know. I only keep track of money on this device.",
+            "I can't help with that. Recording what you spent is the whole of what I do.",
+            "Not something I can answer. Money that changed hands is my only subject.",
+        ],
+    },
+    'edge.offTopicAgain': {
+        kind: 'redirect',
+        variants: ['Still outside my lane.', 'Same answer, sorry.'],
+    },
+    'edge.smallTalk': {
+        kind: 'redirect',
+        variants: [
+            "I'm well enough, as a set of rules goes.",
+            'All fine here.',
+        ],
+    },
+    'edge.entertainment': {
+        kind: 'redirect',
+        variants: [
+            'Jokes are not in me, sorry.',
+            "I'd make a poor job of that.",
+        ],
+    },
+    'edge.advice': {
+        kind: 'redirect',
+        variants: [
+            "I can't advise you on money, and I'd be wrong to try. What I can do is show you "
+            + 'exactly where yours went.',
+        ],
+    },
+    'edge.cannotMoveMoney': {
+        kind: 'redirect',
+        variants: [
+            "I can't move or check money, only keep a record of it. If you've already done it, "
+            + 'tell me and I will write it down.',
+        ],
+    },
+    'edge.otherApp': {
+        kind: 'redirect',
+        variants: [
+            "That belongs to another app. Once you've paid for it, I can record it.",
+        ],
+    },
+    'edge.personal': {
+        kind: 'redirect',
+        variants: [
+            "There's no one here to ask, I'm afraid. I'm a set of rules on your phone.",
+        ],
+    },
+    'edge.language': {
+        kind: 'redirect',
+        variants: [
+            'I read English and some Swahili, and not much else. Could you try again in either?',
+        ],
+    },
+
+    // Honest answers about what this is
+    'help.privacy': {
+        kind: 'help',
+        variants: [
+            'Everything stays on this phone. Nothing is sent to a server, there is no account, '
+            + 'and no one else can see it. Clearing the app clears it.',
+        ],
+    },
+    'help.identity': {
+        kind: 'help',
+        variants: [
+            "I'm not a person and not a general chatbot. I'm a set of rules built into M-Track "
+            + 'for recording money, running on this device.',
+        ],
+    },
+    'help.whoMadeYou': {
+        kind: 'help',
+        variants: [
+            "I'm M-Track's assistant, a set of rules built for recording money on this device. "
+            + "I can't tell you more than that about who made me.",
+        ],
+    },
+    'help.noConnection': {
+        kind: 'help',
+        variants: [
+            'No. I have no connection to M-Pesa or to any bank, which is why nothing of yours '
+            + 'leaves this phone. Paste the message and I will read it.',
+        ],
+    },
+    'help.coverage': {
+        kind: 'help',
+        variants: [
+            'M-Pesa best, and Airtel Money, T-Kash and the usual bank alerts too. Paste one and '
+            + "I'll tell you straight away if I could not read it.",
+        ],
+    },
+    'help.notTaxInvoice': {
+        kind: 'help',
+        variants: [
+            "This is a record of what you spent, not a tax invoice. A KRA invoice has to come "
+            + 'from the supplier through eTIMS.',
+        ],
+    },
+
+    // Emotional content
+    'emotion.moneyStress': {
+        kind: 'acknowledgement',
+        variants: ['That sounds like a hard month.', 'Sorry, that sounds rough.'],
+    },
+    'emotion.frustration': {
+        kind: 'acknowledgement',
+        variants: [
+            "Sorry, that's on me. Let's do it the short way.",
+            "Fair enough, I'm making this harder than it should be.",
+        ],
+    },
+    'emotion.option.paste': { kind: 'option', variants: ['Paste the message instead'] },
+    'emotion.option.oneAtATime': { kind: 'option', variants: ['One question at a time'] },
+    'emotion.goodNews': {
+        kind: 'acknowledgement',
+        variants: ['Good news.', 'Nice one.'],
+    },
+    'emotion.crisis': {
+        kind: 'terminal',
+        variants: [
+            "That sounds heavy, and I'm sorry. I'm a small tool for recording money, not someone "
+            + 'who can help with this. Please reach out to someone you trust.',
+        ],
+    },
+
+    // The way back, chosen from where the conversation actually is
+    'edge.backToQuestion': { kind: 'question', variants: ['{question}'] },
+    'edge.option.carryOn': { kind: 'option', variants: ['Carry on where we were'] },
+    'edge.backToCapture': {
+        kind: 'question',
+        variants: ['What did you spend on?', "What's the next one?"],
+    },
+    'edge.offerSpending': {
+        kind: 'question',
+        variants: ['Want me to show you where your money went?'],
+    },
+
+    // A transaction message pasted in the middle of a typed capture
+    'capture.smsMidFlow': {
+        kind: 'statement',
+        variants: [
+            'That one came with its own details, so I read it straight off the message and left '
+            + 'the line we were building alone.',
+        ],
     },
 
     // Saving

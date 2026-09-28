@@ -84,6 +84,9 @@ export interface ConvState {
     // us. See enrichment.ts.
     enrichQueue: EnrichSlot[];
     enrichSkips: number;
+    // Consecutive messages that were outside the lane. The third in a row gets
+    // a shorter reply and options rather than the same redirect again.
+    offTopicStreak: number;
 }
 
 // Work the conversation cannot do itself because it belongs to storage, to the

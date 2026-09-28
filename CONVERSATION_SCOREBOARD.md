@@ -6,11 +6,11 @@ A scenario may never be marked passing by loosening its assertion. Any change
 to an expectation is recorded in the "reason" column of the change log at the
 bottom of this file.
 
-**74 of 107 scenarios pass.**
+**104 of 107 scenarios pass.**
 
 | Section | pass | fail | blocked | decision |
 |---|---|---|---|---|
-| A. Opening and mode choice | 9 | 1 | 0 | 0 |
+| A. Opening and mode choice | 10 | 0 | 0 | 0 |
 | B. Capture | 22 | 0 | 0 | 0 |
 | C. Clarifying questions | 8 | 0 | 0 | 0 |
 | D. Enrichment | 7 | 0 | 0 | 0 |
@@ -18,10 +18,10 @@ bottom of this file.
 | F. After saving | 5 | 0 | 0 | 0 |
 | G. Corrections mid-flow | 3 | 0 | 0 | 0 |
 | H. Cancel and restart | 3 | 0 | 0 | 0 |
-| I. Help and meta questions | 0 | 10 | 0 | 0 |
-| J. Off-topic and out of scope | 1 | 13 | 0 | 0 |
-| K. Emotional content | 1 | 4 | 0 | 0 |
-| L. Input robustness | 4 | 2 | 0 | 0 |
+| I. Help and meta questions | 10 | 0 | 0 | 0 |
+| J. Off-topic and out of scope | 14 | 0 | 0 | 0 |
+| K. Emotional content | 5 | 0 | 0 | 0 |
+| L. Input robustness | 6 | 0 | 0 | 0 |
 | M. Session and return | 1 | 0 | 0 | 0 |
 | N. Spending questions | 0 | 3 | 0 | 0 |
 
@@ -39,7 +39,7 @@ bottom of this file.
 | A5 | Pastes M-Pesa messages at the mode question | pass |  |
 | A6 | Greets | pass |  |
 | A6b | Greets in Swahili or Sheng | pass |  |
-| A7 | Off-topic at the opening | fail | off-topic at the opening gets the same fallback, with no honest limit named |
+| A7 | Off-topic at the opening | pass |  |
 | **B. Capture** | | | |
 | B1 | Everything in one message | pass |  |
 | B2 | Amount only | pass |  |
@@ -106,44 +106,44 @@ bottom of this file.
 | H2 | Cancels with progress | pass |  |
 | H3 | Start over versus new receipt | pass |  |
 | **I. Help and meta questions** | | | |
-| I1 | What can you do | fail | the answer bank has an entry but the question shape is not matched here |
-| I2 | How do I paste messages | fail | the paste how-to is not reached from this phrasing |
-| I3 | Is my data safe | fail | there is no privacy answer |
-| I3b | Do you store my messages | fail | there is no privacy answer |
-| I4 | Can you connect to my M-Pesa | fail | there is no answer about connecting to M-Pesa |
-| I5 | Do you support Airtel | fail | there is no answer about provider coverage |
-| I6 | Is this a tax invoice | fail | there is no answer about tax invoices |
-| I7 | Are you a human | fail | there is no identity answer |
-| I7b | Are you ChatGPT | fail | there is no identity answer |
-| I8 | Who made you | fail | there is no answer to "who made you"; owner decision pending |
+| I1 | What can you do | pass |  |
+| I2 | How do I paste messages | pass |  |
+| I3 | Is my data safe | pass |  |
+| I3b | Do you store my messages | pass |  |
+| I4 | Can you connect to my M-Pesa | pass |  |
+| I5 | Do you support Airtel | pass |  |
+| I6 | Is this a tax invoice | pass |  |
+| I7 | Are you a human | pass |  |
+| I7b | Are you ChatGPT | pass |  |
+| I8 | Who made you | pass |  |
 | **J. Off-topic and out of scope** | | | |
-| J1 | General knowledge | fail | general knowledge is not recognised as off-topic |
-| J2 | Small talk | fail | small talk is not recognised |
-| J3 | Asks for a joke | fail | a request for entertainment is not recognised |
-| J4 | Financial advice | fail | a request for advice is not recognised |
-| J4b | Investment advice | fail | a request for advice is not recognised |
-| J5 | Asks it to move money | fail | "send 500 to Kevin" is mined for data instead of being refused honestly |
+| J1 | General knowledge | pass |  |
+| J2 | Small talk | pass |  |
+| J3 | Asks for a joke | pass |  |
+| J4 | Financial advice | pass |  |
+| J4b | Investment advice | pass |  |
+| J5 | Asks it to move money | pass |  |
 | J5b | Past tense is data, not a request | pass |  |
-| J5c | Check my balance | fail | "check my balance" is not refused |
-| J6 | Tasks belonging to other apps | fail | a task belonging to another app is not recognised |
-| J7 | Tries to break it | fail | a prompt-injection attempt is not recognised |
-| J8 | Rudeness | fail | rudeness is not recognised |
-| J9 | Flirting | fail | a personal question is not recognised |
-| J10 | Third off-topic message in a row is shorter | fail | there is no shorter reply for a repeated off-topic run |
-| J11 | A language it does not read | fail | a language other than English or Swahili is not named |
+| J5c | Check my balance | pass |  |
+| J6 | Tasks belonging to other apps | pass |  |
+| J7 | Tries to break it | pass |  |
+| J8 | Rudeness | pass |  |
+| J9 | Flirting | pass |  |
+| J10 | Third off-topic message in a row is shorter | pass |  |
+| J11 | A language it does not read | pass |  |
 | **K. Emotional content** | | | |
-| K1 | Money stress | fail | money stress is not acknowledged |
-| K2 | Frustration with the bot | fail | frustration is not acknowledged and no simpler path is offered |
-| K3 | Good news | fail | good news is not acknowledged |
-| K4 | Clear crisis language pauses the flow | fail | there is no crisis handling |
+| K1 | Money stress | pass |  |
+| K2 | Frustration with the bot | pass |  |
+| K3 | Good news | pass |  |
+| K4 | Clear crisis language pauses the flow | pass |  |
 | K4b | Colloquial phrases must NOT trigger crisis | pass |  |
 | **L. Input robustness** | | | |
 | L1 | Empty text produces no bot turn | pass |  |
 | L2 | A long chat with M-Pesa messages inside | pass |  |
 | L3 | Double-sends the same message | pass |  |
-| L4 | Only emoji or punctuation | fail | "???" is classified as a question about the app and answered as one |
+| L4 | Only emoji or punctuation | pass |  |
 | L5 | Bare numbers at every stage | pass |  |
-| L6 | An SMS pasted mid-capture | fail | an SMS pasted mid-capture is not narrated |
+| L6 | An SMS pasted mid-capture | pass |  |
 | **M. Session and return** | | | |
 | M3 | Several documents in one session, no state bleeding | pass |  |
 | **N. Spending questions** | | | |
