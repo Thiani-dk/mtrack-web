@@ -404,6 +404,8 @@ export const COPY = {
             "That's on the document. Add another, or tap Approve when it looks right.",
         ],
     },
+    'commit.option.another': { kind: 'option', variants: ['Add another'] },
+    'commit.option.paste': { kind: 'option', variants: ['Paste a message'] },
     'commit.addedDirection': {
         kind: 'statement',
         variants: ['Added. Set which way that one went above, then tell me the next.'],
@@ -472,7 +474,18 @@ export const COPY = {
     'placeholder.party.point_of_sale': { kind: 'option', variants: ['What they bought...'] },
     'placeholder.party.on_behalf_of': { kind: 'option', variants: ['Where it was spent...'] },
     'placeholder.confirm': { kind: 'option', variants: ["'yes' to confirm, or say what's off..."] },
-    'placeholder.open': { kind: 'option', variants: ['Paste your messages, or say what you spent...'] },
+    // The empty-state hint leads with an example, because "describe what you
+    // spent" tells someone the shape of the answer and an example tells them
+    // the words. Rotated, so the range of what works is visible over a session.
+    'placeholder.open': {
+        kind: 'option',
+        variants: [
+            "Try 'lunch at Java House 850 yesterday'...",
+            "Try 'matatu 100, lunch 450, airtime 50'...",
+            'Paste an M-Pesa message, or say what you spent...',
+            "Try 'sent 2,000 to Kevin on Monday'...",
+        ],
+    },
 
     // After a line is on the document
     'after.undo': {

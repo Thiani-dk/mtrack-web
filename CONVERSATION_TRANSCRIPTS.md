@@ -136,7 +136,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 ```
 
 ### B1 · Everything in one message · point_of_sale
@@ -149,7 +149,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 ```
 
 ### B1 · Everything in one message · on_behalf_of
@@ -685,20 +685,20 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 last night
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 You says  bought bacon for 3100 two nights ago
 M-Track  Ksh 3,100 to Bacon, on 26 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 M-Track  If you've got the M-Pesa messages for these, copy them in. They carry the exact date and reference number, which makes this much harder to argue with.   [nudge.efficiency]
 You says  yes
-M-Track  That's on the document. Add another, or tap Approve when it looks right.   [commit.added]
+M-Track  That's on the document. Add another, or tap Approve when it looks right.  { Add another | Paste a message }   [commit.added]
 You says  bought bacon for 3100 three days ago
 M-Track  Ksh 3,100 to Bacon, on 25 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 You says  bought bacon for 3100 a couple of days ago
 M-Track  Ksh 3,100 to Bacon, on 26 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  That's on the document. Add another, or tap Approve when it looks right.   [commit.added]
+M-Track  That's on the document. Add another, or tap Approve when it looks right.  { Add another | Paste a message }   [commit.added]
 You says  bought bacon for 3100 two weeks ago
 M-Track  Ksh 3,100 to Bacon, on 14 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
@@ -1189,7 +1189,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  sawa
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 ```
 
 ### E1 · Yes variants save · point_of_sale
@@ -1202,7 +1202,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  sawa
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 ```
 
 ### E1 · Yes variants save · on_behalf_of
@@ -1267,12 +1267,12 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  ndio
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 You says  bought airtime for 50 yesterday
 M-Track  Ksh 50 to Airtime, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 M-Track  If you've got the M-Pesa messages for these, copy them in. They carry the exact date and reference number, which makes this much harder to argue with.   [nudge.efficiency]
 You says  👍
-M-Track  That's on the document. Add another, or tap Approve when it looks right.   [commit.added]
+M-Track  That's on the document. Add another, or tap Approve when it looks right.  { Add another | Paste a message }   [commit.added]
 ```
 
 ### E2 · Bare no asks what is off · expense_summary
@@ -1540,7 +1540,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 ```
 
 ### F1 · The save message ends with clear next steps · point_of_sale
@@ -1553,7 +1553,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 ```
 
 ### F1 · The save message ends with clear next steps · on_behalf_of
@@ -1579,7 +1579,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 You says  undo
 M-Track  I cannot take a saved document back off here. Open it from your history and remove it there. If a line is wrong, tell me which and I will change it.   [after.undo]
 ```
@@ -1594,7 +1594,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 You says  send it to my boss
 M-Track  I cannot send anything myself. Tap Share on the document to pass it to WhatsApp or email, or Save it as a PDF first and attach that.   [after.share]
 ```
@@ -1609,7 +1609,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 You says  make it a pdf
 M-Track  Once a receipt is approved you can save it as a PDF or a web page, or share it straight from here.   [help.export]
 ```
@@ -1624,7 +1624,7 @@ M-Track  What are we putting together? Your own spending, a receipt for a custom
 You says  bought bacon for 3100 yesterday
 M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.  { Add another | Paste a message }   [commit.added]
 You says  another one
 M-Track  Ready for the next one. Tell me what you spent, or paste the message.   [after.another]
 ```

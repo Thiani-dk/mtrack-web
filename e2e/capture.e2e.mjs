@@ -38,7 +38,30 @@ async function say(text) {
     const box = page.getByRole('textbox').last();
     await box.fill(text);
     await box.press('Enter');
-    await page.waitForTimeout(900);
+    // A reply can be several bubbles, each preceded by a short typing beat
+    // (see lib/conversation/pacing). Waiting a fixed time raced the last
+    // bubble, so wait for the transcript to stop changing instead.
+    await settled();
+}
+
+// Polls until the transcript has stopped changing, or the ceiling is hit.
+//
+// The floor matters as much as the stability check: a reply is several bubbles
+// with a typing beat before each, and during a beat the transcript is
+// momentarily unchanged, so "two identical reads" on its own would return
+// while the bot was still mid-turn.
+async function settled(ceilingMs = 8000) {
+    const floorMs = 1200;
+    const started = Date.now();
+    let previous = null;
+    let stable = 0;
+    while (Date.now() - started < ceilingMs) {
+        await page.waitForTimeout(300);
+        const now = await transcript();
+        stable = now === previous ? stable + 1 : 0;
+        previous = now;
+        if (stable >= 3 && Date.now() - started >= floorMs) return;
+    }
 }
 
 async function startChat() {

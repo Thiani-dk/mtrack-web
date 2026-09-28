@@ -7,6 +7,7 @@ import { partyPlaceholder } from '../../lib/partyQuestion';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
 import { chooseMode, emptyConvState, MODE_VALUES, openConversation, receive } from '../../lib/conversation/engine';
 import { copyEntry, render } from '../../lib/conversation/copy';
+import { pacingDelay, pacingEnabled } from '../../lib/conversation/pacing';
 import type { BotTurn, ConvState, TurnResult } from '../../lib/conversation/types';
 import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
@@ -999,7 +1000,19 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             }
         }
 
-        for (const turn of result.turns) addMsg(messageFor(turn));
+        // A beat before each reply, scaled to how much there is to read, so a
+        // multi-bubble turn arrives in a legible order rather than all at once.
+        // Skipped entirely when the user has asked for reduced motion.
+        const paced = pacingEnabled();
+        for (const turn of result.turns) {
+            if (!paced) {
+                addMsg(messageFor(turn));
+                continue;
+            }
+            const thinkingId = addMsg({ role: 'bot', kind: 'thinking' });
+            await sleep(pacingDelay(turn.text));
+            updateMsg(thinkingId, messageFor(turn));
+        }
         if (batched !== null) await runParseBatch(batched);
     }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, setDocFlow, syncDraft, runParseBatch]);
 
@@ -1287,6 +1300,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         syncDraft(receiptMsg?.transactions ?? flow.draftDoc?.transactions ?? []);
     }, [isDemoSession, demoMessages, activeSession, setDocFlow, setDemoFlow, syncDraft]);
 
+    // Which example the empty-state hint is showing. Fixed per session rather
+    // than per render, so it does not flicker between keystrokes.
+    const [placeholderExample] = useState(() => Math.floor(Math.random() * 4));
+
     const documentContext = isDemoSession
         ? (demoFlow
             ? {
@@ -1332,7 +1349,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             // It used to be the hint under every question in the flow.
             case 'confirm': return hint('placeholder.confirm');
             case 'purpose-label': return hint('placeholder.purpose');
-            default: return hint('placeholder.open');
+            default: {
+                const examples = copyEntry('placeholder.open').variants;
+                return examples[placeholderExample % examples.length];
+            }
         }
     })();
     const canCompose = isDemoSession || !!activeSession;

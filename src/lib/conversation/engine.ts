@@ -843,6 +843,10 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             };
         }
         case 'input': {
+            if (t === 'paste') {
+                b.say('zero.pasteReady');
+                return state;
+            }
             if (t === 'carry-on') {
                 b.say('edge.backToCapture');
                 return { ...state, offTopicStreak: 0 };
@@ -1073,7 +1077,16 @@ function commit(b: TurnBuilder, state: ConvState, draft: CaptureDraft, ctx: Turn
         askPurposeFor(b, txn.transactionCode, [...ctx.transactions, txn]);
         return { ...next, purposeQueue: [txn.transactionCode], pending: 'purpose-label' };
     }
-    b.say(txn.directionUnresolved ? 'commit.addedDirection' : 'commit.added');
+    if (txn.directionUnresolved) {
+        b.say('commit.addedDirection');
+        return next;
+    }
+    b.say('commit.added', {}, {
+        options: [
+            { id: 'commit-another', label: b.text('commit.option.another'), value: 'another' },
+            { id: 'commit-paste', label: b.text('commit.option.paste'), value: 'paste' },
+        ],
+    });
     return next;
 }
 
