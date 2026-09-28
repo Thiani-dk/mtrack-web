@@ -33,8 +33,9 @@ export type CorrectionOutcome =
     // travels with the question: the answer names an item and nothing else, so
     // without this the new value would be lost between the two turns.
     | { kind: 'ambiguous'; text: string; amount: number; options: Array<{ id: string; label: string; value: string }> }
-    // A correction marker, but nothing in the message to apply.
-    | { kind: 'unresolved'; text: string };
+    // A correction marker, but nothing in the message to apply. Named, not
+    // worded: the sentence is a registry entry like every other.
+    | { kind: 'unresolved'; copyId: 'correction.unresolved' | 'correction.lostTarget' };
 
 // ── What the correction says the new value is ────────────────────────────────
 
@@ -175,10 +176,7 @@ export function resolveCorrection(
         };
     }
 
-    return {
-        kind: 'unresolved',
-        text: "I can tell something needs changing but not what to. What should it be instead?",
-    };
+    return { kind: 'unresolved', copyId: 'correction.unresolved' };
 }
 
 function applyToItem(
@@ -242,7 +240,7 @@ export function applyNamedCorrection(
     const items = draft.lineItems ?? [];
     const index = items.findIndex(i => i.description.toLowerCase() === description.trim().toLowerCase());
     if (index < 0) {
-        return { kind: 'unresolved', text: "I lost track of which one that was. Which item should change, and to what?" };
+        return { kind: 'unresolved', copyId: 'correction.lostTarget' };
     }
     return applyToItem(draft, index, amount, (n, code) => fmtAmountProse(n, code ?? draft.currency.code));
 }

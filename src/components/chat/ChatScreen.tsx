@@ -3,25 +3,12 @@ import type {
     ChatMessage, ChatOption, ParsedTransaction, SkippedMessage,
     DocumentType, MerchantProfile, OnBehalfOfContext, TrackedDocument,
 } from '../../types';
-import {
-    buildSelfReportedTransaction, buildConfirmSentence, composeSlotQuestion, followOnQuestion,
-    openSlots, mixedCurrencyQuestion, type CaptureSlot,
-} from '../../lib/conversationalCapture';
-import {
-    capturedSummary, composeDescription, composeDraftAnswer, emptyCaptureDraft, foldAddition, skipDate,
-    type CaptureDraft,
-} from '../../lib/captureDraft';
-import { advanceDateRetry, DATE_REASON_UNREADABLE } from '../../lib/parsers/conversationalDate';
-import { advanceZeroUnderstanding, understoodNothing } from '../../lib/zeroUnderstanding';
-import {
-    classifyIntent, decideCancel, isAffirmative, isCancelMessage, isCorrectionMessage, segmentMultiIntent,
-} from '../../lib/metaIntent';
-import { answerOrAdmit } from '../../lib/metaAnswers';
-import { partyPlaceholder, partyQuestion } from '../../lib/partyQuestion';
-import { extractDescription } from '../../lib/conversationalCapture';
-import { applyNamedCorrection, resolveCorrection } from '../../lib/correction';
+import { partyPlaceholder } from '../../lib/partyQuestion';
 import { matchTypedAnswer, type TypedChoice } from '../../lib/chatOptions';
-import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate, UNDATED } from '../../lib/transactionDisplay';
+import { chooseMode, emptyConvState, MODE_VALUES, openConversation, receive } from '../../lib/conversation/engine';
+import { copyEntry, render } from '../../lib/conversation/copy';
+import type { BotTurn, ConvState, TurnResult } from '../../lib/conversation/types';
+import { fmtProse, fmtProseCurrency, fmtTxDate, hasUsableDate } from '../../lib/transactionDisplay';
 import { useDocumentStore } from '../../lib/useDocumentStore';
 import { getDocument } from '../../lib/documentStore';
 import { buildDraft } from '../../lib/draftDocument';
@@ -60,91 +47,23 @@ interface ChatScreenProps {
     onOpenActiveMode?: () => void;
 }
 
-const GREETING = "I'm M-Track. Copy your M-Pesa, Airtel Money, or any transaction confirmation messages and send them here. I'll break down what you spent, spot patterns, and put together a receipt you can download.";
+// Every bot-facing sentence lives in the copy registry now; this component
+// says nothing of its own. What it still owns is the message list, IndexedDB,
+// the SMS pipeline and the guided demo.
 
-const RESUME_BUBBLE = "Still here. Copy your messages whenever you're ready.";
+// The conversation state, plus the one thing the engine has no business
+// knowing about: the persisted draft TrackedDocument backing this flow (its id
+// is the session id, so a resume finds it).
+type DocFlow = ConvState & { draftDoc: TrackedDocument | null };
 
-// ── Mode selection (Phase C) — the front door to the whole feature ──
-const MODE_QUESTION =
-    "What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?";
-const MODE_OPTIONS: ChatOption[] = [
-    { id: 'own', label: 'My own spending', sublabel: 'Copy your messages, or describe what you spent', value: 'own' },
-    { id: 'pos', label: 'A receipt for a customer', sublabel: 'Proof of purchase you hand over', value: 'point_of_sale' },
-    { id: 'obo', label: 'Money I spent for someone else', sublabel: 'So they can pay you back', value: 'on_behalf_of' },
-];
-const OWN_PROMPT =
-    "Copy your M-Pesa, Airtel Money, or bank messages in. If you don't have the message for something, just tell me what you spent and when.";
-const POS_NAME_PROMPT = "What's the business name?";
-
-// "Anyway — how much was it?" reads as one sentence; "Anyway — How much..."
-// reads as two glued together. A prompt that starts with a proper noun or an
-// acronym is left alone.
-function lowerFirst(text: string): string {
-    const [first] = text.split(' ');
-    if (!first || first.slice(1) !== first.slice(1).toLowerCase()) return text;
-    return text.charAt(0).toLowerCase() + text.slice(1);
-}
-const POS_ITEM_PROMPT =
-    "Now tell me what they bought and the amount. You can paste the M-Pesa message instead if you have it.";
-const OBO_PARTY_PROMPT = "Who was this for?";
-const OBO_PURPOSE_PROMPT = "What was it for? Say skip if you'd rather leave that out.";
-const OBO_INPUT_PROMPT =
-    "Copy the M-Pesa messages, or tell me what you spent and when.";
-const DATE_PROMPT =
-    "When was that? A rough date is fine, but I'd rather leave it blank than guess.";
-// Two unreadable answers is enough. A missing date beats a wrong one, and a
-// question that repeats forever is worse than either.
-const MAX_DATE_ATTEMPTS = 2;
-const DATE_GIVE_UP =
-    "Let's leave the date off this one rather than guess. You can tap it on the document to set it later.";
-const OBO_AMBIGUOUS_DATE_PROMPT =
-    "That date could be read two ways, day first or month first. On a claim a wrong date can get the whole thing rejected, so which is it?";
-const EFFICIENCY_NUDGE =
-    "If you've got the M-Pesa messages for these, copy them in. They carry the exact date and reference number, which makes this much harder to argue with.";
-
-type PendingPrompt =
-    | 'mode' | 'business-name' | 'party-name' | 'purpose'
-    | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm'
-    | 'purpose-label' | 'zero-escape' | 'cancel-confirm' | 'correction-target' | 'input';
-
-interface DocFlow {
-    documentType: DocumentType;
-    merchantProfile: MerchantProfile | null;
-    onBehalfOf: OnBehalfOfContext | null;
-    pending: PendingPrompt;
-    draft: CaptureDraft;
-    describedCount: number;
-    nudgeShown: boolean;
-    // Consecutive answers that produced no usable date on the line being
-    // captured. Capped so the clarification question can never loop — but it
-    // counts failures, not replies, so a fresh valid date is never discarded
-    // just for arriving second. See advanceDateRetry.
-    dateAttempts: number;
-    // The previous date answer verbatim: repeating the same text is not a
-    // fresh attempt, however it parses.
-    lastDateAnswer: string | null;
-    // The figure from a correction whose target is still being chosen. Held
-    // because the answer to "which one?" names an item and no amount, so the
-    // new value has nowhere else to live across that turn.
-    pendingCorrectionAmount: number | null;
-    // The second slot asked alongside the pending one, when the question was
-    // batched. The answer reader needs it — a bare figure is the amount only
-    // if "how much?" was actually part of what was asked.
-    batchedSlot: CaptureSlot | null;
-    // Consecutive messages this flow made nothing whatsoever of. Capped, so
-    // "I couldn't pick anything out of that" cannot be said forever — the
-    // third time, the user is offered a way out instead. See zeroUnderstanding.
-    zeroAttempts: number;
-    // Transaction codes still awaiting a guided purpose label (on_behalf_of).
-    purposeQueue: string[];
-    // The persisted draft TrackedDocument backing this flow (id === session id).
-    draftDoc: TrackedDocument | null;
+// One bot turn, as a chat message. The only place a BotTurn becomes something
+// the user can see.
+function messageFor(turn: BotTurn): Omit<ChatMessage, 'id' | 'timestamp'> {
+    return turn.options
+        ? { role: 'bot', kind: 'options', text: turn.text, options: turn.options }
+        : { role: 'bot', kind: 'text', text: turn.text };
 }
 
-// The draft shape, its empty value and every rule for folding an answer into
-// it live in lib/captureDraft — one implementation, called by these handlers
-// and by the tests alike.
-const emptyDraft = emptyCaptureDraft;
 
 // The guided demo's ephemeral state machine — a parallel to DocFlow that only
 // ever runs in a demo session. Never persisted, never touches IndexedDB.
@@ -281,13 +200,6 @@ const SMALL_RESULT_THRESHOLD = 3;
 // Never interrogate someone about more than this many unresolved directions in
 // one batch — ask about the largest by amount, mark the rest.
 const MAX_DIRECTION_QUESTIONS = 5;
-
-// Safety net for anything unexpected in the parse/insight/save pipeline —
-// never leave the "thinking" bubble (and the composer, disabled while
-// isProcessing) stuck forever. Deliberately generic: no raw error.message,
-// which would read as broken rather than handled and could leak internals.
-const PROCESSING_ERROR_TEXT =
-    "Something went wrong while I was working on that. Nothing was lost — try sending it again.";
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -505,16 +417,6 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
     // / party name entirely, by design. The ref is the source of truth for
     // async handlers; the state copy drives renders (e.g. the composer hint).
     const [docFlow, setDocFlowState] = useState<DocFlow | null>(null);
-    // A tapped option is a typed answer by another name, and the doc flow is
-    // the one place that knows what the current question's answers mean. The
-    // handler is defined below this callback, so it is reached through a ref
-    // rather than duplicated — the alternative is two divergent copies of the
-    // routing, which is how this file grew a bug before.
-    const handleDocFlowRef = useRef<((text: string) => Promise<boolean>) | null>(null);
-    // askNextField reports the batched second slot out of band, because it
-    // returns the pending prompt and its callers immediately build the next
-    // flow object from that. Read straight back in advanceAfterField.
-    const batchedSlotRef = useRef<CaptureSlot | null>(null);
     const docFlowRef = useRef<DocFlow | null>(null);
     const setDocFlow = useCallback((next: DocFlow | null | ((prev: DocFlow | null) => DocFlow | null)) => {
         const resolved = typeof next === 'function' ? (next as (p: DocFlow | null) => DocFlow | null)(docFlowRef.current) : next;
@@ -576,24 +478,9 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         if (activeSession.messages.length > 0) return;
         if (greetedSessionIds.current.has(activeSession.id)) return;
         greetedSessionIds.current.add(activeSession.id);
-        addMessage({ role: 'bot', kind: 'text', text: GREETING });
-        addMessage({ role: 'bot', kind: 'options', text: MODE_QUESTION, options: MODE_OPTIONS });
-        setDocFlow({
-            documentType: 'expense_summary',
-            merchantProfile: null,
-            onBehalfOf: null,
-            pending: 'mode',
-            draft: emptyDraft(),
-            describedCount: 0,
-            nudgeShown: false,
-            dateAttempts: 0,
-            lastDateAnswer: null,
-            zeroAttempts: 0,
-            pendingCorrectionAmount: null,
-            batchedSlot: null,
-            purposeQueue: [],
-            draftDoc: null,
-        });
+        const opened = openConversation();
+        for (const turn of opened.turns) addMessage(messageFor(turn));
+        setDocFlow({ ...opened.state!, draftDoc: null });
     }, [isDemoSession, activeSession, addMessage, setDocFlow]);
 
     // Resuming into a session that already has the greeting (and maybe more)
@@ -606,7 +493,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         if (!activeSession || activeSession.id !== resumeSessionId) return;
         if (resumeGreetedSessionIds.current.has(activeSession.id)) return;
         resumeGreetedSessionIds.current.add(activeSession.id);
-        addMessage({ role: 'bot', kind: 'text', text: RESUME_BUBBLE });
+        addMessage({ role: 'bot', kind: 'text', text: copyEntry('open.resume').variants[0] });
     }, [isDemoSession, resumeSessionId, activeSession, addMessage]);
 
     // Phase D4 — resume mid-document-build. If a draft (or approved) document
@@ -624,23 +511,15 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             const doc = await getDocument(sessionId);
             if (!doc || docFlowRef.current) return;
             setDocFlow({
-                documentType: doc.documentType,
+                ...emptyConvState(doc.documentType),
                 merchantProfile: doc.merchantProfile,
                 onBehalfOf: doc.onBehalfOf,
                 pending: 'input',
-                draft: emptyDraft(),
-                describedCount: 0,
                 nudgeShown: true,
-                dateAttempts: 0,
-                lastDateAnswer: null,
-                zeroAttempts: 0,
-                pendingCorrectionAmount: null,
-                batchedSlot: null,
-                purposeQueue: [],
                 draftDoc: doc,
             });
             if (doc.status === 'draft') {
-                addMessage({ role: 'bot', kind: 'text', text: "Picking up where we left off. Edit anything on the document, or tap Approve when it looks right." });
+                addMessage({ role: 'bot', kind: 'text', text: copyEntry('open.resumeDraft').variants[0] });
             }
         })();
     }, [isDemoSession, activeSession, setDocFlow, addMessage]);
@@ -947,46 +826,11 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         await emitDemoReceipt(merged, true);
     }, [addDemoMessage, setDemoFlow, emitDemoReceipt]);
 
-    // ── Phase C: mode selection + conversational capture ──────────────────
 
-    const handleOptionSelect = useCallback((messageId: string, value: string) => {
-        if (isDemoSession) {
-            void handleDemoOption(messageId, value);
-            return;
-        }
-        const addMsg = addMessage;
-        const updateMsg = updateMessage;
-        updateMsg(messageId, { answered: true, answeredValue: value });
-
-        if (activeSession?.sessionStatus === 'awaiting_input') {
-            updateSessionStatus(activeSession.id, 'active');
-        }
-
-        const base = {
-            merchantProfile: null, onBehalfOf: null, draft: emptyDraft(),
-            describedCount: 0, nudgeShown: false, dateAttempts: 0, lastDateAnswer: null,
-            zeroAttempts: 0, pendingCorrectionAmount: null, batchedSlot: null as CaptureSlot | null,
-            purposeQueue: [] as string[], draftDoc: null,
-        };
-        // Anything that isn't one of the three mode choices belongs to the
-        // question the doc flow is currently waiting on.
-        if (docFlowRef.current && !['own', 'point_of_sale', 'on_behalf_of'].includes(value)) {
-            void handleDocFlowRef.current?.(value);
-            return;
-        }
-
-        if (value === 'own') {
-            setDocFlow({ ...base, documentType: 'expense_summary', pending: 'input' });
-            addMsg({ role: 'bot', kind: 'text', text: OWN_PROMPT });
-        } else if (value === 'point_of_sale') {
-            setDocFlow({ ...base, documentType: 'point_of_sale', pending: 'business-name' });
-            addMsg({ role: 'bot', kind: 'text', text: POS_NAME_PROMPT });
-        } else if (value === 'on_behalf_of') {
-            setDocFlow({ ...base, documentType: 'on_behalf_of', pending: 'party-name' });
-            addMsg({ role: 'bot', kind: 'text', text: OBO_PARTY_PROMPT });
-        }
-    }, [isDemoSession, handleDemoOption, addMessage, updateMessage, activeSession, updateSessionStatus, setDocFlow]);
-
+    // A near-duplicate question is only ever answered by a tap. "Keep both"
+    // just locks the question. "Drop the small one" additionally flips the
+    // smaller transaction out of the receipt — the same live receipt patch
+    // the skipped-review handlers use, so computeReceiptData picks it up.
     // Persists (debounced) the draft TrackedDocument backing this flow. Its id
     // is the session id — one draft per session — so a resume finds it. Draft
     // status and covering dates / dataSource are recomputed by buildDraft.
@@ -1013,7 +857,10 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         if (!txn) return;
         addMsg({
             role: 'bot', kind: 'text',
-            text: `What was the ${fmtProseCurrency(txn.amount, txn.currency)} to ${txn.merchant ?? txn.recipient} for? Say skip to leave it out.`,
+            text: render(copyEntry('purpose.ask').variants[0], {
+                amount: fmtProseCurrency(txn.amount, txn.currency),
+                party: txn.merchant ?? txn.recipient,
+            }),
         });
     }, [isDemoSession, addDemoMessage, addMessage]);
 
@@ -1031,65 +878,149 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         askPurposeFor(queue[0], transactions);
     }, [setDocFlow, askPurposeFor]);
 
-    const commitDraft = useCallback(async (flow: DocFlow, draft: CaptureDraft) => {
+    // ── The conversation ─────────────────────────────────────────────────
+    //
+    // Everything the bot says, and everything it waits for next, is decided in
+    // lib/conversation/engine. What follows is the adapter: it turns BotTurns
+    // into chat messages and Effects into the actions only a component can
+    // take. There is no second copy of the routing here, which is the whole
+    // point — the scenario harness drives the same `receive` this does.
+
+    // The SMS batch path: parse, narrate, then offer the document. Reached
+    // through a parse-batch effect rather than by the component deciding for
+    // itself what counts as a pasted message.
+    const runParseBatch = useCallback(async (text: string) => {
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
-        // Zero is a figure. Refusing it here meant that even once the flow
-        // accepted "it was free", pressing yes at the confirmation silently
-        // did nothing at all — the worse half of the same dead end.
-        if (draft.amount == null || draft.amount < 0 || !draft.recipient) return;
-        if (!draft.date && !draft.dateSkipped) return;
+        setIsProcessing(true);
+        const thinkingId = addMsg({ role: 'bot', kind: 'thinking' });
+        try {
+            const { transactions, stats: parseStats, skippedMessages: parserSkipped, linkEnrichments, nearDuplicates, reversalPairs } = parseAllMessages(text);
+            const withDefaults = transactions.map(t =>
+                t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
+            );
+            const scoped = withDefaults.filter(t => !t.excludedFromReceipt);
 
-        const txn = buildSelfReportedTransaction({
-            amount: draft.amount, currency: draft.currency.code, recipient: draft.recipient,
-            // Deliberately undated when the user took the "leave it off" offer.
-            date: draft.date ?? UNDATED(),
-            dateAmbiguous: draft.dateAmbiguous, purposeLabel: draft.purposeLabel,
-            direction: draft.direction, lineItems: draft.lineItems,
-        });
+            // Give the "thinking" bubble a beat before it resolves, then convert
+            // it in place into the first real reply — no separate remove step.
+            await sleep(500);
+            const longerRangeAvailable = !isDemoSession &&
+                receipts.some(r => computeDaySpan(r.transactions) > computeDaySpan(scoped));
 
-        // A described transaction under "my own spending" is a personal note,
-        // not an SMS-built expense summary.
-        const resolvedType: DocumentType =
-            flow.documentType === 'expense_summary' ? 'personal_note' : flow.documentType;
+            // Nothing is written to the running aggregate here — the batch
+            // produces a DRAFT document, and only an explicit Approve records
+            // it (and only for expense_summary / personal_note).
+            const excludedSkipped: SkippedMessage[] = withDefaults
+                .filter(t => t.excludedFromReceipt)
+                .map(t => ({ rawText: t.rawLine, reason: 'excluded', transactionCode: t.transactionCode }));
 
+            const flow = docFlowRef.current;
+            await deliverInsights(
+                withDefaults, parseStats, [...parserSkipped, ...excludedSkipped], thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
+                allTimeStats,
+                linkEnrichments, nearDuplicates,
+                flow?.documentType ?? 'expense_summary', reversalPairs
+            );
+
+            if (!isDemoSession) {
+                syncDraft(withDefaults);
+                await maybeStartPurposeLabelling(withDefaults);
+            }
+        } catch (err) {
+            console.error('runParseBatch failed:', err);
+            updateMsg(thinkingId, { kind: 'text', text: copyEntry('system.error').variants[0] });
+        } finally {
+            setIsProcessing(false);
+        }
+    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, allTimeStats, syncDraft, maybeStartPurposeLabelling]);
+
+    // Effects are applied before turns are said: a receipt card belongs above
+    // the "Added." that announces it, and a purpose question is asked of a
+    // document that already holds the line it is asking about.
+    const applyResult = useCallback(async (result: TurnResult) => {
+        const addMsg = isDemoSession ? addDemoMessage : addMessage;
+        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
         const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
         const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
-        const allTxns = receiptMsg?.transactions ? [...receiptMsg.transactions, txn] : [txn];
-        if (receiptMsg?.transactions) {
-            updateMsg(receiptMsg.id, { transactions: allTxns });
-        } else {
-            addMsg({
-                role: 'bot', kind: 'receipt', transactions: allTxns,
-                dateRange: draft.date ? fmtShortDate(draft.date) : 'undated',
-                isDemo: false, documentType: resolvedType,
-            });
+
+        setDocFlow(prev => (result.state ? { ...result.state, draftDoc: prev?.draftDoc ?? null } : null));
+
+        let latest = receiptMsg?.transactions ?? [];
+        let batched: string | null = null;
+
+        for (const effect of result.effects) {
+            switch (effect.kind) {
+                case 'parse-batch':
+                    batched = effect.text;
+                    break;
+                case 'commit': {
+                    const txn = effect.transaction;
+                    latest = [...latest, txn];
+                    if (receiptMsg) {
+                        updateMsg(receiptMsg.id, { transactions: latest });
+                    } else {
+                        addMsg({
+                            role: 'bot', kind: 'receipt', transactions: latest,
+                            dateRange: hasUsableDate(txn) ? fmtShortDate(txn.date) : 'undated',
+                            isDemo: false,
+                            documentType: result.state?.documentType ?? 'personal_note',
+                        });
+                    }
+                    // Direction the capture couldn't settle: ask, using the same
+                    // tappable question the SMS path uses.
+                    if (txn.directionUnresolved) {
+                        await sleep(300);
+                        addMsg(directionQuestionMessage(txn));
+                    }
+                    break;
+                }
+                case 'update-transactions':
+                    latest = effect.transactions;
+                    if (receiptMsg) updateMsg(receiptMsg.id, { transactions: latest });
+                    break;
+                case 'sync-draft':
+                    syncDraft(latest);
+                    break;
+            }
         }
 
-        setDocFlow({ ...flow, documentType: resolvedType, draft: emptyDraft(), pending: 'input' });
-        syncDraft(allTxns);
+        for (const turn of result.turns) addMsg(messageFor(turn));
+        if (batched !== null) await runParseBatch(batched);
+    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, setDocFlow, syncDraft, runParseBatch]);
 
-        // Direction the capture couldn't settle: ask, using the same tappable
-        // question the SMS path uses. handleDirectionAnswer patches the same
-        // receipt message and re-scores, so nothing else here changes.
-        if (txn.directionUnresolved) {
-            await sleep(300);
-            addMsg(directionQuestionMessage(txn));
+    // One user message, through the engine.
+    const runTurn = useCallback(async (text: string) => {
+        const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
+        const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
+        await applyResult(receive(docFlowRef.current, text, {
+            now: new Date(),
+            transactions: receiptMsg?.transactions ?? [],
+        }));
+    }, [isDemoSession, demoMessages, activeSession, applyResult]);
+
+    // ── Mode selection ────────────────────────────────────────────────────
+
+    const handleOptionSelect = useCallback((messageId: string, value: string) => {
+        if (isDemoSession) {
+            void handleDemoOption(messageId, value);
+            return;
+        }
+        updateMessage(messageId, { answered: true, answeredValue: value });
+
+        if (activeSession?.sessionStatus === 'awaiting_input') {
+            updateSessionStatus(activeSession.id, 'active');
         }
 
-        if (resolvedType === 'on_behalf_of' && !txn.purposeLabel) {
-            setDocFlow(f => (f ? { ...f, purposeQueue: [txn.transactionCode], pending: 'purpose-label' } : f));
-            await sleep(300);
-            askPurposeFor(txn.transactionCode, allTxns);
-        } else {
-            addMsg({
-                role: 'bot', kind: 'text',
-                text: txn.directionUnresolved
-                    ? 'Added. Set which way that one went above, then tell me the next.'
-                    : 'Added. Tell me the next one, or tap Approve when the document looks right.',
-            });
+        const flow = docFlowRef.current;
+        if (!flow) return;
+        // Anything that isn't one of the three mode choices belongs to the
+        // question the conversation is currently waiting on.
+        if (!(MODE_VALUES as readonly string[]).includes(value)) {
+            void runTurn(value);
+            return;
         }
-    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, setDocFlow, syncDraft, askPurposeFor]);
+        void applyResult(chooseMode(flow, value));
+    }, [isDemoSession, handleDemoOption, updateMessage, activeSession, updateSessionStatus, runTurn, applyResult]);
 
     // The one action that finalises a document. Only after Approve does an
     // expense_summary / personal_note feed the all-time totals;
@@ -1123,479 +1054,6 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         addMessage({ role: 'bot', kind: 'text', text: 'Approved and saved. It is in your history now.' });
     }, [isDemoSession, activeSession, persistDocument, setDocFlow, updateMessage, recordSession, addMessage]);
 
-    // Emits the question for the first slot still genuinely empty (openSlots),
-    // and returns which prompt we're now waiting on. Nothing open means we're
-    // ready to confirm. Asking for something the user already said is what
-    // made this flow feel like it wasn't listening — and at worst invited a
-    // second, vaguer answer that overwrote a good one.
-    const askNextField = useCallback((
-        draft: CaptureDraft, documentType: DocumentType, instance: number,
-    ): PendingPrompt => {
-        const addMsg = isDemoSession ? addDemoMessage : addMessage;
-        // Two open slots are asked together — they are independent, so nothing
-        // is lost by it, and a user who volunteered everything but two fields
-        // should not make two round trips for them. The answer is filed
-        // against the first; absorbAnswer picks up the second if it was given,
-        // and it is asked again on its own if it wasn't.
-        const question = composeSlotQuestion(openSlots(draft), {
-            date: DATE_PROMPT,
-            amount: 'How much was it?',
-            description: partyQuestion(documentType, instance),
-        }, documentType);
-        if (!question) { batchedSlotRef.current = null; return 'confirm'; }
-
-        addMsg({ role: 'bot', kind: 'text', text: question.text });
-        batchedSlotRef.current = question.alsoAsked;
-        switch (question.slot) {
-            case 'date': return 'field-date';
-            case 'amount': return 'field-amount';
-            case 'description': return 'field-recipient';
-        }
-    }, [isDemoSession, addDemoMessage, addMessage]);
-
-    // The sentence itself is built in conversationalCapture, where it can be
-    // tested without rendering a chat.
-    const confirmText = useCallback((draft: CaptureDraft): string => buildConfirmSentence({
-        amount: draft.amount,
-        currency: draft.currency,
-        recipient: draft.recipient,
-        direction: draft.direction,
-        purposeLabel: draft.purposeLabel,
-        dateLabel: draft.date ? (draft.dateInterpretation ?? fmtShortDate(draft.date)) : null,
-        dateSkipped: draft.dateSkipped,
-        lineItems: draft.lineItems,
-    }), []);
-
-    // The question currently on the table, word for word, so an interruption
-    // can be answered and the thread picked back up exactly where it was.
-    const promptFor = useCallback((flow: DocFlow): string => {
-        switch (flow.pending) {
-            case 'field-date': return DATE_PROMPT;
-            case 'field-amount': return 'How much was it?';
-            case 'field-recipient':
-                return partyQuestion(flow.documentType, flow.describedCount);
-            case 'business-name': return POS_NAME_PROMPT;
-            case 'party-name': return OBO_PARTY_PROMPT;
-            case 'purpose': return OBO_PURPOSE_PROMPT;
-            case 'confirm': return confirmText(flow.draft);
-            default: return 'what did you spend on?';
-        }
-    }, [confirmText]);
-
-    const advanceAfterField = useCallback((flow: DocFlow, draft: CaptureDraft) => {
-        const addMsg = isDemoSession ? addDemoMessage : addMessage;
-        const next = askNextField(draft, flow.documentType, flow.describedCount);
-        setDocFlow({ ...flow, draft, pending: next, batchedSlot: batchedSlotRef.current });
-        if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
-    }, [isDemoSession, addDemoMessage, addMessage, askNextField, confirmText, setDocFlow]);
-
-    // Runs a described transaction through the shared extraction components,
-    // then either confirms in one turn or falls to one-field-at-a-time.
-    const handleDescription = useCallback(async (text: string) => {
-        const addMsg = isDemoSession ? addDemoMessage : addMessage;
-        const flow = docFlowRef.current;
-        if (!flow) return;
-
-        // A message can carry two things at once — "bought bacon for 3100,
-        // also can you tell me what currencies you support". The data clause
-        // advances the actual task and is handled first, whichever half it sat
-        // in; the question is answered in the SAME turn, because two bot turns
-        // for one message reads as a system that lost its place.
-        const intentOf = (clause: string) => {
-            const e = extractDescription(clause);
-            return classifyIntent({ text: clause, extraction: e, nothingExtracted: understoodNothing(e) });
-        };
-        const segments = segmentMultiIntent(text, intentOf);
-        const questionAnswers = segments.questions.map(q => answerOrAdmit(q.text));
-
-        // A message that is ONLY a question about the app. Answering it must
-        // not cost the user their place, and it must never reach the
-        // zero-understanding fallback — "I couldn't pick anything out of that"
-        // in reply to a perfectly clear question would be nonsense.
-        if (segments.data.length === 0 && questionAnswers.length > 0) {
-            addMsg({ role: 'bot', kind: 'text', text: `${questionAnswers[0]} Anyway — what did you spend on?` });
-            return;
-        }
-        // Only the data half is folded into the draft; the question half would
-        // otherwise be mined for an amount it never contained.
-        const dataText = segments.data.length > 0 && questionAnswers.length > 0
-            ? segments.data.map(d => d.text).join(', ')
-            : text;
-
-        const { draft, extraction: r } = composeDescription(flow.draft, dataText);
-        const describedCount = flow.describedCount + 1;
-        // Emitted after whatever the data half prompts, so the reply reads
-        // "here's what I did with that — and to answer your question, ...".
-        const answerQuestions = () => {
-            for (const answer of questionAnswers) {
-                addMsg({ role: 'bot', kind: 'text', text: `To answer your question: ${answer}` });
-            }
-        };
-
-        // These branches put the date parser's OWN wording rather than going
-        // through askNextField, which is why batching used to miss the most
-        // common case of all — a first message with no readable date.
-        const nextOpenAfterDate = (d: CaptureDraft): CaptureSlot | null =>
-            openSlots({ ...d, date: null }).filter(slot => slot !== 'date')[0] ?? null;
-        const withFollowOn = (question: string, d: CaptureDraft): string => {
-            const second = nextOpenAfterDate(d);
-            return second ? `${question} ${followOnQuestion(second, flow.documentType)}` : question;
-        };
-
-        const fireNudge = () => {
-            if (describedCount >= 2 && !docFlowRef.current?.nudgeShown) {
-                addMsg({ role: 'bot', kind: 'text', text: EFFICIENCY_NUDGE });
-                setDocFlow(f => (f ? { ...f, nudgeShown: true } : f));
-            }
-        };
-
-        // Nothing at all came out of that message. Say so, rather than falling
-        // through to the next question in the sequence — "How much was it?"
-        // after understanding none of a message implies the rest of it landed,
-        // and it didn't. Checked against THIS message's extraction, not the
-        // accumulated draft, and only when every field came back empty: a
-        // message that named a thing without a price is partial understanding
-        // and keeps its ordinary targeted question.
-        const zero = advanceZeroUnderstanding({ consecutive: flow.zeroAttempts }, understoodNothing(r));
-        if (zero.response) {
-            if (zero.response.kind === 'escape') {
-                setDocFlow({ ...flow, draft, zeroAttempts: 0, pending: 'zero-escape', describedCount });
-                addMsg({
-                    role: 'bot', kind: 'options',
-                    text: zero.response.text, options: zero.response.options,
-                });
-            } else {
-                setDocFlow({
-                    ...flow, draft, zeroAttempts: zero.state.consecutive,
-                    pending: 'input', describedCount,
-                });
-                addMsg({ role: 'bot', kind: 'text', text: zero.response.text });
-            }
-            answerQuestions();
-            return;
-        }
-
-        // A date the parser refused outright (in the future, or older than the
-        // 12-month window) is never carried into the draft — say why and ask again.
-        if (!draft.date && !draft.dateSkipped && r.dateResult.confidence === 'invalid') {
-            setDocFlow({
-                ...flow, draft: { ...draft, date: null }, pending: 'field-date',
-                describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
-            });
-            addMsg({ role: 'bot', kind: 'text', text: withFollowOn(`${r.dateResult.reason} When was it?`, draft) });
-            fireNudge();
-            answerQuestions();
-            return;
-        }
-
-        // A real but two-way reading ("9/2/2026", "over the weekend") — put the
-        // parser's own question, rather than picking a side. When the sentence
-        // simply never mentioned a date, ask the plain question instead: "I
-        // couldn't work out a date from that" would imply they'd tried.
-        if (!draft.date && !draft.dateSkipped && r.dateResult.confidence === 'needs_clarification' && r.dateResult.reason) {
-            const attempted = r.dateResult.reason !== DATE_REASON_UNREADABLE;
-            setDocFlow({
-                ...flow, draft: { ...draft, date: null }, pending: 'field-date',
-                describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
-            });
-            addMsg({ role: 'bot', kind: 'text', text: withFollowOn(attempted ? r.dateResult.reason : DATE_PROMPT, draft) });
-            fireNudge();
-            answerQuestions();
-            return;
-        }
-
-        // Phase C5 — a day/month flip on a reimbursement claim can sink the
-        // whole submission, so escalate it before doing anything else.
-        if (draft.date && draft.dateAmbiguous && flow.documentType === 'on_behalf_of') {
-            setDocFlow({
-                ...flow, draft: { ...draft, date: null }, pending: 'field-date',
-                describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
-            });
-            addMsg({ role: 'bot', kind: 'text', text: OBO_AMBIGUOUS_DATE_PROMPT });
-            fireNudge();
-            answerQuestions();
-            return;
-        }
-
-        // Two currencies in one message. The amount is deliberately left open
-        // — there is no honest total without a rate — so say which two rather
-        // than putting a bare "How much was it?" to someone who just gave two
-        // perfectly clear figures.
-        if (r.mixedCurrencies && (draft.amount == null || draft.amount <= 0)) {
-            setDocFlow({
-                ...flow, draft, pending: 'field-amount', describedCount, zeroAttempts: 0,
-                batchedSlot: null,
-            });
-            addMsg({ role: 'bot', kind: 'text', text: mixedCurrencyQuestion(r.mixedCurrencies) });
-            fireNudge();
-            answerQuestions();
-            return;
-        }
-
-        // One path, driven by what is actually still missing: everything the
-        // message filled stays filled, and only a genuinely empty slot earns a
-        // question.
-        const next = askNextField(draft, flow.documentType, describedCount);
-        setDocFlow({ ...flow, draft, pending: next, describedCount, zeroAttempts: 0, batchedSlot: batchedSlotRef.current });
-        if (next === 'confirm') addMsg({ role: 'bot', kind: 'text', text: confirmText(draft) });
-        fireNudge();
-        answerQuestions();
-    }, [isDemoSession, addDemoMessage, addMessage, askNextField, confirmText, setDocFlow]);
-
-    // Handles a message while a specific prompt is pending. Returns true if it
-    // consumed the input; false only when we're in the open 'input' state and
-    // the caller should decide between a paste and a description.
-    const handleDocFlow = useCallback(async (text: string): Promise<boolean> => {
-        const addMsg = isDemoSession ? addDemoMessage : addMessage;
-        const flow = docFlowRef.current;
-        if (!flow) return false;
-        const t = text.trim();
-
-        // Classification before slot-filling. Whatever the flow was waiting
-        // for, "never mind" is not an answer to it — and a design that only
-        // discovers that after trying to read it as one has already filed it
-        // as a date or a description by then.
-        if (flow.pending !== 'mode' && flow.pending !== 'cancel-confirm' && isCancelMessage(t)) {
-            const decision = decideCancel({ summary: capturedSummary(flow.draft) });
-            if (decision.kind === 'immediate') {
-                setDocFlow(null);
-                addMsg({ role: 'bot', kind: 'text', text: decision.text });
-            } else {
-                setDocFlow({ ...flow, pending: 'cancel-confirm' });
-                addMsg({ role: 'bot', kind: 'options', text: decision.text, options: decision.options ?? [] });
-            }
-            return true;
-        }
-
-        // A question ABOUT the app, asked in the middle of being asked
-        // something. Answer it, then put the parked question back verbatim —
-        // the interruption must not count as an answer to anything, so the
-        // pending state is deliberately left exactly as it was. That IS the
-        // resume pointer: nothing advanced, so nothing needs restoring.
-        if (flow.pending !== 'mode' && flow.pending !== 'cancel-confirm'
-            && flow.pending !== 'correction-target' && flow.pending !== 'zero-escape') {
-            const e = extractDescription(t);
-            const intent = classifyIntent({ text: t, extraction: e, nothingExtracted: understoodNothing(e) });
-            if (intent === 'meta_question') {
-                const parked = promptFor(flow);
-                addMsg({ role: 'bot', kind: 'text', text: `${answerOrAdmit(t)} Anyway — ${lowerFirst(parked)}` });
-                return true;
-            }
-        }
-
-        // A correction, wherever it arrives. This has to run before the slot
-        // switch for the same reason cancel does: at the confirmation step
-        // ANY non-yes message used to wipe the whole draft and restart from
-        // the date, so "actually it was 3500" threw away an amount, a date and
-        // an item list that were all correct.
-        if (flow.pending !== 'mode' && flow.pending !== 'cancel-confirm' && isCorrectionMessage(t)) {
-            const outcome = resolveCorrection(flow.draft, t);
-            if (outcome.kind === 'applied') {
-                // Every correction says what it changed. A silently-applied
-                // one is the single case where editing the WRONG field leaves
-                // the user no way to notice.
-                addMsg({ role: 'bot', kind: 'text', text: outcome.echo });
-                advanceAfterField({ ...flow, pending: 'input' }, outcome.draft);
-                return true;
-            }
-            if (outcome.kind === 'ambiguous') {
-                setDocFlow({ ...flow, pending: 'correction-target', pendingCorrectionAmount: outcome.amount });
-                addMsg({ role: 'bot', kind: 'options', text: outcome.text, options: outcome.options });
-                return true;
-            }
-            addMsg({ role: 'bot', kind: 'text', text: outcome.text });
-            return true;
-        }
-
-        switch (flow.pending) {
-            // Which of several items the correction meant. The answer carries
-            // the item's own description, so it resolves through the same
-            // reference matching rather than a second positional mechanism.
-            case 'correction-target': {
-                const named = t.replace(/^correction-target:/, '');
-                const pendingAmount = flow.pendingCorrectionAmount;
-                const outcome = pendingAmount != null
-                    ? applyNamedCorrection(flow.draft, named, pendingAmount)
-                    : resolveCorrection(flow.draft, named);
-                if (outcome.kind === 'applied') {
-                    addMsg({ role: 'bot', kind: 'text', text: outcome.echo });
-                    advanceAfterField({ ...flow, pending: 'input', pendingCorrectionAmount: null }, outcome.draft);
-                } else {
-                    addMsg({ role: 'bot', kind: 'text', text: 'Tap one of the items above and tell me the new figure.' });
-                }
-                return true;
-            }
-            // "Cancel" said with real progress behind it is genuinely
-            // ambiguous between "scrap this" and "stop asking, I'm done", so
-            // it is asked rather than guessed. See decideCancel.
-            case 'cancel-confirm': {
-                if (/^discard/i.test(t)) {
-                    setDocFlow(null);
-                    addMsg({ role: 'bot', kind: 'text', text: 'Scrapped, all of it. Nothing was saved.' });
-                    return true;
-                }
-                if (/^keep/i.test(t)) {
-                    setDocFlow({ ...flow, pending: 'confirm' });
-                    addMsg({ role: 'bot', kind: 'text', text: confirmText(flow.draft) });
-                    return true;
-                }
-                addMsg({ role: 'bot', kind: 'text', text: 'Tap one of the two above and I will do that.' });
-                return true;
-            }
-            case 'mode':
-                addMsg({ role: 'bot', kind: 'text', text: "Tap one of the options above so I know what we're making." });
-                return true;
-            // The way out offered after two failed "I didn't follow" turns.
-            // Three options, all of which end the loop rather than asking in
-            // the same shape a third time.
-            case 'zero-escape': {
-                if (/^paste/i.test(t)) {
-                    setDocFlow({ ...flow, pending: 'input', zeroAttempts: 0 });
-                    addMsg({
-                        role: 'bot', kind: 'text',
-                        text: 'Go ahead — paste the M-PESA message itself and I will read it from there.',
-                    });
-                    return true;
-                }
-                if (/^skip/i.test(t)) {
-                    // Keep whatever the flow has and move on to the first slot
-                    // that is genuinely still open, one plain question at a time.
-                    advanceAfterField({ ...flow, zeroAttempts: 0 }, flow.draft);
-                    return true;
-                }
-                if (/^start over|^restart/i.test(t)) {
-                    setDocFlow({ ...flow, draft: emptyDraft(), pending: 'input', zeroAttempts: 0 });
-                    addMsg({ role: 'bot', kind: 'text', text: 'Cleared. What did you spend on?' });
-                    return true;
-                }
-                addMsg({ role: 'bot', kind: 'text', text: 'Tap one of the options above and we will take it from there.' });
-                return true;
-            }
-            case 'business-name':
-                if (!t) { addMsg({ role: 'bot', kind: 'text', text: POS_NAME_PROMPT }); return true; }
-                setDocFlow({ ...flow, merchantProfile: { businessName: t, contact: null }, pending: 'input' });
-                addMsg({ role: 'bot', kind: 'text', text: POS_ITEM_PROMPT });
-                return true;
-            case 'party-name':
-                if (!t) { addMsg({ role: 'bot', kind: 'text', text: OBO_PARTY_PROMPT }); return true; }
-                setDocFlow({ ...flow, onBehalfOf: { preparedBy: null, partyName: t, purpose: null }, pending: 'purpose' });
-                addMsg({ role: 'bot', kind: 'text', text: OBO_PURPOSE_PROMPT });
-                return true;
-            case 'purpose': {
-                const skip = !t || /^(skip|none|n\/?a|no|nothing)$/i.test(t);
-                setDocFlow({
-                    ...flow,
-                    onBehalfOf: flow.onBehalfOf ? { ...flow.onBehalfOf, purpose: skip ? null : t } : flow.onBehalfOf,
-                    pending: 'input',
-                });
-                addMsg({ role: 'bot', kind: 'text', text: OBO_INPUT_PROMPT });
-                return true;
-            }
-            case 'field-date': {
-                const composed = composeDraftAnswer(flow.draft, 'date', t, undefined, flow.batchedSlot);
-                const d = composed.dateResult!;
-
-                if (composed.accepted) {
-                    // Accepted, but still echoed back inside the confirmation
-                    // sentence (see confirmText) before anything is committed.
-                    setDocFlow({ ...flow, dateAttempts: 0, lastDateAnswer: null });
-                    advanceAfterField({ ...flow, dateAttempts: 0, lastDateAnswer: null }, composed.draft);
-                    return true;
-                }
-
-                // Not settled. Ask the parser's own question — but the cap
-                // counts consecutive answers that produced nothing usable, not
-                // replies. A fresh date that merely needs disambiguating gets
-                // its own hearing however many attempts came before it; the
-                // cap still guards against a real loop of unreadable answers.
-                const retry = advanceDateRetry(
-                    { attempts: flow.dateAttempts, lastAnswer: flow.lastDateAnswer },
-                    t, d, MAX_DATE_ATTEMPTS,
-                );
-                if (retry.giveUp) {
-                    addMsg({ role: 'bot', kind: 'text', text: DATE_GIVE_UP });
-                    advanceAfterField(
-                        { ...flow, dateAttempts: 0, lastDateAnswer: null },
-                        skipDate(composed.draft),
-                    );
-                    return true;
-                }
-                setDocFlow({ ...flow, dateAttempts: retry.state.attempts, lastDateAnswer: retry.state.lastAnswer });
-                addMsg({ role: 'bot', kind: 'text', text: d.reason ?? DATE_PROMPT });
-                return true;
-            }
-            case 'field-amount': {
-                const composed = composeDraftAnswer(flow.draft, 'amount', t, undefined, flow.batchedSlot);
-                if (!composed.accepted) {
-                    addMsg({ role: 'bot', kind: 'text', text: 'How much was it? A figure is enough.' });
-                    setDocFlow({ ...flow, draft: composed.draft });
-                    return true;
-                }
-                advanceAfterField(flow, composed.draft);
-                return true;
-            }
-            case 'field-recipient': {
-                const composed = composeDraftAnswer(flow.draft, 'description', t, undefined, flow.batchedSlot);
-                if (!composed.accepted) {
-                    addMsg({ role: 'bot', kind: 'text', text: partyQuestion(flow.documentType, flow.describedCount) });
-                    return true;
-                }
-                advanceAfterField(flow, composed.draft);
-                return true;
-            }
-            case 'purpose-label': {
-                const [code, ...restQueue] = flow.purposeQueue;
-                const skip = !t || /^(skip|none|n\/?a|no)$/i.test(t);
-                const currentMessages = isDemoSession ? demoMessages : (activeSession?.messages ?? []);
-                const receiptMsg = currentMessages.find(m => m.kind === 'receipt');
-                let updatedTxns = receiptMsg?.transactions ?? [];
-                if (!skip && code && receiptMsg?.transactions) {
-                    updatedTxns = receiptMsg.transactions.map(tx =>
-                        tx.transactionCode === code ? { ...tx, purposeLabel: t } : tx);
-                    (isDemoSession ? updateDemoMessage : updateMessage)(receiptMsg.id, { transactions: updatedTxns });
-                }
-                if (restQueue.length > 0) {
-                    setDocFlow({ ...flow, purposeQueue: restQueue });
-                    askPurposeFor(restQueue[0], updatedTxns);
-                } else {
-                    setDocFlow({ ...flow, purposeQueue: [], pending: 'input' });
-                    addMsg({ role: 'bot', kind: 'text', text: "That's every line explained. Tap Approve when the document looks right." });
-                }
-                syncDraft(updatedTxns);
-                return true;
-            }
-            case 'confirm': {
-                const added = foldAddition(flow.draft, t);
-                if (isAffirmative(t)) {
-                    await commitDraft(flow, flow.draft);
-                } else if (added) {
-                    // "Oh and airtime for 30" is not a rejection. Anything that
-                    // was not "yes" used to clear the whole draft and start
-                    // again from the date, so one forgotten item cost the user
-                    // everything they had already typed.
-                    setDocFlow({ ...flow, draft: added });
-                    addMsg({ role: 'bot', kind: 'text', text: `Added. ${confirmText(added)}` });
-                } else {
-                    setDocFlow({
-                        ...flow,
-                        draft: { ...emptyDraft(), currency: flow.draft.currency, purposeLabel: flow.draft.purposeLabel, direction: flow.draft.direction },
-                        pending: 'field-date',
-                    });
-                    addMsg({ role: 'bot', kind: 'text', text: `No problem, let's go through it. ${DATE_PROMPT}` });
-                }
-                return true;
-            }
-            case 'input':
-                return false;
-        }
-        return false;
-    }, [isDemoSession, addDemoMessage, addMessage, updateDemoMessage, updateMessage, demoMessages, activeSession, advanceAfterField, commitDraft, setDocFlow, syncDraft, askPurposeFor, confirmText, promptFor]);
-    useEffect(() => { handleDocFlowRef.current = handleDocFlow; }, [handleDocFlow]);
-
-    // A near-duplicate question is only ever answered by a tap. "Keep both"
-    // just locks the question. "Drop the small one" additionally flips the
-    // smaller transaction out of the receipt — the same live receipt patch
-    // the skipped-review handlers use, so computeReceiptData picks it up.
     const handleNearDuplicateKeep = useCallback((messageId: string) => {
         const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
         updateMsg(messageId, { answered: true, answeredValue: 'keep' });
@@ -1676,8 +1134,6 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         }
 
         const addMsg = isDemoSession ? addDemoMessage : addMessage;
-        const updateMsg = isDemoSession ? updateDemoMessage : updateMessage;
-
         addMsg({ role: 'user', kind: 'text', text });
 
         // Typed answers to tappable questions, before anything else looks at
@@ -1699,63 +1155,11 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             return;
         }
 
-        // Route through the document flow first. A pending prompt consumes the
-        // message outright; the open 'input' state falls through here so we can
-        // tell a pasted message from a typed description.
-        if (!isDemoSession && docFlowRef.current) {
-            const consumed = await handleDocFlow(text);
-            if (consumed) return;
-            if (parseAllMessages(text).transactions.length === 0) {
-                await handleDescription(text);
-                return;
-            }
-        }
-
-        setIsProcessing(true);
-
-        const thinkingId = addMsg({ role: 'bot', kind: 'thinking' });
-
-        try {
-            const { transactions, stats: parseStats, skippedMessages: parserSkipped, linkEnrichments, nearDuplicates, reversalPairs } = parseAllMessages(text);
-            const withDefaults = transactions.map(t =>
-                t.isHold || t.failed || t.isVerificationCharge ? { ...t, excludedFromReceipt: true } : t
-            );
-            const scoped = withDefaults.filter(t => !t.excludedFromReceipt);
-
-            // Give the "thinking" bubble a beat before it resolves, then convert
-            // it in place into the first real reply — no separate remove step.
-            await sleep(500);
-            const longerRangeAvailable = !isDemoSession &&
-                receipts.some(r => computeDaySpan(r.transactions) > computeDaySpan(scoped));
-
-            // Nothing is written to the running aggregate here — the batch
-            // produces a DRAFT document, and only an explicit Approve records
-            // it (and only for expense_summary / personal_note). deliverInsights
-            // still gets the current all-time stats read-only, so the
-            // month-over-month comparison and fee-trend insights can surface.
-            const excludedSkipped: SkippedMessage[] = withDefaults
-                .filter(t => t.excludedFromReceipt)
-                .map(t => ({ rawText: t.rawLine, reason: 'excluded', transactionCode: t.transactionCode }));
-
-            const flow = docFlowRef.current;
-            await deliverInsights(
-                withDefaults, parseStats, [...parserSkipped, ...excludedSkipped], thinkingId, addMsg, updateMsg, isDemoSession, longerRangeAvailable,
-                allTimeStats,
-                linkEnrichments, nearDuplicates,
-                flow?.documentType ?? 'expense_summary', reversalPairs
-            );
-
-            if (!isDemoSession) {
-                syncDraft(withDefaults);
-                await maybeStartPurposeLabelling(withDefaults);
-            }
-        } catch (err) {
-            console.error('handleSend failed:', err);
-            updateMsg(thinkingId, { kind: 'text', text: PROCESSING_ERROR_TEXT });
-        } finally {
-            setIsProcessing(false);
-        }
-    }, [isDemoSession, activeSession, demoMessages, updateSessionStatus, addDemoMessage, addMessage, updateDemoMessage, updateMessage, receipts, allTimeStats, dispatchTypedAnswer, handleDemoText, handleDemoPaste, handleDocFlow, handleDescription, syncDraft, maybeStartPurposeLabelling]);
+        // Everything else is one turn of the conversation. Whether the message
+        // is an answer, a correction, a pasted batch or none of those is the
+        // engine's call, not this component's.
+        await runTurn(text);
+    }, [isDemoSession, activeSession, demoMessages, updateSessionStatus, addDemoMessage, addMessage, dispatchTypedAnswer, handleDemoText, handleDemoPaste, runTurn]);
 
     // Fired from the interactive receipt's tap-to-label UI. Updates the
     // message's own transactions in place (persisted through the normal

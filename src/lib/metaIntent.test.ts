@@ -36,8 +36,9 @@ describe('cancel', () => {
     it('asks before discarding real progress, with both options', () => {
         const d = decideCancel({ summary: 'bacon and pork cuts (3,100)' });
         expect(d.kind).toBe('confirm');
-        expect(d.text).toContain('bacon and pork cuts');
-        expect(d.options?.map(o => o.value)).toEqual(['discard', 'keep']);
+        expect(d.optionValues && [...d.optionValues]).toEqual(['discard', 'keep']);
+        // That the question actually names what is at stake is asserted where
+        // the sentence is built: see the H2 scenario in the conversation harness.
     });
 });
 

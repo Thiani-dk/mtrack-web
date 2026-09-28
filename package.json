@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "node e2e/journey.e2e.mjs && node e2e/viewport.e2e.mjs && node e2e/buckets.e2e.mjs && node e2e/capture.e2e.mjs && node e2e/wakeLock.e2e.mjs && node e2e/paste.e2e.mjs && node e2e/onboarding.e2e.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "conversation:report": "npx vite-node scripts/conversationReport.mts"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",

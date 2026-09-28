@@ -1,4 +1,3 @@
-import type { ChatOption } from '../types';
 import type { DescriptionResult } from './conversationalCapture';
 import { DATE_REASON_UNREADABLE } from './parsers/conversationalDate';
 
@@ -39,16 +38,6 @@ export function understoodNothing(r: DescriptionResult): boolean {
 
 // ── The response, and the cap on it ──────────────────────────────────────────
 
-// Varied across repeated instances, per the standing rule against the bot
-// repeating itself verbatim — hearing the identical sentence twice reads as a
-// system that isn't listening, which is precisely the impression to avoid here.
-const FALLBACKS = [
-    "I couldn't pick anything out of that. Could you tell me what you bought and how much, "
-    + "one thing at a time? Like: 'bought bacon for 3100.'",
-    "Still not landing, sorry. One thing at a time might help — what did you spend money on, "
-    + 'and how much was it?',
-];
-
 export interface ZeroUnderstandingState {
     // Consecutive messages this flow made nothing of. Reset by any message it
     // did understand, so two failures either side of a good turn are not a
@@ -58,15 +47,25 @@ export interface ZeroUnderstandingState {
 
 export const NO_ZERO_UNDERSTANDING: ZeroUnderstandingState = { consecutive: 0 };
 
-// What to say, if anything.
+// What to say, if anything — named, not worded. The wordings live in the copy
+// registry (zero.ask1, zero.ask2, zero.escape) with every other bot-facing
+// sentence; this module owns the RULE, which is the part worth testing.
 //
-// 'ask'    — the honest fallback above, worded by how many have come before it
+// 'ask'    — the honest fallback, worded differently the second time, because
+//            hearing the identical sentence twice reads as a system that isn't
+//            listening, which is precisely the impression to avoid here
 // 'escape' — the cap is reached; offer a way out instead of asking again
 // null     — the message was understood; nothing to say here
 export type ZeroUnderstandingResponse =
-    | { kind: 'ask'; text: string }
-    | { kind: 'escape'; text: string; options: ChatOption[] }
+    | { kind: 'ask'; copyId: 'zero.ask1' | 'zero.ask2' }
+    | { kind: 'escape'; copyId: 'zero.escape'; optionValues: readonly string[] }
     | null;
+
+const ASK_COPY = ['zero.ask1', 'zero.ask2'] as const;
+
+// The ways out offered once asking has twice failed. Values only: their labels
+// are registry entries (zero.option.*), read where the options are built.
+export const ZERO_ESCAPE_VALUES = ['paste', 'skip', 'restart'] as const;
 
 // Capped at two consecutive asks, matching advanceDateRetry's discipline: a
 // question that has twice failed to get a usable answer will not get one on
@@ -86,20 +85,9 @@ export function advanceZeroUnderstanding(
     if (consecutive > MAX_ZERO_UNDERSTANDING) {
         return {
             state: next,
-            response: {
-                kind: 'escape',
-                text: "I'm not getting there by asking, so let's try something else.",
-                // Reuses the existing tappable 'options' message kind — the
-                // same one the date give-up and the skipped-review recovery
-                // already use.
-                options: [
-                    { id: 'zero-paste', label: 'Paste the message instead', value: 'paste' },
-                    { id: 'zero-skip', label: 'Skip this one', value: 'skip' },
-                    { id: 'zero-restart', label: 'Start over', value: 'restart' },
-                ],
-            },
+            response: { kind: 'escape', copyId: 'zero.escape', optionValues: ZERO_ESCAPE_VALUES },
         };
     }
 
-    return { state: next, response: { kind: 'ask', text: FALLBACKS[consecutive - 1] } };
+    return { state: next, response: { kind: 'ask', copyId: ASK_COPY[consecutive - 1] } };
 }

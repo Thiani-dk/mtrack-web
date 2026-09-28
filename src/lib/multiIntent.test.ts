@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { extractDescription, extractLineItems } from './conversationalCapture';
 import { understoodNothing } from './zeroUnderstanding';
 import { classifyIntent, segmentMultiIntent, type MetaIntent } from './metaIntent';
-import { answerMetaQuestion, answerOrAdmit } from './metaAnswers';
+import { answerMetaCopyId, answerOrAdmitCopyId } from './metaAnswers';
+import { copyEntry } from './conversation/copy';
+
+// The answers live in the copy registry; this resolves an id back to the words
+// so these assertions still read against what the user would actually see.
+const answerMetaQuestion = (q: string): string | null => {
+    const id = answerMetaCopyId(q);
+    return id ? copyEntry(id).variants[0] : null;
+};
+const answerOrAdmit = (q: string): string => copyEntry(answerOrAdmitCopyId(q)).variants[0];
 
 const NOW = new Date('2026-09-12T09:00:00');
 const intentOf = (clause: string): MetaIntent => {
@@ -41,7 +50,7 @@ describe('answering a question about the system', () => {
     });
 
     it('admits the gap rather than improvising a capability', () => {
-        expect(answerMetaQuestion('do you do tax returns?')).toBeNull();
+        expect(answerMetaCopyId('do you do tax returns?')).toBeNull();
         expect(answerOrAdmit('do you do tax returns?')).toContain("don't have a good answer");
     });
 

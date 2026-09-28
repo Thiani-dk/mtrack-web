@@ -153,22 +153,16 @@ export function classifyIntent({ text, extraction, nothingExtracted }: MetaInten
 // there is something real to lose.
 export interface CancelDecision {
     kind: 'immediate' | 'confirm';
-    text: string;
-    options?: Array<{ id: string; label: string; value: string }>;
+    // Values only. The wordings — cancel.immediate, cancel.confirm and the two
+    // option labels — are registry entries, read where the turn is built.
+    optionValues?: readonly string[];
 }
 
+export const CANCEL_CONFIRM_VALUES = ['discard', 'keep'] as const;
+
 export function decideCancel(captured: { summary: string | null }): CancelDecision {
-    if (!captured.summary) {
-        return { kind: 'immediate', text: 'No worries, scrapped. Say the word when you want to start one.' };
-    }
-    return {
-        kind: 'confirm',
-        text: `You've got ${captured.summary} down already — scrap the whole thing, or stop here and keep it?`,
-        options: [
-            { id: 'cancel-discard', label: 'Discard everything', value: 'discard' },
-            { id: 'cancel-keep', label: 'Keep what I have', value: 'keep' },
-        ],
-    };
+    if (!captured.summary) return { kind: 'immediate' };
+    return { kind: 'confirm', optionValues: CANCEL_CONFIRM_VALUES };
 }
 
 // ── Routing a multi-intent message ───────────────────────────────────────────

@@ -3,6 +3,11 @@ import { extractDescription } from './conversationalCapture';
 import {
     advanceZeroUnderstanding, MAX_ZERO_UNDERSTANDING, NO_ZERO_UNDERSTANDING, understoodNothing,
 } from './zeroUnderstanding';
+import { copyEntry } from './conversation/copy';
+
+// The wording lives in the copy registry now, so these read it from there
+// rather than carrying a second copy of the sentence.
+const textOfCopy = (id: 'zero.ask1' | 'zero.ask2' | 'zero.escape') => copyEntry(id).variants[0];
 
 const NOW = new Date('2026-09-12T09:00:00');
 const nothingIn = (text: string) => understoodNothing(extractDescription(text, NOW));
@@ -35,15 +40,17 @@ describe('the fallback response', () => {
     it('says plainly that it did not follow, rather than asking for one field', () => {
         const { response } = advanceZeroUnderstanding(NO_ZERO_UNDERSTANDING, true);
         expect(response?.kind).toBe('ask');
-        expect(response && 'text' in response ? response.text : '').toContain("couldn't pick anything out");
-        expect(response && 'text' in response ? response.text : '').not.toContain('How much was it?');
+        expect(response?.copyId).toBe('zero.ask1');
+        expect(textOfCopy('zero.ask1')).toContain("couldn't pick anything out");
+        expect(textOfCopy('zero.ask1')).not.toContain('How much was it?');
     });
 
     it('varies its wording rather than repeating itself', () => {
         const first = advanceZeroUnderstanding(NO_ZERO_UNDERSTANDING, true);
         const second = advanceZeroUnderstanding(first.state, true);
-        const textOf = (r: typeof first.response) => (r && 'text' in r ? r.text : '');
-        expect(textOf(second.response)).not.toBe(textOf(first.response));
+        expect(second.response?.copyId).not.toBe(first.response?.copyId);
+        // Different ids are only worth anything if they carry different words.
+        expect(textOfCopy('zero.ask2')).not.toBe(textOfCopy('zero.ask1'));
         expect(second.response?.kind).toBe('ask');
     });
 
@@ -64,7 +71,7 @@ describe('the fallback response', () => {
         for (let i = 0; i < 2; i++) state = advanceZeroUnderstanding(state, true).state;
         const { response } = advanceZeroUnderstanding(state, true);
         expect(response?.kind).toBe('escape');
-        const values = response && response.kind === 'escape' ? response.options.map(o => o.value) : [];
+        const values = response && response.kind === 'escape' ? [...response.optionValues] : [];
         expect(values).toEqual(['paste', 'skip', 'restart']);
     });
 

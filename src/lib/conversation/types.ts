@@ -1,0 +1,91 @@
+import type {
+    ChatOption, DocumentType, MerchantProfile, OnBehalfOfContext, ParsedTransaction,
+} from '../../types';
+import type { CaptureDraft } from '../captureDraft';
+import type { CaptureSlot } from '../conversationalCapture';
+import type { CopyId, CopyKind } from './copy';
+
+// Which question the conversation is currently waiting on an answer to.
+// Unchanged from the shape that lived in ChatScreen as DocFlow.pending.
+export type PendingPrompt =
+    | 'mode' | 'business-name' | 'party-name' | 'purpose'
+    | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm'
+    | 'purpose-label' | 'zero-escape' | 'cancel-confirm' | 'correction-target' | 'input';
+
+// One thing the bot says. `copyId` is what the scenario harness asserts on, so
+// wording can be rewritten without touching a test.
+export interface BotTurn {
+    copyId: CopyId;
+    kind: CopyKind;
+    text: string;
+    options?: ChatOption[];
+    // The short second question appended to this one, when two open slots were
+    // asked in one breath. Its words come from the registry too.
+    suffixCopyId?: CopyId;
+    // The parked question this turn put back after an interruption. What
+    // `resumes(copyId)` asserts on.
+    resumedCopyId?: CopyId;
+}
+
+// Everything the conversation knows between turns.
+//
+// Deliberately plain data with no React in it, so one call to `receive` is a
+// pure function of (state, message) and the harness drives exactly what ships.
+export interface ConvState {
+    documentType: DocumentType;
+    merchantProfile: MerchantProfile | null;
+    onBehalfOf: OnBehalfOfContext | null;
+    pending: PendingPrompt;
+    draft: CaptureDraft;
+    describedCount: number;
+    nudgeShown: boolean;
+    // Consecutive answers that produced no usable date on the line being
+    // captured. Counts failures, not replies, so a fresh valid date is never
+    // discarded just for arriving second. See advanceDateRetry.
+    dateAttempts: number;
+    // The previous date answer verbatim: repeating the same text is not a
+    // fresh attempt, however it parses.
+    lastDateAnswer: string | null;
+    // The figure from a correction whose target is still being chosen.
+    pendingCorrectionAmount: number | null;
+    // The second slot asked alongside the pending one, when the question was
+    // batched. A bare figure is the amount only if "how much?" was asked.
+    batchedSlot: CaptureSlot | null;
+    // Consecutive messages this flow made nothing whatsoever of. Capped.
+    zeroAttempts: number;
+    // Transaction codes still awaiting a guided purpose label (on_behalf_of).
+    purposeQueue: string[];
+    // Which variant of each copy id was used last, so the next use rotates
+    // rather than repeating. Deterministic, so transcripts are reproducible.
+    variantCursor: Record<string, number>;
+    // The copy id of the last thing the bot said, for notRepeatOfPrevious.
+    lastCopyId: CopyId | null;
+}
+
+// Work the conversation cannot do itself because it belongs to storage, to the
+// SMS pipeline, or to the message list. The engine decides; the caller acts.
+export type Effect =
+    // Hand the raw text to the SMS parsing pipeline and narrate the result.
+    | { kind: 'parse-batch'; text: string }
+    // A described line is settled: add it to the document.
+    | { kind: 'commit'; transaction: ParsedTransaction }
+    // The receipt message's transactions changed (a purpose label landed).
+    | { kind: 'update-transactions'; transactions: ParsedTransaction[] }
+    // Persist the draft document as it now stands. A `state` of null is what
+    // ends a flow; there is no effect for that.
+    | { kind: 'sync-draft' };
+
+export interface TurnResult {
+    state: ConvState | null;
+    turns: BotTurn[];
+    effects: Effect[];
+}
+
+// What the engine needs from outside itself for one turn.
+export interface TurnContext {
+    // Fixed in tests so relative dates are deterministic.
+    now: Date;
+    // The document's transactions as they currently stand, for the paths that
+    // edit them (purpose labelling). The message list stays authoritative.
+    transactions: ParsedTransaction[];
+}
