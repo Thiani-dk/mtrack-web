@@ -49,6 +49,15 @@ for (const [section, scenarios] of Object.entries(SECTIONS)) {
             for (const turn of outcome.conversation.opening) {
                 t.push(`M-Track  ${turn.text}   [${turn.copyId}]`);
             }
+            // The walk in to the capture state, shown so the transcript reads
+            // as one whole conversation rather than starting mid-flow.
+            for (const record of outcome.conversation.history.slice(0, outcome.conversation.preambleLength)) {
+                t.push(`You ${record.tapped ? 'taps' : 'says'}  ${record.user}`);
+                for (const turn of record.turns) {
+                    const opts = turn.options ? `  { ${turn.options.map(o => o.label).join(' | ')} }` : '';
+                    t.push(`M-Track  ${turn.text}${opts}   [${turn.copyId}]`);
+                }
+            }
             for (const step of outcome.steps) {
                 const who = step.record.tapped ? 'taps' : 'says';
                 t.push(`You ${who}  ${step.record.user}`);

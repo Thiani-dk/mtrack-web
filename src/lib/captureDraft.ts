@@ -3,7 +3,7 @@ import { isCorrectionMessage, splitDiscourse } from './metaIntent';
 import {
     absorbAnswer, extractDescription, lockCurrency, parseAmountReply, parseConversationalDate,
     UNSTATED_CURRENCY,
-    type CurrencyLock, type DescriptionResult, type DirectionResult,
+    type CurrencyLock, type DescriptionKind, type DescriptionResult, type DirectionResult,
     type ConversationalDateResult,
 } from './conversationalCapture';
 import type { CaptureSlot } from './conversationalCapture';
@@ -35,6 +35,10 @@ export interface CaptureDraft {
     // continuing in the one they already gave, not a switch back to KES.
     currency: CurrencyLock;
     recipient: string | null;
+    // Whether `recipient` names a party or names goods. One slot holds both,
+    // so the confirmation sentence has to be told which, or it says "Ksh 3,100
+    // to Bacon" and reads as having paid a person called Bacon.
+    descriptionKind: DescriptionKind;
     date: Date | null;
     dateAmbiguous: boolean;
     purposeLabel: string | null;
@@ -54,6 +58,7 @@ export const UNRESOLVED_DIRECTION: DirectionResult = { type: 'sent', confidence:
 export function emptyCaptureDraft(): CaptureDraft {
     return {
         amount: null, lineItems: null, currency: UNSTATED_CURRENCY, recipient: null,
+        descriptionKind: null,
         date: null, dateAmbiguous: false, purposeLabel: null, dateInterpretation: null,
         dateSkipped: false, direction: UNRESOLVED_DIRECTION,
     };
@@ -86,6 +91,7 @@ export function composeDescription(
             // whole transaction, and a silent message does not reset it.
             currency: lockCurrency(draft.currency, text),
             recipient: r.recipient ?? draft.recipient,
+            descriptionKind: r.recipient ? r.descriptionKind : draft.descriptionKind,
             date: r.date ?? draft.date,
             dateAmbiguous: r.dateAmbiguous,
             dateInterpretation: r.date
@@ -129,6 +135,9 @@ export function composeDraftAnswer(
     // for the same reason it does when that was the whole question: the
     // question supplied the context free text lacks.
     alsoAsked: CaptureSlot | null = null,
+    // What the description slot is asking for on this document type. Only read
+    // when `slot` is 'description'.
+    answeredKind: DescriptionKind = 'party',
 ): ComposedAnswer {
     // "Yesterday, also airtime for 30" adds an item as well as answering the
     // question. absorbAnswer fills only EMPTY slots — rightly, so that a stray
@@ -214,7 +223,10 @@ export function composeDraftAnswer(
     return {
         accepted: true,
         dateResult: null,
-        draft: { ...base, ...absorbed, recipient },
+        // The answer to "who was it paid to?" is a party; the answer to "what
+        // did they buy?" is goods. The caller knows which question it asked,
+        // and passes it in rather than this guessing from the words.
+        draft: { ...base, ...absorbed, recipient, descriptionKind: answeredKind },
     };
 }
 

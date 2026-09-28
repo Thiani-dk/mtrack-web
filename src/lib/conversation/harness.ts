@@ -35,6 +35,9 @@ export class Conversation {
     readonly history: TurnRecord[] = [];
     // The bot's opening, before any user message.
     readonly opening: BotTurn[];
+    // How many recorded turns were the walk in to the capture state, rather
+    // than the scenario's own steps.
+    preambleLength = 0;
 
     constructor(state?: ConvState) {
         if (state) {
@@ -248,8 +251,18 @@ export function echoes(...fragments: string[]): Assertion {
 }
 
 // A parked question was restored after a detour.
+// A question comes back as it was ASKED, which may be the form that names its
+// subject ("When was the bacon?") rather than the generic one. Both count as
+// resuming the date question, because they ARE the date question.
+const SAME_QUESTION: Record<string, string> = {
+    'ask.dateFor': 'ask.date',
+    'ask.amountFor': 'ask.amount',
+};
+
 export function resumes(id: CopyId): Assertion {
-    return (r) => r.turns.some(t => t.resumedCopyId === id)
+    const want = SAME_QUESTION[id] ?? id;
+    return (r) => r.turns.some(t => t.resumedCopyId
+        && (SAME_QUESTION[t.resumedCopyId] ?? t.resumedCopyId) === want)
         ? null
         : `expected the reply to put ${id} back, it resumed ${r.turns.map(t => t.resumedCopyId ?? '-').join(',')}`;
 }
@@ -377,6 +390,11 @@ export function openInCapture(documentType: DocumentType): Conversation {
         c.send('My boss');
         c.send('skip');
     }
+    // Everything up to here is the preamble, not the scenario. The transcript
+    // writer shows it (a transcript that began mid-conversation would read as
+    // though the bot had skipped its own questions) but the assertions start
+    // clean, so a scenario cannot accidentally assert on the walk in.
+    c.preambleLength = c.history.length;
     return c;
 }
 

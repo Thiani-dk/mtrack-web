@@ -269,10 +269,14 @@ function askWhich(
     return {
         kind: 'ambiguous',
         amount,
-        text: `Which one — ${shown.map(i => i.description).join(', or ')}?`,
+        text: echo('correction.whichOne', {
+            candidates: shown.map(i => i.description).join(', or '),
+        }),
         options: shown.map((item, i) => ({
             id: `correct-item-${i}`,
-            label: `${item.description} (${money(item.amount)})`,
+            label: echo('correction.itemOption', {
+                item: item.description, amount: money(item.amount),
+            }),
             // The description, so the follow-up runs back through the same
             // reference matching rather than a second, positional mechanism.
             value: `correction-target:${item.description}`,

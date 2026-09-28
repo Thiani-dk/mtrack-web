@@ -27,7 +27,7 @@ import {
 import { classifyEdge, countsAsOffTopic, type EdgeCategory } from './edgeIntent';
 import { answerSpending, readSpendingQuestion, spentLines } from './spendingQuestions';
 import { fmtAmountProse, fmtProseCurrency, UNDATED } from '../transactionDisplay';
-import type { CopyId } from './copy';
+import { copyEntry, render, type CopyId } from './copy';
 import { TurnBuilder } from './turns';
 import type { ConvState, Effect, PendingPrompt, TurnContext, TurnResult } from './types';
 
@@ -82,6 +82,7 @@ export function emptyConvState(documentType: DocumentType = 'expense_summary'): 
         enrichQueue: [],
         enrichSkips: 0,
         offTopicStreak: 0,
+        oneAtATime: false,
     };
 }
 
@@ -149,8 +150,11 @@ function followCopyId(slot: CaptureSlot, documentType: DocumentType): CopyId {
 function askNextField(
     b: TurnBuilder, draft: CaptureDraft, documentType: DocumentType, instance: number,
     namedGoods: string | null = null,
+    oneAtATime = false,
 ): { pending: PendingPrompt; batchedSlot: CaptureSlot | null } {
-    const question = composeSlotQuestion(openSlots(draft), {
+    // Asked for one at a time, only the first open slot is put.
+    const open = oneAtATime ? openSlots(draft).slice(0, 1) : openSlots(draft);
+    const question = composeSlotQuestion(open, {
         date: '', amount: '', description: '',
     }, documentType);
     if (!question) return { pending: 'confirm', batchedSlot: null };
@@ -197,6 +201,7 @@ function confirmSentence(draft: CaptureDraft): string {
         amount: draft.amount,
         currency: draft.currency,
         recipient: draft.recipient,
+        descriptionKind: draft.descriptionKind,
         direction: draft.direction,
         purposeLabel: draft.purposeLabel,
         dateLabel: draft.date ? (draft.dateInterpretation ?? fmtShortDate(draft.date)) : null,
@@ -240,7 +245,9 @@ function advanceAfterField(
 ): ConvState {
     const stillOpen = openSlots(draft).length > 0;
     if (accepted && stillOpen) b.say('ack.answer', { answer: accepted });
-    const next = askNextField(b, draft, state.documentType, state.describedCount, state.namedGoods);
+    const next = askNextField(
+        b, draft, state.documentType, state.describedCount, state.namedGoods, state.oneAtATime,
+    );
     if (next.pending !== 'confirm') {
         return { ...state, draft, pending: next.pending, batchedSlot: next.batchedSlot };
     }
@@ -257,6 +264,14 @@ function confirmOrEnrich(b: TurnBuilder, state: ConvState, draft: CaptureDraft):
         b.say('confirm.summary', { sentence: confirmSentence(draft) });
         return { ...state, draft, pending: 'confirm', enrichQueue: [] };
     }
+    // Say what landed before asking for more. An enrichment question arriving
+    // as the first reply to "lunch 850 yesterday" reads as though the figure
+    // and the date went unheard, which is exactly the impression this whole
+    // pass exists to avoid.
+    b.say('ack.captured', {
+        amount: fmtAmountProse(draft.amount ?? 0, draft.currency.code),
+        date: draft.dateInterpretation ?? (draft.date ? fmtShortDate(draft.date) : 'no date'),
+    });
     askEnrichment(b, queue[0]);
     return { ...state, draft, pending: 'enrich', enrichQueue: queue };
 }
@@ -281,17 +296,28 @@ function applyEnrichment(draft: CaptureDraft, slot: EnrichSlot, answer: string):
     const value = answer.trim();
     if (!value) return draft;
     const cased = value.charAt(0).toUpperCase() + value.slice(1);
-    if (slot === 'where') return { ...draft, recipient: cased };
-    if (slot === 'order') return { ...draft, recipient: cased };
+    // A place is where the money went, so it takes the party preposition.
+    if (slot === 'where') return { ...draft, recipient: cased, descriptionKind: 'party' };
+    if (slot === 'order') return { ...draft, recipient: cased, descriptionKind: 'goods' };
     return { ...draft, purposeLabel: cased };
 }
 
 // The question currently on the table, so an interruption can be answered and
 // the thread picked back up exactly where it was.
 function parkedQuestion(state: ConvState): { copyId: CopyId; text: string } {
+    // The question comes back as it was ASKED, subject and all. Putting back
+    // the generic form after "When was the bacon?" reads as a second, different
+    // question, which is the opposite of resuming.
+    const subject = namedSubject(state.draft) ?? namedSubject({ recipient: state.namedGoods });
     switch (state.pending) {
-        case 'field-date': return { copyId: 'ask.date', text: variant('ask.date') };
-        case 'field-amount': return { copyId: 'ask.amount', text: variant('ask.amount') };
+        case 'field-date':
+            return subject
+                ? { copyId: 'ask.dateFor', text: render(copyEntry('ask.dateFor').variants[0], { what: subject }) }
+                : { copyId: 'ask.date', text: variant('ask.date') };
+        case 'field-amount':
+            return subject
+                ? { copyId: 'ask.amountFor', text: render(copyEntry('ask.amountFor').variants[0], { what: subject }) }
+                : { copyId: 'ask.amount', text: variant('ask.amount') };
         case 'field-recipient':
             return {
                 copyId: partyCopyId(state.documentType),
@@ -677,7 +703,12 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             );
         }
         case 'field-recipient': {
-            const composed = composeDraftAnswer(state.draft, 'description', t, ctx.now, state.batchedSlot);
+            // A receipt's description slot asks what was bought; the other
+            // three ask for a payee or a place.
+            const answeredKind = state.documentType === 'point_of_sale' ? 'goods' : 'party';
+            const composed = composeDraftAnswer(
+                state.draft, 'description', t, ctx.now, state.batchedSlot, answeredKind,
+            );
             if (!composed.accepted) {
                 b.say(partyCopyId(state.documentType));
                 return state;
@@ -843,6 +874,10 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             };
         }
         case 'input': {
+            if (t === 'one-at-a-time') {
+                b.say('ack.oneAtATime');
+                return advanceAfterField(b, { ...state, oneAtATime: true }, state.draft);
+            }
             if (t === 'paste') {
                 b.say('zero.pasteReady');
                 return state;
@@ -997,7 +1032,7 @@ function handleEdge(b: TurnBuilder, state: ConvState, category: EdgeCategory): C
 
     // Frustration gets the simplest path offered, not just sympathy.
     if (category === 'frustration') {
-        b.say('zero.escape', {}, {
+        b.say('emotion.simplestPath', {}, {
             options: [
                 { id: 'edge-paste', label: b.text('emotion.option.paste'), value: 'paste' },
                 { id: 'edge-one', label: b.text('emotion.option.oneAtATime'), value: 'one-at-a-time' },
@@ -1167,13 +1202,12 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
         return second ? { suffixCopyId: followCopyId(second, state.documentType) } : {};
     };
 
-    const fireNudge = (s: ConvState): ConvState => {
-        if (describedCount >= 2 && !s.nudgeShown) {
-            b.say('nudge.efficiency');
-            return { ...s, nudgeShown: true };
-        }
-        return s;
-    };
+    // Emitted BEFORE whatever the message prompts, not after, so the turn ends
+    // on the question rather than on an aside. A turn that ended with a tip
+    // left the user looking for what they had just been asked.
+    const nudgeFires = describedCount >= 2 && !state.nudgeShown;
+    const fireNudge = (s: ConvState): ConvState =>
+        (nudgeFires ? { ...s, nudgeShown: true } : s);
 
     // Nothing at all came out of that message. Say so, rather than falling
     // through to the next question in the sequence — "How much was it?" after
@@ -1197,6 +1231,8 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
             ...state, draft, zeroAttempts: zero.state.consecutive, pending: 'input', describedCount,
         };
     }
+
+    if (nudgeFires) b.say('nudge.efficiency');
 
     // A date the parser refused outright (in the future, or older than the
     // 12-month window) is never carried into the draft — say why and ask again.
@@ -1266,7 +1302,7 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
     // which a named thing is not: filing "lunch" as who the money went to
     // would put the wrong word on the document.
     const withGoods: CaptureDraft = !draft.recipient && namedGoods && state.documentType === 'point_of_sale'
-        ? { ...draft, recipient: sentenceCase(namedGoods) }
+        ? { ...draft, recipient: sentenceCase(namedGoods), descriptionKind: 'goods' }
         : draft;
 
     // A claim asks "Where was this spent?", and a category is not a place.
@@ -1283,7 +1319,9 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
         }
         : withGoods;
 
-    const asked = askNextField(b, placed, state.documentType, describedCount, namedGoods);
+    const asked = askNextField(
+        b, placed, state.documentType, describedCount, namedGoods, state.oneAtATime,
+    );
     const settled: ConvState = asked.pending === 'confirm'
         ? confirmOrEnrich(b, {
             ...state, describedCount, zeroAttempts: 0, batchedSlot: asked.batchedSlot, namedGoods,

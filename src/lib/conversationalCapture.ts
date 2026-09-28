@@ -82,6 +82,9 @@ export function currencyFromConversation(texts: string[]): CurrencyLock {
     return texts.reduce(lockCurrency, UNSTATED_CURRENCY);
 }
 
+// What the one description slot turned out to hold.
+export type DescriptionKind = 'party' | 'goods' | null;
+
 export interface DescriptionResult {
     amount: number | null;
     // The effective currency: what was detected, or the KES default.
@@ -131,6 +134,9 @@ export interface DescriptionResult {
     // it is not an amount ("3100" on its own), but it is plainly an attempt at
     // one, and answering it with "I didn't follow" would be wrong.
     hasNumber: boolean;
+    // Whether the description names a party or names goods. See the note where
+    // it is decided; the confirmation sentence needs it to choose a preposition.
+    descriptionKind: DescriptionKind;
     // The thing the message named, when it named one and gave no price for it.
     // "Bought lunch" says what was bought and nothing else; before this the
     // words were simply dropped, so the very next question was "How much was
@@ -314,14 +320,17 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
     // description. Falling through to "what did they buy?" after being handed
     // a four-line list is the question that started all this.
     const sole = itemisation || mixedCurrency ? null : extractSoleItem(text, TYPED);
-    const recipient = finalizedName ?? parties.recipient ?? parties.sender
-        ?? extractFreeformName(text)
-        // What was bought is known even when the total is not, so a mixed-
-        // currency message is still not asked what it was for.
-        ?? (found ? itemsSummary(found.items) : null)
-        // One priced thing is not an itemisation, but it is still an answer to
-        // "what did they buy?". Last, so a named person always wins over goods.
-        ?? (sole?.description ?? null);
+    const party = finalizedName ?? parties.recipient ?? parties.sender ?? extractFreeformName(text);
+    const goods = found ? itemsSummary(found.items) : (sole?.description ?? null);
+    // What was bought is known even when the total is not, so a mixed-currency
+    // message is still not asked what it was for. A named person always wins
+    // over goods.
+    const recipient = party ?? goods;
+    // WHICH of the two the description turned out to be. The draft has one
+    // slot for both, so without this the confirmation had no way to tell
+    // "Ksh 3,100 to Kevin" from "Ksh 3,100 to Bacon" — and it said the second
+    // one, which reads as having paid a person called Bacon.
+    const descriptionKind: DescriptionKind = party ? 'party' : (goods ? 'goods' : null);
 
     // A pasted confirmation that fully parsed already carries a trustworthy
     // date; otherwise the conversational reader has the say. A date is only
@@ -364,6 +373,7 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
         direction,
         confidence: missing.length === 0 ? 'high' : missing.length >= 3 ? 'none' : 'partial',
         hasTransactionShape: hasTransactionVerb(text),
+        descriptionKind,
         namedGoods: extractNamedGoods(text),
         hasNumber: /\d/.test(text),
         missing,
@@ -588,6 +598,10 @@ export interface ConfirmFields {
     amount: number | null;
     currency: CurrencyLock;
     recipient: string | null;
+    // Whether the description names a party or goods, which decides the
+    // preposition. "Ksh 3,100 to Bacon" reads as having paid a person called
+    // Bacon; "Ksh 3,100 on bacon" is what happened.
+    descriptionKind?: DescriptionKind;
     direction: DirectionResult;
     purposeLabel: string | null;
     dateLabel: string | null;
@@ -596,6 +610,25 @@ export interface ConfirmFields {
     // single flattened total throws away detail the user typed out, and leaves
     // them nothing specific to correct if one line is wrong.
     lineItems?: LineItem[] | null;
+}
+
+// Money goes TO a person, comes FROM one, and is spent FOR a thing.
+//
+// "on" would be the more natural word but the date clause that follows is
+// already "on 27 September", and "Ksh 3,100 on bacon, on 27 September" reads
+// as a stutter.
+function preposition(f: ConfirmFields): string {
+    if (f.direction.type === 'received') return 'from';
+    return f.descriptionKind === 'goods' ? 'for' : 'to';
+}
+
+// Goods are a common noun in the middle of a sentence, so they read in lower
+// case there. The stored description keeps its capital, because that is what
+// the document prints in its own column.
+function describedAs(f: ConfirmFields): string {
+    const name = f.recipient ?? '';
+    if (f.descriptionKind !== 'goods') return name;
+    return name.charAt(0).toLowerCase() + name.slice(1);
 }
 
 export function buildConfirmSentence(f: ConfirmFields): string {
@@ -627,7 +660,7 @@ export function buildConfirmSentence(f: ConfirmFields): string {
         // asked separately, right after this line.
             : f.direction.source === 'unresolved'
                 ? `${money(f.amount ?? 0)}, ${f.recipient}`
-                : `${money(f.amount ?? 0)} ${f.direction.type === 'received' ? 'from' : 'to'} ${f.recipient}`;
+                : `${money(f.amount ?? 0)} ${preposition(f)} ${describedAs(f)}`;
 
     const parts = [lead];
     if (f.purposeLabel) parts.push(`for ${f.purposeLabel}`);

@@ -6,12 +6,12 @@ A scenario may never be marked passing by loosening its assertion. Any change
 to an expectation is recorded in the "reason" column of the change log at the
 bottom of this file.
 
-**109 of 109 scenarios pass.**
+**110 of 110 scenarios pass.**
 
 | Section | pass | fail | blocked | decision |
 |---|---|---|---|---|
 | A. Opening and mode choice | 10 | 0 | 0 | 0 |
-| B. Capture | 22 | 0 | 0 | 0 |
+| B. Capture | 23 | 0 | 0 | 0 |
 | C. Clarifying questions | 8 | 0 | 0 | 0 |
 | D. Enrichment | 7 | 0 | 0 | 0 |
 | E. Confirmation | 10 | 0 | 0 | 0 |
@@ -62,6 +62,7 @@ bottom of this file.
 | B17 | Relative dates people actually use | pass |  |
 | B18 | A relative phrase never leaks into the description | pass |  |
 | B19 | A person is a payee, goods are not | pass |  |
+| B20 | The paste tip never ends a turn | pass |  |
 | B16 | All caps and no punctuation | pass |  |
 | **C. Clarifying questions** | | | |
 | C1 | Answers the question asked | pass |  |

@@ -309,6 +309,34 @@ const B: Scenario[] = [
                 send: 'sent 500 to Kevin yesterday',
                 expect: [state({ recipient: 'Kevin', amount: 500 }), echoes('to Kevin')],
             },
+            { send: 'yes' },
+            // The same slot, holding a thing rather than a person. "to Bacon"
+            // reads as having paid someone called Bacon.
+            {
+                send: 'bought bacon for 3100 yesterday',
+                expect: [echoes('for bacon'), notUsed('ask.party.expense_summary')],
+            },
+            { send: 'yes' },
+            // And money coming back takes the third preposition.
+            {
+                send: 'got 500 back from Naivas yesterday',
+                expect: [echoes('from Naivas')],
+            },
+        ],
+    },
+    {
+        id: 'B20', title: 'The paste tip never ends a turn', types: ['expense_summary'],
+        startInCapture: true, status: 'pass',
+        steps: [
+            { send: 'bought bacon for 3100 yesterday' },
+            { send: 'yes' },
+            // The second described line is where the efficiency tip fires. It
+            // is an aside, so it comes before the question: a turn that ends
+            // with a tip leaves the user looking for what they were asked.
+            {
+                send: 'bought airtime for 50',
+                expect: [used('nudge.efficiency'), endsWithNextStep(), asks('date')],
+            },
         ],
     },
     {
@@ -405,7 +433,15 @@ const D: Scenario[] = [
         id: 'D1', title: 'Generic description earns at most two questions', types: ['expense_summary'],
         startInCapture: true, status: 'pass',
         steps: [
-            { send: 'food 500 yesterday', expect: [used('enrich.where'), endsWithNextStep()] },
+            // What landed is said back BEFORE more is asked for. A question
+            // as the only reply reads as though the figure went unheard.
+            {
+                send: 'food 500 yesterday',
+                expect: [
+                    used('ack.captured'), echoes('500', '27 September'),
+                    used('enrich.where'), endsWithNextStep(),
+                ],
+            },
             { send: 'Java House', expect: [used('enrich.what'), echoes('Java House')] },
             { send: 'chicken wings', expect: [asks('confirm'), echoes('Java House')] },
         ],
@@ -873,7 +909,28 @@ const K: Scenario[] = [
         id: 'K2', title: 'Frustration with the bot', types: CAPTURE_TYPES, startInCapture: true,
         status: 'pass',
         steps: [
-            { send: 'this is annoying', expect: [used('emotion.frustration'), offers(['paste', 'one-at-a-time'])] },
+            {
+                send: 'this is annoying',
+                // Acknowledged, then the simplest path offered. Not the
+                // "I'm not getting there by asking" line, which is what is
+                // said after failing to understand someone and reads as not
+                // having listened to this either.
+                expect: [
+                    used('emotion.frustration'), used('emotion.simplestPath'),
+                    notUsed('zero.escape'), offers(['paste', 'one-at-a-time']),
+                ],
+            },
+            // And both options actually do something. An offered way out that
+            // leads nowhere is worse than not offering it.
+            // One question, not two batched into one turn.
+            {
+                tap: 'one-at-a-time',
+                expect: [
+                    used('ack.oneAtATime'), asks('date'), endsWithNextStep(),
+                    notUsed('follow.amount'),
+                ],
+            },
+            { send: 'yesterday', expect: [asks('amount'), notUsed('follow.date')] },
         ],
     },
     {

@@ -217,6 +217,10 @@ export const COPY = {
         variants: ['What was in the order?', 'What did the order come to?'],
     },
     'enrich.option.skip': { kind: 'option', variants: ['Skip'] },
+    'ack.captured': {
+        kind: 'acknowledgement',
+        variants: ['{amount} on {date}, got it.', 'Got it: {amount}, {date}.'],
+    },
     'enrich.attached': {
         kind: 'acknowledgement',
         variants: ['{detail}, got it.', 'Noted: {detail}.'],
@@ -332,6 +336,8 @@ export const COPY = {
     },
     'correction.echo.date': { kind: 'acknowledgement', variants: ['Updated. The date is {after}.'] },
     'correction.ambiguous': { kind: 'question', variants: ['{question}'] },
+    'correction.whichOne': { kind: 'question', variants: ['Which one, {candidates}?'] },
+    'correction.itemOption': { kind: 'option', variants: ['{item} ({amount})'] },
     'correction.unresolved': {
         kind: 'question',
         variants: ["I can tell something needs changing but not what to. What should it be instead?"],
@@ -661,6 +667,18 @@ export const COPY = {
             "Sorry, that's on me. Let's do it the short way.",
             "Fair enough, I'm making this harder than it should be.",
         ],
+    },
+    // Its own line, not zero.escape. "I'm not getting there by asking" is what
+    // is said after failing to understand someone, and saying it to a person
+    // who simply told you the app was annoying reads as not having listened to
+    // that either.
+    'emotion.simplestPath': {
+        kind: 'question',
+        variants: ['Which would be easier?', 'What would help more?'],
+    },
+    'ack.oneAtATime': {
+        kind: 'acknowledgement',
+        variants: ["Right, one thing at a time."],
     },
     'emotion.option.paste': { kind: 'option', variants: ['Paste the message instead'] },
     'emotion.option.oneAtATime': { kind: 'option', variants: ['One question at a time'] },

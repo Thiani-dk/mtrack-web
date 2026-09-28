@@ -87,6 +87,10 @@ export interface ConvState {
     // Consecutive messages that were outside the lane. The third in a row gets
     // a shorter reply and options rather than the same redirect again.
     offTopicStreak: number;
+    // Set when the user asks for one question at a time. Batching two open
+    // slots into one turn is usually a kindness; to someone already finding
+    // this hard it is one more thing to parse.
+    oneAtATime: boolean;
 }
 
 // Work the conversation cannot do itself because it belongs to storage, to the
