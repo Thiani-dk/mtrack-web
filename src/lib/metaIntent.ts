@@ -47,7 +47,7 @@ export function isCancelMessage(text: string): boolean {
 // Markers anywhere in the message. "actually" is the workhorse; the rest cover
 // the phrasings people reach for when they have just realised they misspoke.
 const CORRECTION_RE =
-    /\bactually\b|\bno\s+wait\b|\bi\s+meant\b|\bi\s+ment\b|\bsorry,?\s+(?:it\s+was|that\s+was|i\s+meant)\b|\bscratch\s+that\b|\bmake\s+(?:that|it)\b|\bnot\s+\d[\d,.]*\s*,?\s*(?:but\s+)?\d/i;
+    /\bactually\b|\bno\s+wait\b|\bi\s+meant\b|\bi\s+ment\b|\bsorry,?\s+(?:it\s+was|that\s+was|i\s+meant)\b|\bscratch\s+that\b|\bmake\s+(?:that|it)\b|\b(?:change|set|correct|fix|update)\s+the\s+\w+\s+to\b|\bnot\s+\d[\d,.]*\s*,?\s*(?:but\s+)?\d/i;
 
 // A cheap whole-message correction test, for callers routing before extraction.
 // Cancel wins over it, so "actually cancel this" is not read as a field edit.
@@ -68,10 +68,50 @@ export function isCorrectionMessage(text: string): boolean {
 // component: a rule this consequential has to be testable without rendering a
 // chat, and a copy of it in a test file is the copy that will never ship.
 const AFFIRMATIVE_RE =
-    /^(?:(?:y|yes|yep|yeah|yup|correct|right|ok|okay|sure|fine|that'?s? right|go ahead)\b|👍)/i;
+    /^(?:(?:y|yes|yep|yeah|yup|correct|right|ok|okay|sure|fine|perfect|that'?s? (?:right|it)|looks? (?:good|right)|all good|sounds? right|go ahead|do it|save it|sawa(?: sawa)?|ndio|ndiyo|eeh|poa|fiti|mzuri)\b|👍|✅)/iu;
 
 export function isAffirmative(text: string): boolean {
     return AFFIRMATIVE_RE.test(text.trim());
+}
+
+// ── 2c. Rejection ────────────────────────────────────────────────────────────
+
+// "No" to the confirmation, however it is said, in English or Swahili.
+//
+// A bare rejection and a rejection carrying a correction are different
+// messages and must not be handled the same way: "no" means "ask me what is
+// wrong", and "no, 600" means "the amount is 600". Before this, both wiped the
+// entire draft and restarted from the date question, so one forgotten digit
+// cost the user everything they had typed.
+const NEGATIVE_RE = /^(?:no|nope|nah|naw|wrong|not right|incorrect|hapana|la|si sawa)\b/i;
+
+export function isNegative(text: string): boolean {
+    return NEGATIVE_RE.test(text.trim());
+}
+
+// A rejection with the right answer attached. Returns the correction on its
+// own ("600"), or null when the message is a bare rejection.
+export function rejectionRemainder(text: string): string | null {
+    const t = text.trim();
+    const m = NEGATIVE_RE.exec(t);
+    if (!m) return null;
+    const rest = t.slice(m[0].length).replace(/^[\s,.:;-]+/, '').trim();
+    // "it was 600" and "600" both count; "no thanks" does not.
+    return rest && /\d|\b(?:yesterday|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(rest)
+        ? rest
+        : null;
+}
+
+// ── 2d. Holding ──────────────────────────────────────────────────────────────
+
+// "Hmm", "wait", "hold on". Not an answer, not a rejection, and emphatically
+// not a reason to throw away a draft. The right response is to hold, and ask
+// what they would like to change.
+const HOLD_RE =
+    /^(?:h?mm+|er+m?|uh+|wait|hold on|hang on|one (?:sec|second|moment)|give me a (?:sec|second|moment)|let me (?:think|check))\b[.!?]*$/i;
+
+export function isHolding(text: string): boolean {
+    return HOLD_RE.test(text.trim());
 }
 
 // ── 3. Meta-question ─────────────────────────────────────────────────────────

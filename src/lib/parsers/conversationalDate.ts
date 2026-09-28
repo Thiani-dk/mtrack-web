@@ -128,9 +128,35 @@ function applyBounds(result: ConversationalDateResult, now: Date): Conversationa
 //
 // The Swahili relative dates ("leo", "jana", "juzi") are bare words with no
 // numeral in them, so there is nothing of theirs to own — see swahili.ts.
-const DAYS_AGO_SOURCE = String.raw`\b(\d{1,4})\s+days?\s+ago\b`;
-const WEEKS_AGO_SOURCE = String.raw`\b(?:(\d{1,3})|a|one)\s+weeks?\s+ago\b`;
-const MONTHS_AGO_SOURCE = String.raw`\b(?:(\d{1,3})|a|one)\s+months?\s+ago\b`;
+// People say "two nights ago" as readily as "2 days ago", and the parser read
+// neither. The count is a digit OR a number word, written once here so all
+// three units agree on what a count looks like.
+const COUNT_WORDS: Record<string, number> = {
+    a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+    seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+    'a couple of': 2, 'a couple': 2, 'a few': 3,
+};
+// Longest first, so "a couple of" is not consumed as a bare "a".
+const COUNT_WORD_SOURCE = Object.keys(COUNT_WORDS)
+    .sort((x, y) => y.length - x.length)
+    .join('|');
+const COUNT_SOURCE = String.raw`(?:(\d{1,4})|${COUNT_WORD_SOURCE})`;
+
+// A night is a day, for this purpose. "Two nights ago" is how a trip is
+// described and it means the same thing.
+const DAYS_AGO_SOURCE = String.raw`\b${COUNT_SOURCE}\s+(?:days?|nights?)\s+ago\b`;
+const WEEKS_AGO_SOURCE = String.raw`\b${COUNT_SOURCE}\s+weeks?\s+ago\b`;
+const MONTHS_AGO_SOURCE = String.raw`\b${COUNT_SOURCE}\s+months?\s+ago\b`;
+
+// The count a relative phrase names: the digit if it gave one, otherwise the
+// number word it used, otherwise one.
+function countOf(match: RegExpMatchArray): number {
+    if (match[1]) return Number(match[1]);
+    const word = Object.keys(COUNT_WORDS)
+        .sort((x, y) => y.length - x.length)
+        .find(w => new RegExp(String.raw`\b${w}\b`, 'i').test(match[0]));
+    return word ? COUNT_WORDS[word] : 1;
+}
 
 const NUMERAL_BEARING_RELATIVE = [DAYS_AGO_SOURCE, WEEKS_AGO_SOURCE, MONTHS_AGO_SOURCE]
     .map(source => new RegExp(source, 'gi'));
@@ -165,22 +191,24 @@ function parseRelative(t: string, raw: string, now: Date): ConversationalDateRes
     if (/\bday before yesterday\b/.test(t) || swahili === 'day-before') {
         return ok(startOfDay(new Date(now.getTime() - 2 * 86400000)));
     }
-    if (/\byesterday\b/.test(t) || swahili === 'yesterday') {
+    // "Last night" is yesterday. It was read as no date at all, which meant a
+    // question came back about a message that had answered it.
+    if (/\byesterday\b/.test(t) || /\blast\s+night\b/.test(t) || swahili === 'yesterday') {
         return ok(startOfDay(new Date(now.getTime() - 86400000)));
     }
 
     const daysAgo = t.match(new RegExp(DAYS_AGO_SOURCE));
     if (daysAgo) {
-        return ok(startOfDay(new Date(now.getTime() - Number(daysAgo[1]) * 86400000)));
+        return ok(startOfDay(new Date(now.getTime() - countOf(daysAgo) * 86400000)));
     }
     const weeksAgo = t.match(new RegExp(WEEKS_AGO_SOURCE));
     if (weeksAgo) {
-        const n = weeksAgo[1] ? Number(weeksAgo[1]) : 1;
+        const n = countOf(weeksAgo);
         return ok(startOfDay(new Date(now.getTime() - n * 7 * 86400000)));
     }
     const monthsAgo = t.match(new RegExp(MONTHS_AGO_SOURCE));
     if (monthsAgo) {
-        const n = monthsAgo[1] ? Number(monthsAgo[1]) : 1;
+        const n = countOf(monthsAgo);
         const d = new Date(now);
         d.setMonth(d.getMonth() - n);
         return ok(startOfDay(d));

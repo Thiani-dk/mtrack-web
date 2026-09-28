@@ -1,6 +1,7 @@
 import type { AmountResult } from '../types';
 import { CURRENCY_SUFFIX_SOURCE, DEFAULT_CURRENCY, normalizeCurrency } from './currency';
 import { isPartySpan } from '../names';
+import { MULTIPLIER_ALTERNATION, MULTIPLIERS } from './numeric';
 
 export type { AmountResult };
 
@@ -17,20 +18,12 @@ const NUMBER_SOURCE = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2
 // A multiplier ends where a letter does not follow, or where a currency code
 // runs straight on from it ("100kUSD").
 const MULTIPLIER_SOURCE =
-    String.raw`(?:\s*(millions|million|thousands|thousand|elfu|mia|mn|k|m)`
+    `(?:\\s*(${MULTIPLIER_ALTERNATION})`
     + `(?:(?![A-Za-z])|(?=${CURRENCY_SUFFIX_SOURCE})))?`;
 const AMOUNT_RE = new RegExp(
     `(?:(${CURRENCY_SUFFIX_SOURCE})\\s*\\.?\\s*)?(${NUMBER_SOURCE})${MULTIPLIER_SOURCE}\\s*(${CURRENCY_SUFFIX_SOURCE})?`,
     'gi',
 );
-
-const SHORTHAND: Record<string, number> = {
-    k: 1_000, thousand: 1_000, thousands: 1_000,
-    m: 1_000_000, mn: 1_000_000, million: 1_000_000, millions: 1_000_000,
-    // Swahili, normalised into this form upstream: "elfu tatu" arrives as
-    // "3 elfu". See parsers/swahili.ts.
-    elfu: 1_000, mia: 100,
-};
 
 const POSITIVE_CONTEXT =
     /\b(sent|paid|received|bought|give|withdraw|transfer(?:red)?|of|you have (?:sent|paid|received))\b/i;
@@ -207,7 +200,7 @@ function scanAmounts(msg: string, opts: AmountScanOptions = {}): Candidate[] {
         if (Number.isNaN(base)) continue;
         // A comma-grouped number is already written out in full; "10,000k" is
         // a typo far more often than it is ten million.
-        const mult = suffixMult && !digits.includes(',') ? (SHORTHAND[suffixMult.toLowerCase()] ?? 1) : 1;
+        const mult = suffixMult && !digits.includes(',') ? (MULTIPLIERS[suffixMult.toLowerCase()] ?? 1) : 1;
 
         const currency = normalizeCurrency(prefix ?? '') ?? normalizeCurrency(suffixCur ?? '') ?? DEFAULT_CURRENCY;
         const score = scoreCandidate(msg, m.index, whole.length);

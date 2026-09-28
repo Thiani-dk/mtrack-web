@@ -29,8 +29,7 @@ const A: Scenario[] = [
     },
     {
         id: 'A2', title: 'Ignores the options and types a transaction', types: ['expense_summary'],
-        status: 'fail',
-        note: `a typed transaction at the mode question is answered with "tap one of the options"; nothing is extracted`,
+        status: 'pass',
         steps: [
             {
                 send: 'lunch 850 yesterday',
@@ -44,29 +43,25 @@ const A: Scenario[] = [
     },
     {
         id: 'A3', title: 'Types the mode in their own words', types: ['expense_summary'],
-        status: 'fail',
-        note: `"it's for a customer" is not mapped to a mode`,
+        status: 'pass',
         steps: [
             { send: "it's for a customer", expect: [state({ documentType: 'point_of_sale' })] },
         ],
     },
     {
-        id: 'A3b', title: 'Says the mode as a relationship', types: ['expense_summary'], status: 'fail',
-        note: `"for my boss" is not mapped to a mode`,
+        id: 'A3b', title: 'Says the mode as a relationship', types: ['expense_summary'], status: 'pass',
         steps: [
             { send: 'for my boss', expect: [state({ documentType: 'on_behalf_of' })] },
         ],
     },
     {
-        id: 'A3c', title: 'Says it is their own', types: ['expense_summary'], status: 'fail',
-        note: `"my own" is not mapped to a mode`,
+        id: 'A3c', title: 'Says it is their own', types: ['expense_summary'], status: 'pass',
         steps: [
             { send: 'my own', expect: [used('mode.ownPrompt'), state({ documentType: 'expense_summary' })] },
         ],
     },
     {
-        id: 'A4', title: 'Asks what the options mean', types: ['expense_summary'], status: 'fail',
-        note: `there is no answer to "what do these mean?"`,
+        id: 'A4', title: 'Asks what the options mean', types: ['expense_summary'], status: 'pass',
         steps: [
             {
                 send: 'what do these mean?',
@@ -76,8 +71,7 @@ const A: Scenario[] = [
     },
     {
         id: 'A5', title: 'Pastes M-Pesa messages at the mode question', types: ['expense_summary'],
-        status: 'fail',
-        note: 'a pasted M-Pesa message at the mode question is not parsed',
+        status: 'pass',
         steps: [
             {
                 send: 'TFG4H5J6K7 Confirmed. Ksh500.00 paid to NAIVAS LIMITED on 27/9/26 at 1:15 PM. '
@@ -87,15 +81,13 @@ const A: Scenario[] = [
         ],
     },
     {
-        id: 'A6', title: 'Greets', types: ['expense_summary'], status: 'fail',
-        note: `a greeting gets the "tap one of the options" fallback`,
+        id: 'A6', title: 'Greets', types: ['expense_summary'], status: 'pass',
         steps: [
             { send: 'hi', expect: [used('open.greetBack'), offers(['own', 'point_of_sale', 'on_behalf_of'])] },
         ],
     },
     {
-        id: 'A6b', title: 'Greets in Swahili or Sheng', types: ['expense_summary'], status: 'fail',
-        note: 'Swahili and Sheng greetings likewise',
+        id: 'A6b', title: 'Greets in Swahili or Sheng', types: ['expense_summary'], status: 'pass',
         steps: [
             { send: 'niaje', expect: [used('open.greetBack'), notUsed('open.tapOne')] },
         ],
@@ -137,8 +129,7 @@ const B: Scenario[] = [
         ],
     },
     {
-        id: 'B3', title: 'Item only', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: 'the answer to the next question does not reflect back what was already said',
+        id: 'B3', title: 'Item only', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought lunch', expect: [asks('date'), doesNotAsk('description')] },
             { send: 'yesterday', expect: [asks('amount'), echoes('lunch')] },
@@ -168,8 +159,7 @@ const B: Scenario[] = [
     },
     {
         id: 'B6', title: 'Self-correction within one message', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: `"500, no 600" in one message leaves the amount empty`,
+        status: 'pass',
         steps: [
             { send: 'lunch 500, no 600, yesterday', expect: [state({ amount: 600 }), echoes('600')] },
         ],
@@ -185,8 +175,7 @@ const B: Scenario[] = [
     },
     {
         id: 'B7b', title: 'A range asks which figure to use', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: 'a range is not recognised; no choice is offered',
+        status: 'pass',
         steps: [
             {
                 send: 'lunch was 400 or 500 yesterday',
@@ -206,8 +195,7 @@ const B: Scenario[] = [
     },
     {
         id: 'B9', title: 'Arithmetic, with the working echoed', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: `"three sodas at 150 each" reads 150, not 450, and shows no working`,
+        status: 'pass',
         steps: [
             {
                 send: 'three sodas at 150 each yesterday',
@@ -217,15 +205,13 @@ const B: Scenario[] = [
     },
     {
         id: 'B9b', title: 'Addition in one message', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: `"500 plus 300" is not summed`,
+        status: 'pass',
         steps: [
             { send: 'lunch 500 plus 300 for the matatu yesterday', expect: [state({ amount: 800 })] },
         ],
     },
     {
-        id: 'B10', title: 'Split bill', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: 'a split bill is not recognised',
+        id: 'B10', title: 'Split bill', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             {
                 send: 'we split 3000 between 3 of us yesterday',
@@ -234,8 +220,7 @@ const B: Scenario[] = [
         ],
     },
     {
-        id: 'B11', title: 'Tip or extra', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: 'a tip is not added to the total',
+        id: 'B11', title: 'Tip or extra', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             {
                 send: 'lunch 850 plus 50 tip yesterday',
@@ -254,8 +239,7 @@ const B: Scenario[] = [
         ],
     },
     {
-        id: 'B13', title: 'Nothing paid', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: `"it was free" still produces a zero-amount confirmation rather than saying there is nothing to record`,
+        id: 'B13', title: 'Nothing paid', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             {
                 send: 'lunch yesterday, it was free',
@@ -265,16 +249,14 @@ const B: Scenario[] = [
     },
     {
         id: 'B14', title: 'Sheng money words', types: ['expense_summary'], startInCapture: true,
-        status: 'fail',
-        note: `"soo moja" does not resolve to 100`,
+        status: 'pass',
         steps: [
             { send: 'lunch soo moja yesterday', expect: [state({ amount: 100 })] },
         ],
     },
     {
         id: 'B14b', title: 'Sheng: mbao, thao, ngiri, 2k, bob', types: ['expense_summary'],
-        startInCapture: true, status: 'fail',
-        note: `"mbao" and "thao tano" do not resolve`,
+        startInCapture: true, status: 'pass',
         steps: [
             { send: 'matatu mbao yesterday', expect: [state({ amount: 20 })] },
             { send: 'yes' },
@@ -283,14 +265,51 @@ const B: Scenario[] = [
     },
     {
         id: 'B15', title: 'Formatting variants', types: ['expense_summary'], startInCapture: true,
-        status: 'fail',
-        note: `"1,200/-", "Kes1200" and "KSh 1 200" do not all resolve`,
+        status: 'pass',
         steps: [
             { send: 'lunch 1,200/- yesterday', expect: [state({ amount: 1200 })] },
             { send: 'yes' },
             { send: 'coffee Kes1200 yesterday', expect: [state({ amount: 1200 })] },
             { send: 'yes' },
             { send: 'fuel KSh 1 200 yesterday', expect: [state({ amount: 1200 })] },
+        ],
+    },
+    {
+        id: 'B17', title: 'Relative dates people actually use', types: ['expense_summary'],
+        startInCapture: true, status: 'pass',
+        steps: [
+            { send: 'bought bacon for 3100 last night', expect: [state({ dateISO: '2026-09-27' })] },
+            { send: 'yes' },
+            { send: 'bought bacon for 3100 two nights ago', expect: [state({ dateISO: '2026-09-26' })] },
+            { send: 'yes' },
+            { send: 'bought bacon for 3100 three days ago', expect: [state({ dateISO: '2026-09-25' })] },
+            { send: 'yes' },
+            { send: 'bought bacon for 3100 a couple of days ago', expect: [state({ dateISO: '2026-09-26' })] },
+            { send: 'yes' },
+            { send: 'bought bacon for 3100 two weeks ago', expect: [state({ dateISO: '2026-09-14' })] },
+        ],
+    },
+    {
+        id: 'B18', title: 'A relative phrase never leaks into the description',
+        types: ['expense_summary'], startInCapture: true, status: 'pass',
+        steps: [
+            {
+                send: 'lunch at Java House 850 last night',
+                expect: [
+                    state({ recipient: 'Lunch at Java House', amount: 850, dateISO: '2026-09-27' }),
+                    notUsed('zero.ask1'),
+                ],
+            },
+        ],
+    },
+    {
+        id: 'B19', title: 'A person is a payee, goods are not', types: ['expense_summary'],
+        startInCapture: true, status: 'pass',
+        steps: [
+            {
+                send: 'sent 500 to Kevin yesterday',
+                expect: [state({ recipient: 'Kevin', amount: 500 }), echoes('to Kevin')],
+            },
         ],
     },
     {
@@ -307,8 +326,7 @@ const B: Scenario[] = [
 const C: Scenario[] = [
     {
         id: 'C1', title: 'Answers the question asked', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: 'accepting an answer says nothing back about it',
+        status: 'pass',
         steps: [
             { send: 'bought bacon', expect: [asks('date')] },
             { send: 'yesterday', expect: [state({ dateISO: '2026-09-27' }), asks('amount')] },
@@ -317,8 +335,7 @@ const C: Scenario[] = [
     },
     {
         id: 'C2', title: 'Answers a different question', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: 'an amount given in reply to the date question is discarded',
+        status: 'pass',
         steps: [
             { send: 'bought bacon', expect: [asks('date')] },
             { send: '3100', expect: [state({ amount: 3100 }), asks('date')] },
@@ -345,8 +362,7 @@ const C: Scenario[] = [
     },
     {
         id: 'C4b', title: 'Not sure, on the required amount', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: `"I don't know" on the amount is not handled; no reason is given and no rough figure offered`,
+        status: 'pass',
         steps: [
             { send: 'bought bacon yesterday', expect: [asks('amount')] },
             { send: "I don't know", expect: [used('ask.amountWhyNeeded'), endsWithNextStep()] },
@@ -360,22 +376,25 @@ const C: Scenario[] = [
         ],
     },
     {
-        id: 'C6', title: 'Asks for an example', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: `there is no answer to "like what?"`,
+        id: 'C6', title: 'Asks for an example', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought bacon', expect: [asks('date')] },
-            { send: 'like what?', expect: [used('help.example'), resumes('ask.date'), stateUnchanged()] },
+            { send: 'like what?', expect: [used('help.example.date'), resumes('ask.date'), stateUnchanged()] },
         ],
     },
     {
         id: 'C7', title: 'Fails to answer twice, then the strategy changes', types: CAPTURE_TYPES,
-        startInCapture: true, status: 'fail',
-        note: 'the date question repeats in the same shape rather than changing strategy',
+        startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought bacon', expect: [asks('date')] },
-            { send: 'asdf', expect: [asks('date')] },
-            { send: 'qwer', expect: [asks('date')] },
+            { send: 'asdf', expect: [asks('date'), notRepeatOfPrevious()] },
+            // Never a third identical ask. The strategy changes instead: the
+            // date is left off rather than guessed, and the flow moves on.
+            { send: 'qwer', expect: [used('date.giveUp'), doesNotAsk('date'), endsWithNextStep()] },
             { send: 'zxcv', expect: [notRepeatOfPrevious()] },
+            // The same discipline on the slot it moved on to, which had no cap
+            // of its own and could have asked the same question forever.
+            { send: 'qwerty', expect: [used('zero.escape'), offers(['paste', 'skip', 'restart'])] },
         ],
     },
 ];
@@ -407,8 +426,7 @@ const D: Scenario[] = [
     },
     {
         id: 'D2', title: 'Specific description earns no enrichment question',
-        types: ['expense_summary'], startInCapture: true, status: 'fail',
-        note: 'enrichment questions do not exist (this one asserts they stay silent, and fails on the missing confirm)',
+        types: ['expense_summary'], startInCapture: true, status: 'pass',
         steps: [
             { send: 'chicken wings 500 yesterday', expect: [notUsed('enrich.where'), asks('confirm')] },
         ],
@@ -458,8 +476,7 @@ const D: Scenario[] = [
 
 const E: Scenario[] = [
     {
-        id: 'E1', title: 'Yes variants save', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: `"sawa" is not read as yes`,
+        id: 'E1', title: 'Yes variants save', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             { send: 'sawa', expect: [commits(1)] },
@@ -475,8 +492,7 @@ const E: Scenario[] = [
     },
     {
         id: 'E1c', title: 'Swahili and emoji yes', types: ['expense_summary'], startInCapture: true,
-        status: 'fail',
-        note: `"ndio" and a thumbs-up are not read as yes`,
+        status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             { send: 'ndio', expect: [commits(1)] },
@@ -486,32 +502,34 @@ const E: Scenario[] = [
     },
     {
         id: 'E2', title: 'Bare no asks what is off', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: `a bare "no" wipes the draft and restarts from the date instead of asking what is off`,
+        status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
-            { send: 'no', expect: [used('confirm.whatIsOff'), offers(['amount', 'date', 'description'])] },
+            {
+                send: 'no',
+                // The draft's three fields, plus a way to start the line over.
+                // Principle 6: a breakdown is where options matter most, and a
+                // user who says "no" to all three needs somewhere to go.
+                expect: [used('confirm.whatIsOff'), offers(['amount', 'date', 'description', 'start-again'])],
+            },
         ],
     },
     {
-        id: 'E2b', title: 'Swahili no', types: ['expense_summary'], startInCapture: true, status: 'fail',
-        note: `"hapana" likewise`,
+        id: 'E2b', title: 'Swahili no', types: ['expense_summary'], startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             { send: 'hapana', expect: [used('confirm.whatIsOff')] },
         ],
     },
     {
-        id: 'E3', title: 'One-step correction', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: `"no, 600" is read as a rejection, not a one-step correction`,
+        id: 'E3', title: 'One-step correction', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             { send: 'no, 600', expect: [state({ amount: 600 }), echoes('600'), asks('confirm')] },
         ],
     },
     {
-        id: 'E4', title: 'Names the field', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: `"change the date to Monday" is not applied`,
+        id: 'E4', title: 'Names the field', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             {
@@ -522,8 +540,7 @@ const E: Scenario[] = [
     },
     {
         id: 'E5', title: 'Adds an item at confirmation', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: `"also add airtime 50" is read as a rejection`,
+        status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             {
@@ -533,8 +550,7 @@ const E: Scenario[] = [
         ],
     },
     {
-        id: 'E6', title: 'Removes an item', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: 'there is no way to remove an item',
+        id: 'E6', title: 'Removes an item', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             { send: 'bacon 3100, tomatoes 400 and airtime 30 yesterday' },
             {
@@ -544,8 +560,7 @@ const E: Scenario[] = [
         ],
     },
     {
-        id: 'E7', title: 'Ambiguous hold', types: CAPTURE_TYPES, startInCapture: true, status: 'fail',
-        note: `"hold on" wipes the draft`,
+        id: 'E7', title: 'Ambiguous hold', types: CAPTURE_TYPES, startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             { send: 'hold on', expect: [used('confirm.holding'), state({ amount: 3100 })] },
@@ -566,8 +581,7 @@ const F: Scenario[] = [
     },
     {
         id: 'F2', title: 'Undo points at where documents are removed', types: ['expense_summary'],
-        startInCapture: true, status: 'fail',
-        note: `"undo" is not answered`,
+        startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             { send: 'yes' },
@@ -576,8 +590,7 @@ const F: Scenario[] = [
     },
     {
         id: 'F3', title: 'Send it to my boss', types: ['expense_summary'], startInCapture: true,
-        status: 'fail',
-        note: `"send it to my boss" is not answered`,
+        status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             { send: 'yes' },
@@ -585,8 +598,7 @@ const F: Scenario[] = [
         ],
     },
     {
-        id: 'F4', title: 'Make it a PDF', types: ['expense_summary'], startInCapture: true, status: 'fail',
-        note: `"make it a pdf" is not answered`,
+        id: 'F4', title: 'Make it a PDF', types: ['expense_summary'], startInCapture: true, status: 'pass',
         steps: [
             { send: 'bought bacon for 3100 yesterday' },
             { send: 'yes' },
@@ -608,8 +620,7 @@ const F: Scenario[] = [
 const G: Scenario[] = [
     {
         id: 'G1', title: 'Corrects an earlier item by name', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: 'a named item correction does not reach the right item from this phrasing',
+        status: 'pass',
         steps: [
             { send: 'bacon 3100, tomatoes 400 and airtime 30 yesterday' },
             {
@@ -627,8 +638,7 @@ const G: Scenario[] = [
     },
     {
         id: 'G3', title: 'Ambiguous target offers the candidates', types: CAPTURE_TYPES,
-        startInCapture: true, status: 'fail',
-        note: 'an ambiguous correction target is applied rather than asked about',
+        startInCapture: true, status: 'pass',
         steps: [
             { send: 'bacon 3100, tomatoes 400 and airtime 30 yesterday' },
             { send: 'actually it was 3500', expect: [used('correction.ambiguous')] },
@@ -951,8 +961,7 @@ const L: Scenario[] = [
     },
     {
         id: 'L5', title: 'Bare numbers at every stage', types: CAPTURE_TYPES, startInCapture: true,
-        status: 'fail',
-        note: 'a bare number in reply to the date question is discarded',
+        status: 'pass',
         steps: [
             { send: 'bought bacon', expect: [asks('date')] },
             { send: '3100', expect: [state({ amount: 3100 })] },

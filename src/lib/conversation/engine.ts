@@ -11,13 +11,16 @@ import { advanceDateRetry, DATE_REASON_UNREADABLE } from '../parsers/conversatio
 import { advanceZeroUnderstanding, understoodNothing, ZERO_ESCAPE_VALUES } from '../zeroUnderstanding';
 import {
     CANCEL_CONFIRM_VALUES, classifyIntent, decideCancel, isAffirmative, isCancelMessage,
-    isCorrectionMessage, segmentMultiIntent,
+    isCorrectionMessage, isHolding, isNegative, rejectionRemainder, segmentMultiIntent,
 } from '../metaIntent';
 import { answerOrAdmitCopyId } from '../metaAnswers';
 import { partyCopyId, partyFollowOnCopyId, partyQuestion } from '../partyQuestion';
-import { applyNamedCorrection, resolveCorrection } from '../correction';
+import { applyNamedCorrection, resolveCorrection, resolveRemoval } from '../correction';
 import { parseAllMessages } from '../parsers';
-import { fmtProseCurrency, UNDATED } from '../transactionDisplay';
+import { readAmountPhrase, type AmountChoice } from './amountPhrases';
+import { asksWhatOptionsMean, isGreeting, modeValue, readModeChoice } from './openingIntent';
+import { asksForExample, readRequest, saysDontKnow } from './requestIntent';
+import { fmtAmountProse, fmtProseCurrency, UNDATED } from '../transactionDisplay';
 import type { CopyId } from './copy';
 import { TurnBuilder } from './turns';
 import type { ConvState, Effect, PendingPrompt, TurnContext, TurnResult } from './types';
@@ -39,6 +42,15 @@ import type { ConvState, Effect, PendingPrompt, TurnContext, TurnResult } from '
 // question that repeats forever is worse than either.
 const MAX_DATE_ATTEMPTS = 2;
 
+// The same discipline for every other slot, which had no cap at all.
+const MAX_SLOT_ATTEMPTS = 2;
+
+const SLOT_OF_PENDING: Partial<Record<PendingPrompt, CaptureSlot>> = {
+    'field-date': 'date',
+    'field-amount': 'amount',
+    'field-recipient': 'description',
+};
+
 // A parsed-transaction count at or below this counts as "small".
 export const MODE_VALUES = ['own', 'point_of_sale', 'on_behalf_of'] as const;
 
@@ -59,6 +71,8 @@ export function emptyConvState(documentType: DocumentType = 'expense_summary'): 
         purposeQueue: [],
         variantCursor: {},
         lastCopyId: null,
+        namedGoods: null,
+        slotAttempts: 0,
     };
 }
 
@@ -125,16 +139,22 @@ function followCopyId(slot: CaptureSlot, documentType: DocumentType): CopyId {
 // picks up the second if it was given, and it is asked again on its own if not.
 function askNextField(
     b: TurnBuilder, draft: CaptureDraft, documentType: DocumentType, instance: number,
+    namedGoods: string | null = null,
 ): { pending: PendingPrompt; batchedSlot: CaptureSlot | null } {
     const question = composeSlotQuestion(openSlots(draft), {
         date: '', amount: '', description: '',
     }, documentType);
     if (!question) return { pending: 'confirm', batchedSlot: null };
 
+    // A question that names what it is about ("How much was the lunch?") beats
+    // the same question in the abstract, and proves the earlier answer landed.
+    const subject = namedSubject(draft) ?? namedSubject({ recipient: namedGoods });
     const primary = question.slot === 'description'
         ? partyCopyIdForInstance(documentType, instance)
-        : slotCopyId(question.slot, documentType);
-    b.say(primary, {}, question.alsoAsked
+        : subject && question.slot === 'amount' ? 'ask.amountFor'
+            : subject && question.slot === 'date' ? 'ask.dateFor'
+                : slotCopyId(question.slot, documentType);
+    b.say(primary, subject ? { what: subject } : {}, question.alsoAsked
         ? { suffixCopyId: followCopyId(question.alsoAsked, documentType) }
         : {});
 
@@ -152,6 +172,17 @@ function partyCopyIdForInstance(documentType: DocumentType, instance: number): C
     return partyCopyId(documentType);
 }
 
+// The thing being captured, in the user's own words, when it is short enough
+// to sit inside a question. A four-item list is not, and "How much was the
+// bacon, tomatoes, airtime and sugar?" reads worse than asking plainly.
+function namedSubject(draft: { recipient: string | null }): string | null {
+    const name = draft.recipient?.trim();
+    if (!name) return null;
+    if (name.includes(',')) return null;
+    if (name.split(/\s+/).length > 3 || name.length > 28) return null;
+    return name.toLowerCase();
+}
+
 function confirmSentence(draft: CaptureDraft): string {
     return buildConfirmSentence({
         amount: draft.amount,
@@ -165,12 +196,42 @@ function confirmSentence(draft: CaptureDraft): string {
     });
 }
 
+// Whether an opening message is already about money that changed hands.
+//
+// A pasted transaction message, or typed text that names a figure or reads
+// like a purchase. Not merely "any text": a greeting or an off-topic remark
+// must not silently start a document.
+function looksLikeSpending(text: string, ctx: TurnContext): boolean {
+    if (parseAllMessages(text).transactions.length > 0) return true;
+    const e = extractDescription(text, ctx.now);
+    return (e.amount != null && e.amount > 0)
+        || e.itemisation != null
+        || e.soleLineItem != null
+        || e.date != null
+        // A figure at the front door is money. There is nothing else a number
+        // could be in reply to "what are we putting together?".
+        || e.hasNumber
+        || (e.hasTransactionShape && e.namedGoods != null);
+}
+
+function sentenceCase(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function fmtShortDate(d: Date): string {
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function advanceAfterField(b: TurnBuilder, state: ConvState, draft: CaptureDraft): ConvState {
-    const next = askNextField(b, draft, state.documentType, state.describedCount);
+// `accepted` is what the user just settled, in their own words, for the
+// acknowledgement. Omitted where there is nothing new to reflect back, and
+// deliberately skipped when the confirmation comes next: the confirmation
+// already restates every field, and saying it twice is saying too much.
+function advanceAfterField(
+    b: TurnBuilder, state: ConvState, draft: CaptureDraft, accepted?: string | null,
+): ConvState {
+    const stillOpen = openSlots(draft).length > 0;
+    if (accepted && stillOpen) b.say('ack.answer', { answer: accepted });
+    const next = askNextField(b, draft, state.documentType, state.describedCount, state.namedGoods);
     if (next.pending === 'confirm') b.say('confirm.summary', { sentence: confirmSentence(draft) });
     return { ...state, draft, pending: next.pending, batchedSlot: next.batchedSlot };
 }
@@ -278,7 +339,8 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
     // deliberately left exactly as it was. That IS the resume pointer: nothing
     // advanced, so nothing needs restoring.
     if (state.pending !== 'mode' && state.pending !== 'cancel-confirm'
-        && state.pending !== 'correction-target' && state.pending !== 'zero-escape') {
+        && state.pending !== 'correction-target' && state.pending !== 'zero-escape'
+        && !asksForExample(t) && readRequest(t) === null) {
         const e = extractDescription(t, ctx.now);
         const intent = classifyIntent({ text: t, extraction: e, nothingExtracted: understoodNothing(e) });
         if (intent === 'meta_question') {
@@ -289,6 +351,29 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             }, { resumedCopyId: parked.copyId });
             return state;
         }
+    }
+
+    // Asking the app to DO something. Checked before the correction branch:
+    // "make it a PDF" carries the correction marker "make it", and was read as
+    // an edit to the draft.
+    const request = readRequest(t);
+    if (request === 'undo') { b.say('after.undo'); return state; }
+    if (request === 'send') { b.say('after.share'); return state; }
+    if (request === 'export') { b.say('help.export'); return state; }
+
+    // "Like what?" is a question about the question, not about the app. One
+    // example, then the same question again.
+    const openSlot = SLOT_OF_PENDING[state.pending];
+    if (openSlot && asksForExample(t)) {
+        b.say(`help.example.${openSlot}` as CopyId, {}, { resumedCopyId: slotCopyId(openSlot, state.documentType) });
+        return state;
+    }
+    // "I don't know" on the amount. A required field, so say in one clause why
+    // it is needed rather than asking the same question again, and take a
+    // rough figure.
+    if (state.pending === 'field-amount' && saysDontKnow(t)) {
+        b.say('ask.amountWhyNeeded');
+        return state;
     }
 
     // A correction, wherever it arrives. This has to run before the slot
@@ -314,6 +399,16 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
     }
 
     switch (state.pending) {
+        // A figure with two honest readings, settled by a tap. The values ARE
+        // the option values, so the answer needs no second mechanism.
+        case 'amount-choice': {
+            const chosen = parseFloat(t.replace(/[^\d.]/g, ''));
+            if (!Number.isFinite(chosen)) {
+                b.say('zero.tapOne');
+                return state;
+            }
+            return advanceAfterField(b, state, { ...state.draft, amount: chosen, lineItems: null });
+        }
         // Which of several items the correction meant. The answer carries the
         // item's own description, so it resolves through the same reference
         // matching rather than a second positional mechanism.
@@ -347,9 +442,42 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             b.say('cancel.tapOne');
             return state;
         }
-        case 'mode':
+        // The front door. A tap is the easy case; everything else a person
+        // might reasonably open with is handled here rather than met with
+        // "tap one of the options above".
+        case 'mode': {
+            if (isGreeting(t)) {
+                b.say('open.greetBack');
+                b.say('open.modeQuestion', {}, { options: modeOptions() });
+                return state;
+            }
+            if (asksWhatOptionsMean(t)) {
+                b.say('open.modeExplained');
+                b.say('open.modeQuestion', {}, { options: modeOptions() });
+                return state;
+            }
+            const named = readModeChoice(t);
+            if (named) {
+                const chosen = chooseMode(state, modeValue(named));
+                b.turns.push(...chosen.turns);
+                return chosen.state;
+            }
+            // Someone who types a purchase, or pastes an M-Pesa message, at
+            // the mode question has told us what they want: a record of their
+            // own spending. Confirming that implicitly and getting on with it
+            // beats making them answer a question they have already answered.
+            if (looksLikeSpending(t, ctx)) {
+                b.say('open.assumeOwn');
+                const started: ConvState = { ...state, documentType: 'expense_summary', pending: 'input' };
+                if (parseAllMessages(t).transactions.length > 0) {
+                    b.effect({ kind: 'parse-batch', text: t });
+                    return started;
+                }
+                return handleDescription(b, started, t, ctx);
+            }
             b.say('open.tapOne');
             return state;
+        }
         // The way out offered after two failed "I didn't follow" turns. Three
         // options, all of which end the loop rather than asking in the same
         // shape a third time.
@@ -401,10 +529,11 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             const composed = composeDraftAnswer(state.draft, 'date', t, ctx.now, state.batchedSlot);
             const d = composed.dateResult!;
             if (composed.accepted) {
-                // Accepted, but still echoed back inside the confirmation
-                // sentence before anything is committed.
+                // Accepted, and said back in the parser's own reading of it, so
+                // a misread date is caught here rather than at the very end.
                 return advanceAfterField(
                     b, { ...state, dateAttempts: 0, lastDateAnswer: null }, composed.draft,
+                    composed.draft.dateInterpretation ?? null,
                 );
             }
             // Not settled. Ask the parser's own question — but the cap counts
@@ -424,15 +553,40 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             }
             if (d.reason) b.say('date.retry', { reason: d.reason });
             else b.say('ask.date');
-            return { ...state, dateAttempts: retry.state.attempts, lastDateAnswer: retry.state.lastAnswer };
+            // composed.draft, not state.draft. The answer failed to settle the
+            // DATE; anything else it carried is still kept. Asked "when was
+            // that? And how much?" and answered "3100", the flow used to throw
+            // the figure away and then ask for it again a turn later, which is
+            // the most obvious possible way to look like you were not
+            // listening.
+            return {
+                ...state,
+                draft: composed.draft,
+                dateAttempts: retry.state.attempts,
+                lastDateAnswer: retry.state.lastAnswer,
+            };
         }
         case 'field-amount': {
             const composed = composeDraftAnswer(state.draft, 'amount', t, ctx.now, state.batchedSlot);
             if (!composed.accepted) {
+                const stuck = state.slotAttempts + 1;
+                // Two goes is enough. A question that has twice failed to get a
+                // usable answer will not get one on the third try either, and
+                // asking again in the same words is a loop with extra steps.
+                if (stuck >= MAX_SLOT_ATTEMPTS) {
+                    b.say('ask.stuck');
+                    b.say('zero.escape', {}, { options: optionsFrom(ZERO_ESCAPE_VALUES, ZERO_OPTION_COPY) });
+                    return { ...state, draft: composed.draft, pending: 'zero-escape', slotAttempts: 0 };
+                }
                 b.say('ask.amountRetry');
-                return { ...state, draft: composed.draft };
+                return { ...state, draft: composed.draft, slotAttempts: stuck };
             }
-            return advanceAfterField(b, state, composed.draft);
+            return advanceAfterField(
+                b, { ...state, slotAttempts: 0 }, composed.draft,
+                composed.draft.amount != null
+                    ? fmtAmountProse(composed.draft.amount, composed.draft.currency.code)
+                    : null,
+            );
         }
         case 'field-recipient': {
             const composed = composeDraftAnswer(state.draft, 'description', t, ctx.now, state.batchedSlot);
@@ -440,7 +594,7 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
                 b.say(partyCopyId(state.documentType));
                 return state;
             }
-            return advanceAfterField(b, state, composed.draft);
+            return advanceAfterField(b, state, composed.draft, composed.draft.recipient);
         }
         case 'purpose-label': {
             const [code, ...restQueue] = state.purposeQueue;
@@ -459,9 +613,87 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             b.say('purpose.done');
             return { ...state, purposeQueue: [], pending: 'input' };
         }
+        // Which field the user said was wrong, answered by a tap.
+        case 'confirm-field': {
+            if (t === 'start-again') {
+                b.say('confirm.reject', { question: b.text('ask.date') });
+                return {
+                    ...state,
+                    draft: {
+                        ...emptyCaptureDraft(),
+                        currency: state.draft.currency,
+                        purposeLabel: state.draft.purposeLabel,
+                        direction: state.draft.direction,
+                    },
+                    pending: 'field-date',
+                };
+            }
+            const slot = (['amount', 'date', 'description'] as const).find(x => x === t);
+            if (!slot) {
+                b.say('confirm.whatIsOff', {}, { options: fieldOptions(b) });
+                return state;
+            }
+            b.say(`confirm.fieldAsk.${slot}` as CopyId);
+            // The slot is emptied so the answer has somewhere to land and the
+            // ordinary answer reader handles it; nothing else is touched.
+            const cleared: CaptureDraft = slot === 'amount'
+                ? { ...state.draft, amount: null, lineItems: null }
+                : slot === 'date'
+                    ? { ...state.draft, date: null, dateSkipped: false, dateInterpretation: null }
+                    : { ...state.draft, recipient: null };
+            return {
+                ...state,
+                draft: cleared,
+                pending: slot === 'amount' ? 'field-amount' : slot === 'date' ? 'field-date' : 'field-recipient',
+                batchedSlot: null,
+            };
+        }
         case 'confirm': {
             const added = foldAddition(state.draft, t, ctx.now);
             if (isAffirmative(t)) return commit(b, state, state.draft, ctx);
+
+            // "Hmm" and "hold on" are not rejections. Wiping a draft over one
+            // is the most expensive possible reading of the least committal
+            // thing a person can say.
+            if (isHolding(t)) {
+                b.say('confirm.holding');
+                return state;
+            }
+
+            // Taking a line back off.
+            const removal = resolveRemoval(state.draft, t);
+            if (removal) {
+                if (removal.kind === 'notFound') {
+                    b.say('confirm.removeNotFound');
+                    return state;
+                }
+                b.say('confirm.removed', {
+                    item: removal.item,
+                    sentence: confirmSentence(removal.draft),
+                });
+                return { ...state, draft: removal.draft };
+            }
+
+            // "No, 600" is a one-step correction, not a rejection. A bare "no"
+            // is a rejection, and gets asked what is wrong rather than being
+            // made to answer every question again.
+            const remainder = rejectionRemainder(t);
+            if (remainder) {
+                const outcome = resolveCorrection(state.draft, remainder, ctx.now);
+                if (outcome.kind === 'applied') {
+                    b.say('correction.applied', { echo: outcome.echo });
+                    return advanceAfterField(b, { ...state, pending: 'input' }, outcome.draft);
+                }
+                if (outcome.kind === 'ambiguous') {
+                    b.say('correction.ambiguous', { question: outcome.text }, { options: outcome.options });
+                    return { ...state, pending: 'correction-target', pendingCorrectionAmount: outcome.amount };
+                }
+            }
+            if (isNegative(t)) {
+                b.say('confirm.whatIsOff', {}, { options: fieldOptions(b) });
+                return { ...state, pending: 'confirm-field' };
+            }
+
             if (added) {
                 // "Oh and airtime for 30" is not a rejection. Anything that was
                 // not "yes" used to clear the whole draft and start again from
@@ -482,10 +714,49 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
                 pending: 'field-date',
             };
         }
-        case 'input':
+        case 'input': {
+            if (request === 'another') {
+                // The same mode, a clean draft. Nothing already on the
+                // document is touched.
+                b.say('after.another');
+                return { ...state, draft: emptyCaptureDraft(), namedGoods: null, slotAttempts: 0 };
+            }
             return 'not-consumed';
+        }
     }
     return 'not-consumed';
+}
+
+// The two-reading question. The figures themselves are the option values.
+function askAmountChoice(b: TurnBuilder, choice: AmountChoice): void {
+    const label = (n: number) => fmtAmountProse(n, 'KES');
+    if (choice.kind === 'split') {
+        const [share, full] = choice.values;
+        b.say('amount.splitBill', {}, {
+            options: [
+                { id: 'amount-share', label: b.text('amount.optionShare', { label: label(share) }), value: String(share) },
+                { id: 'amount-full', label: b.text('amount.optionFull', { label: label(full) }), value: String(full) },
+            ],
+        });
+        return;
+    }
+    b.say('amount.whichOfRange', {}, {
+        options: choice.values.map((n, i) => ({
+            id: `amount-choice-${i}`,
+            label: b.text('amount.optionFigure', { label: label(n) }),
+            value: String(n),
+        })),
+    });
+}
+
+// The draft's own fields, offered as the answer to "which part is wrong?".
+function fieldOptions(b: TurnBuilder): ChatOption[] {
+    return [
+        { id: 'confirm-amount', label: b.text('confirm.field.amount'), value: 'amount' },
+        { id: 'confirm-date', label: b.text('confirm.field.date'), value: 'date' },
+        { id: 'confirm-description', label: b.text('confirm.field.description'), value: 'description' },
+        { id: 'confirm-start', label: b.text('confirm.field.start'), value: 'start-again' },
+    ];
 }
 
 function askPurposeFor(b: TurnBuilder, code: string, transactions: TurnContext['transactions']): void {
@@ -551,6 +822,7 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
         return classifyIntent({ text: clause, extraction: e, nothingExtracted: understoodNothing(e) });
     };
     const segments = segmentMultiIntent(text, intentOf);
+
     const questionIds = segments.questions.map(q => answerOrAdmitCopyId(q.text));
 
     // A message that is ONLY a question about the app. Answering it must not
@@ -567,12 +839,39 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
     }
     // Only the data half is folded into the draft; the question half would
     // otherwise be mined for an amount it never contained.
-    const dataText = segments.data.length > 0 && questionIds.length > 0
+    let dataText = segments.data.length > 0 && questionIds.length > 0
         ? segments.data.map(d => d.text).join(', ')
         : text;
 
+    // Figures that are not simply figures: a split bill, a range, arithmetic,
+    // a self-correction, or nothing paid at all. Settled before extraction, so
+    // the ordinary path only ever sees a message that says what it means.
+    const phrase = readAmountPhrase(dataText);
+    if (phrase?.kind === 'nothingPaid') {
+        b.say('commit.nothingToRecord');
+        return { ...state, draft: emptyCaptureDraft(), pending: 'input', describedCount: state.describedCount + 1 };
+    }
+    if (phrase?.kind === 'choice') {
+        askAmountChoice(b, phrase.choice);
+        return {
+            ...state,
+            draft: composeDescription(state.draft, dataText, ctx.now).draft,
+            pending: 'amount-choice',
+            describedCount: state.describedCount + 1,
+        };
+    }
+    const working = phrase?.kind === 'rewrite' ? phrase.rewrite.working : null;
+    if (phrase?.kind === 'rewrite') dataText = phrase.rewrite.text;
+
     const { draft, extraction: r } = composeDescription(state.draft, dataText, ctx.now);
+    // The working is shown before whatever the message prompts, so a
+    // misreading can be caught on the figures rather than on the total alone.
+    if (working) b.say('ack.arithmetic', { working });
     const describedCount = state.describedCount + 1;
+    // Goods named without a price. Carried by every branch below, including the
+    // date-clarification ones, which is where it was first lost: "bought lunch"
+    // has no date, so it never reached the ordinary path at all.
+    const namedGoods = r.namedGoods ?? state.namedGoods;
 
     // Emitted after whatever the data half prompts, so the reply reads "here's
     // what I did with that — and to answer your question, ...".
@@ -627,7 +926,7 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
         b.say('date.invalid', { reason: r.dateResult.reason ?? '' }, followFor(draft));
         const next = fireNudge({
             ...state, draft: { ...draft, date: null }, pending: 'field-date',
-            describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
+            describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft), namedGoods,
         });
         answerQuestions();
         return next;
@@ -640,11 +939,13 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
     if (!draft.date && !draft.dateSkipped
         && r.dateResult.confidence === 'needs_clarification' && r.dateResult.reason) {
         const attempted = r.dateResult.reason !== DATE_REASON_UNREADABLE;
+        const subject = namedSubject(draft) ?? namedSubject({ recipient: namedGoods });
         if (attempted) b.say('date.retry', { reason: r.dateResult.reason }, followFor(draft));
+        else if (subject) b.say('ask.dateFor', { what: subject }, followFor(draft));
         else b.say('ask.date', {}, followFor(draft));
         const next = fireNudge({
             ...state, draft: { ...draft, date: null }, pending: 'field-date',
-            describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
+            describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft), namedGoods,
         });
         answerQuestions();
         return next;
@@ -656,7 +957,7 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
         b.say('date.oboAmbiguous');
         const next = fireNudge({
             ...state, draft: { ...draft, date: null }, pending: 'field-date',
-            describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft),
+            describedCount, zeroAttempts: 0, batchedSlot: nextOpenAfterDate(draft), namedGoods,
         });
         answerQuestions();
         return next;
@@ -670,7 +971,7 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
         b.say('confirm.mixedCurrency', { question: mixedCurrencyQuestion(r.mixedCurrencies) });
         const next = fireNudge({
             ...state, draft, pending: 'field-amount', describedCount, zeroAttempts: 0,
-            batchedSlot: null,
+            batchedSlot: null, namedGoods,
         });
         answerQuestions();
         return next;
@@ -679,11 +980,22 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
     // One path, driven by what is actually still missing: everything the
     // message filled stays filled, and only a genuinely empty slot earns a
     // question.
-    const asked = askNextField(b, draft, state.documentType, describedCount);
-    if (asked.pending === 'confirm') b.say('confirm.summary', { sentence: confirmSentence(draft) });
+    // On the document types whose description slot IS the goods, a named thing
+    // fills it once a price lands. A payee slot is never filled with a thing
+    // that was bought.
+    // Only point_of_sale. Its description slot asks "what did they buy?", and
+    // the message already said. The other three ask for a payee or a place,
+    // which a named thing is not: filing "lunch" as who the money went to
+    // would put the wrong word on the document.
+    const withGoods: CaptureDraft = !draft.recipient && namedGoods && state.documentType === 'point_of_sale'
+        ? { ...draft, recipient: sentenceCase(namedGoods) }
+        : draft;
+
+    const asked = askNextField(b, withGoods, state.documentType, describedCount, namedGoods);
+    if (asked.pending === 'confirm') b.say('confirm.summary', { sentence: confirmSentence(withGoods) });
     const next = fireNudge({
-        ...state, draft, pending: asked.pending, describedCount, zeroAttempts: 0,
-        batchedSlot: asked.batchedSlot,
+        ...state, draft: withGoods, pending: asked.pending, describedCount, zeroAttempts: 0,
+        batchedSlot: asked.batchedSlot, namedGoods,
     });
     answerQuestions();
     return next;

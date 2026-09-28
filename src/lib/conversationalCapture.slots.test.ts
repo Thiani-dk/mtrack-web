@@ -111,7 +111,7 @@ describe('the transcript, replayed end to end', () => {
         });
 
         expect(sentence).toBe(
-            'Ram $5,000, AI chip $10,000, CPU $10,000, Motherboard $7,000 — total $32,000, '
+            'Ram $5,000, AI chip $10,000, CPU $10,000, Motherboard $7,000, total $32,000, '
             + 'on 11 September 2026. Right?',
         );
         // The sentence the user was actually shown, and everything wrong with it.

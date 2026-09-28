@@ -6,22 +6,22 @@ A scenario may never be marked passing by loosening its assertion. Any change
 to an expectation is recorded in the "reason" column of the change log at the
 bottom of this file.
 
-**25 of 104 scenarios pass.**
+**68 of 107 scenarios pass.**
 
 | Section | pass | fail | blocked | decision |
 |---|---|---|---|---|
-| A. Opening and mode choice | 1 | 9 | 0 | 0 |
-| B. Capture | 8 | 11 | 0 | 0 |
-| C. Clarifying questions | 3 | 5 | 0 | 0 |
-| D. Enrichment | 0 | 7 | 0 | 0 |
-| E. Confirmation | 1 | 9 | 0 | 0 |
-| F. After saving | 2 | 3 | 0 | 0 |
-| G. Corrections mid-flow | 1 | 2 | 0 | 0 |
+| A. Opening and mode choice | 9 | 1 | 0 | 0 |
+| B. Capture | 22 | 0 | 0 | 0 |
+| C. Clarifying questions | 8 | 0 | 0 | 0 |
+| D. Enrichment | 1 | 6 | 0 | 0 |
+| E. Confirmation | 10 | 0 | 0 | 0 |
+| F. After saving | 5 | 0 | 0 | 0 |
+| G. Corrections mid-flow | 3 | 0 | 0 | 0 |
 | H. Cancel and restart | 3 | 0 | 0 | 0 |
 | I. Help and meta questions | 0 | 10 | 0 | 0 |
 | J. Off-topic and out of scope | 1 | 13 | 0 | 0 |
 | K. Emotional content | 1 | 4 | 0 | 0 |
-| L. Input robustness | 3 | 3 | 0 | 0 |
+| L. Input robustness | 4 | 2 | 0 | 0 |
 | M. Session and return | 1 | 0 | 0 | 0 |
 | N. Spending questions | 0 | 3 | 0 | 0 |
 
@@ -31,73 +31,76 @@ bottom of this file.
 |---|---|---|---|
 | **A. Opening and mode choice** | | | |
 | A1 | Taps a mode | pass |  |
-| A2 | Ignores the options and types a transaction | fail | a typed transaction at the mode question is answered with "tap one of the options"; nothing is extracted |
-| A3 | Types the mode in their own words | fail | "it's for a customer" is not mapped to a mode |
-| A3b | Says the mode as a relationship | fail | "for my boss" is not mapped to a mode |
-| A3c | Says it is their own | fail | "my own" is not mapped to a mode |
-| A4 | Asks what the options mean | fail | there is no answer to "what do these mean?" |
-| A5 | Pastes M-Pesa messages at the mode question | fail | a pasted M-Pesa message at the mode question is not parsed |
-| A6 | Greets | fail | a greeting gets the "tap one of the options" fallback |
-| A6b | Greets in Swahili or Sheng | fail | Swahili and Sheng greetings likewise |
+| A2 | Ignores the options and types a transaction | pass |  |
+| A3 | Types the mode in their own words | pass |  |
+| A3b | Says the mode as a relationship | pass |  |
+| A3c | Says it is their own | pass |  |
+| A4 | Asks what the options mean | pass |  |
+| A5 | Pastes M-Pesa messages at the mode question | pass |  |
+| A6 | Greets | pass |  |
+| A6b | Greets in Swahili or Sheng | pass |  |
 | A7 | Off-topic at the opening | fail | off-topic at the opening gets the same fallback, with no honest limit named |
 | **B. Capture** | | | |
 | B1 | Everything in one message | pass |  |
 | B2 | Amount only | pass |  |
-| B3 | Item only | fail | the answer to the next question does not reflect back what was already said |
+| B3 | Item only | pass |  |
 | B4 | Date only | pass |  |
 | B5 | Several purchases in one message | pass |  |
-| B6 | Self-correction within one message | fail | "500, no 600" in one message leaves the amount empty |
+| B6 | Self-correction within one message | pass |  |
 | B7 | Approximate amount | pass |  |
-| B7b | A range asks which figure to use | fail | a range is not recognised; no choice is offered |
+| B7b | A range asks which figure to use | pass |  |
 | B8 | Non-KES currency locks and is named | pass |  |
-| B9 | Arithmetic, with the working echoed | fail | "three sodas at 150 each" reads 150, not 450, and shows no working |
-| B9b | Addition in one message | fail | "500 plus 300" is not summed |
-| B10 | Split bill | fail | a split bill is not recognised |
-| B11 | Tip or extra | fail | a tip is not added to the total |
+| B9 | Arithmetic, with the working echoed | pass |  |
+| B9b | Addition in one message | pass |  |
+| B10 | Split bill | pass |  |
+| B11 | Tip or extra | pass |  |
 | B12 | Money coming back | pass |  |
-| B13 | Nothing paid | fail | "it was free" still produces a zero-amount confirmation rather than saying there is nothing to record |
-| B14 | Sheng money words | fail | "soo moja" does not resolve to 100 |
-| B14b | Sheng: mbao, thao, ngiri, 2k, bob | fail | "mbao" and "thao tano" do not resolve |
-| B15 | Formatting variants | fail | "1,200/-", "Kes1200" and "KSh 1 200" do not all resolve |
+| B13 | Nothing paid | pass |  |
+| B14 | Sheng money words | pass |  |
+| B14b | Sheng: mbao, thao, ngiri, 2k, bob | pass |  |
+| B15 | Formatting variants | pass |  |
+| B17 | Relative dates people actually use | pass |  |
+| B18 | A relative phrase never leaks into the description | pass |  |
+| B19 | A person is a payee, goods are not | pass |  |
 | B16 | All caps and no punctuation | pass |  |
 | **C. Clarifying questions** | | | |
-| C1 | Answers the question asked | fail | accepting an answer says nothing back about it |
-| C2 | Answers a different question | fail | an amount given in reply to the date question is discarded |
+| C1 | Answers the question asked | pass |  |
+| C2 | Answers a different question | pass |  |
 | C3 | Answers two at once | pass |  |
 | C4 | Not sure, on an optional field | pass |  |
-| C4b | Not sure, on the required amount | fail | "I don't know" on the amount is not handled; no reason is given and no rough figure offered |
+| C4b | Not sure, on the required amount | pass |  |
 | C5 | Asks why | pass |  |
-| C6 | Asks for an example | fail | there is no answer to "like what?" |
-| C7 | Fails to answer twice, then the strategy changes | fail | the date question repeats in the same shape rather than changing strategy |
+| C6 | Asks for an example | pass |  |
+| C7 | Fails to answer twice, then the strategy changes | pass |  |
 | **D. Enrichment** | | | |
 | D1 | Generic description earns at most two questions | fail | enrichment questions do not exist |
 | D1b | Enrichment is skippable, and stops after two skips | fail | enrichment questions do not exist |
-| D2 | Specific description earns no enrichment question | fail | enrichment questions do not exist (this one asserts they stay silent, and fails on the missing confirm) |
+| D2 | Specific description earns no enrichment question | pass |  |
 | D3 | Volunteers detail later, unprompted | fail | a detail volunteered later is not attached |
 | D4 | Asks to be asked more | fail | "ask me more" is not handled |
 | D5 | point_of_sale generic item earns exactly one question | fail | the point-of-sale order question does not exist |
 | D6 | on_behalf_of does not double-ask against the purpose walk | fail | no enrichment exists to check against the purpose walk |
 | **E. Confirmation** | | | |
-| E1 | Yes variants save | fail | "sawa" is not read as yes |
+| E1 | Yes variants save | pass |  |
 | E1b | "yesterday" is never a yes | pass |  |
-| E1c | Swahili and emoji yes | fail | "ndio" and a thumbs-up are not read as yes |
-| E2 | Bare no asks what is off | fail | a bare "no" wipes the draft and restarts from the date instead of asking what is off |
-| E2b | Swahili no | fail | "hapana" likewise |
-| E3 | One-step correction | fail | "no, 600" is read as a rejection, not a one-step correction |
-| E4 | Names the field | fail | "change the date to Monday" is not applied |
-| E5 | Adds an item at confirmation | fail | "also add airtime 50" is read as a rejection |
-| E6 | Removes an item | fail | there is no way to remove an item |
-| E7 | Ambiguous hold | fail | "hold on" wipes the draft |
+| E1c | Swahili and emoji yes | pass |  |
+| E2 | Bare no asks what is off | pass |  |
+| E2b | Swahili no | pass |  |
+| E3 | One-step correction | pass |  |
+| E4 | Names the field | pass |  |
+| E5 | Adds an item at confirmation | pass |  |
+| E6 | Removes an item | pass |  |
+| E7 | Ambiguous hold | pass |  |
 | **F. After saving** | | | |
 | F1 | The save message ends with clear next steps | pass |  |
-| F2 | Undo points at where documents are removed | fail | "undo" is not answered |
-| F3 | Send it to my boss | fail | "send it to my boss" is not answered |
-| F4 | Make it a PDF | fail | "make it a pdf" is not answered |
+| F2 | Undo points at where documents are removed | pass |  |
+| F3 | Send it to my boss | pass |  |
+| F4 | Make it a PDF | pass |  |
 | F5 | Another one | pass |  |
 | **G. Corrections mid-flow** | | | |
-| G1 | Corrects an earlier item by name | fail | a named item correction does not reach the right item from this phrasing |
+| G1 | Corrects an earlier item by name | pass |  |
 | G2 | Corrects the date | pass |  |
-| G3 | Ambiguous target offers the candidates | fail | an ambiguous correction target is applied rather than asked about |
+| G3 | Ambiguous target offers the candidates | pass |  |
 | **H. Cancel and restart** | | | |
 | H1 | Cancels with nothing captured | pass |  |
 | H2 | Cancels with progress | pass |  |
@@ -139,7 +142,7 @@ bottom of this file.
 | L2 | A long chat with M-Pesa messages inside | pass |  |
 | L3 | Double-sends the same message | pass |  |
 | L4 | Only emoji or punctuation | fail | "???" is classified as a question about the app and answered as one |
-| L5 | Bare numbers at every stage | fail | a bare number in reply to the date question is discarded |
+| L5 | Bare numbers at every stage | pass |  |
 | L6 | An SMS pasted mid-capture | fail | an SMS pasted mid-capture is not narrated |
 | **M. Session and return** | | | |
 | M3 | Several documents in one session, no state bleeding | pass |  |

@@ -98,7 +98,7 @@ await page.getByRole('button', { name: 'My own spending' }).click();
 await page.waitForTimeout(800);
 // Something with no date in it, so the date question is the one left open.
 await say('Sold a laptop for Ksh 45,000');
-check('a described sale with no date asks for one', /When was that\?/.test(await transcript()));
+check('a described sale with no date asks for one', /When was (?:that|the [a-z ]+)\?/.test(await transcript()));
 
 await say('4/5/2025');
 const afterOld = await lastBotLine();
@@ -324,7 +324,7 @@ await page.getByRole('button', { name: 'My own spending' }).click();
 await page.waitForTimeout(800);
 await say('bought bacon');
 const parked = await lastBotLine();
-check('a question is on the table', /When was that\?/.test(parked), parked.slice(0, 100));
+check('a question is on the table', /When was (?:that|the [a-z ]+)\?/.test(parked), parked.slice(0, 100));
 
 await say('wait, what currencies do you support?');
 const answered = await lastBotLine();
@@ -333,15 +333,15 @@ check('the question is answered', /Shillings/.test(answered), answered.slice(0, 
 // but the two facts: the answer and the parked question arrive together, and
 // the question comes back with its own capital rather than lowercased mid-line.
 check('and the parked question comes straight back',
-    /Shillings/.test(answered) && /When was that\?/.test(answered));
+    /Shillings/.test(answered) && /When was (?:that|the [a-z ]+)\?/.test(answered));
 check('it is not treated as gibberish', !/couldn.t pick anything out/i.test(await transcript()));
 
 await say('yesterday');
 const resumed = await transcript();
 check('the interruption did not consume the date question',
-    !/When was that\?[^]*When was that\?[^]*When was that\?/.test(resumed));
+    (resumed.match(/When was (?:that|the [a-z ]+)\?/g) ?? []).length < 3);
 check('the flow resumed exactly where it was',
-    /How much was it\?/.test(resumed), resumed.slice(-160));
+    /How much was (?:it|the [a-z ]+)\?/.test(resumed), resumed.slice(-160));
 
 // ── 12. Two missing fields asked in one turn ──
 await startChat();
@@ -350,7 +350,7 @@ await page.waitForTimeout(800);
 await say('bought bacon');
 const batched = await lastBotLine();
 check('both open questions come in one turn, not two round trips',
-    /When was that\?/.test(batched) && /And how much\?/.test(batched), batched.slice(0, 160));
+    /When was (?:that|the [a-z ]+)\?/.test(batched) && /And how much\?/.test(batched), batched.slice(0, 160));
 
 await say('yesterday, 3100');
 const afterBoth = await transcript();

@@ -104,17 +104,16 @@ const PRODUCTION = SOURCES
 
 describe('the registry and the code agree', () => {
     it('has no entry nothing ever says', () => {
-        // An id counts as used if production code names it. Partial ids built
-        // from a document type (ask.party.*, follow.party.*, placeholder.party.*)
-        // are matched by their prefix.
-        const templated = /^(?:ask\.party|follow\.party|placeholder\.party)\./;
-        const unused = ALL_COPY_IDS.filter(id => {
-            if (templated.test(id)) {
-                const prefix = id.slice(0, id.lastIndexOf('.'));
-                return !PRODUCTION.includes(`${prefix}.`) && !PRODUCTION.includes(`\`${prefix}.`);
-            }
-            return !PRODUCTION.includes(`'${id}'`) && !PRODUCTION.includes(`"${id}"`);
-        });
+        // An id counts as used if production code names it outright, or builds
+        // it from a template whose fixed part is the id's prefix
+        // (`ask.party.${documentType}`, `confirm.fieldAsk.${slot}`).
+        const builtPrefixes = new Set<string>();
+        for (const m of PRODUCTION.matchAll(/`([a-z][a-zA-Z.]*)\.\$\{/g)) builtPrefixes.add(m[1]);
+
+        const unused = ALL_COPY_IDS.filter(id =>
+            !PRODUCTION.includes(`'${id}'`)
+            && !PRODUCTION.includes(`"${id}"`)
+            && !builtPrefixes.has(id.slice(0, id.lastIndexOf('.'))));
         expect(unused).toEqual([]);
     });
 

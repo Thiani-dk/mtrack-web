@@ -71,6 +71,25 @@ export const COPY = {
             'Picking up where we left off. Edit anything on the document, or tap Approve when it looks right.',
         ],
     },
+    'open.greetBack': {
+        kind: 'acknowledgement',
+        variants: ['Hello.', 'Hi there.', 'Hello, good to see you.'],
+    },
+    'open.modeExplained': {
+        kind: 'help',
+        variants: [
+            'My own spending is a record of what you paid out. A receipt for a customer is proof '
+            + 'of purchase you hand over. Money I spent for someone else is a claim, so they can '
+            + 'pay you back.',
+        ],
+    },
+    'open.assumeOwn': {
+        kind: 'acknowledgement',
+        variants: [
+            "I'll put that down as your own spending. Say if it was for a customer instead.",
+            "Taking that as your own spending. Tell me if it was for a customer.",
+        ],
+    },
     'open.tapOne': {
         kind: 'statement',
         variants: ["Tap one of the options above so I know what we're making."],
@@ -108,6 +127,10 @@ export const COPY = {
         variants: ["A rough date is fine, and I'd rather leave it blank than guess. When was that?"],
     },
     'ask.amount': { kind: 'question', variants: ['How much was it?'] },
+    // The same question, naming the thing it is about. Principle 4: referencing
+    // what was already said is how a conversation shows it kept the thread.
+    'ask.amountFor': { kind: 'question', variants: ['How much was the {what}?'] },
+    'ask.dateFor': { kind: 'question', variants: ['When was the {what}?'] },
     'ask.amountRetry': { kind: 'question', variants: ['A figure on its own is enough. How much was it?'] },
     'ask.party.expense_summary': {
         kind: 'question',
@@ -151,6 +174,35 @@ export const COPY = {
     'date.retry': { kind: 'question', variants: ['{reason}'] },
     'date.invalid': { kind: 'question', variants: ['{reason} When was it?'] },
 
+    // Figures that need settling before they can be recorded
+    'amount.whichOfRange': {
+        kind: 'question',
+        variants: ['Two figures there and no way for me to pick. Which one should I put down?'],
+    },
+    'amount.splitBill': {
+        kind: 'question',
+        variants: ['Should I record your share or the whole bill?'],
+    },
+    'amount.optionFigure': { kind: 'option', variants: ['{label}'] },
+    'amount.optionShare': { kind: 'option', variants: ['My share, {label}'] },
+    'amount.optionFull': { kind: 'option', variants: ['The whole {label}'] },
+    // Answering with the content, not with "OK". An acknowledgement that could
+    // follow any answer is an acknowledgement that proves nothing was heard.
+    'ack.answer': {
+        kind: 'acknowledgement',
+        variants: ['{answer}, got it.', 'Got it, {answer}.', '{answer}. Noted.'],
+    },
+    'ack.arithmetic': {
+        kind: 'acknowledgement',
+        variants: ['{working}.', 'That comes to it: {working}.'],
+    },
+    'commit.nothingToRecord': {
+        kind: 'question',
+        variants: [
+            "Nothing changed hands, so there's nothing for me to record there. Anything else to add?",
+        ],
+    },
+
     // Nudges and confirmation
     'nudge.efficiency': {
         kind: 'statement',
@@ -160,12 +212,48 @@ export const COPY = {
         ],
     },
     'confirm.summary': { kind: 'confirmation', variants: ['{sentence}'] },
+    // The pieces the confirmation sentence is built from. Here rather than
+    // inline in conversationalCapture so the voice lint can see them: both
+    // carried an em dash, in the single most-read sentence in the app.
+    'confirm.itemsTotal': { kind: 'confirmation', variants: ['{items}, total {total}'] },
+    'confirm.assumedCurrency': {
+        kind: 'confirmation',
+        variants: [', taking that as Kenyan Shillings since none was named'],
+    },
+    'confirm.tail': { kind: 'confirmation', variants: ['{body}. Right?'] },
     'confirm.added': { kind: 'confirmation', variants: ['Added. {sentence}'] },
     'confirm.reject': {
         kind: 'question',
         variants: ["No problem, let's go through it. {question}"],
     },
     'confirm.mixedCurrency': { kind: 'question', variants: ['{question}'] },
+
+    'confirm.whatIsOff': {
+        kind: 'question',
+        variants: [
+            "No problem. Which part is wrong?",
+            "Let's fix it. Which part is wrong?",
+        ],
+    },
+    'confirm.field.amount': { kind: 'option', variants: ['The amount'] },
+    'confirm.field.date': { kind: 'option', variants: ['The date'] },
+    'confirm.field.description': { kind: 'option', variants: ['What it was for'] },
+    'confirm.field.start': { kind: 'option', variants: ['Start this one again'] },
+    'confirm.fieldAsk.amount': { kind: 'question', variants: ['What should the amount be?'] },
+    'confirm.fieldAsk.date': { kind: 'question', variants: ['What should the date be?'] },
+    'confirm.fieldAsk.description': { kind: 'question', variants: ['What should it say instead?'] },
+    'confirm.holding': {
+        kind: 'question',
+        variants: ['Take your time. What would you like to change?'],
+    },
+    'confirm.removed': {
+        kind: 'acknowledgement',
+        variants: ['Dropped {item}. {sentence}'],
+    },
+    'confirm.removeNotFound': {
+        kind: 'question',
+        variants: ['I could not see that one on the list. Which should come off?'],
+    },
 
     // Cancel
     'cancel.immediate': {
@@ -367,6 +455,51 @@ export const COPY = {
     'placeholder.party.on_behalf_of': { kind: 'option', variants: ['Where it was spent...'] },
     'placeholder.confirm': { kind: 'option', variants: ["'yes' to confirm, or say what's off..."] },
     'placeholder.open': { kind: 'option', variants: ['Paste your messages, or say what you spent...'] },
+
+    // After a line is on the document
+    'after.undo': {
+        kind: 'help',
+        variants: [
+            'I cannot take a saved document back off here. Open it from your history and remove '
+            + 'it there. If a line is wrong, tell me which and I will change it.',
+        ],
+    },
+    'after.share': {
+        kind: 'help',
+        variants: [
+            'I cannot send anything myself. Tap Share on the document to pass it to WhatsApp or '
+            + 'email, or Save it as a PDF first and attach that.',
+        ],
+    },
+    'after.another': {
+        kind: 'statement',
+        variants: ['Ready for the next one. Tell me what you spent, or paste the message.'],
+    },
+
+    // Asking for help with the question in hand
+    'help.example.date': {
+        kind: 'question',
+        variants: ['Something like "yesterday", "last Friday" or "4 May". When was it?'],
+    },
+    'help.example.amount': {
+        kind: 'question',
+        variants: ['Something like "850" or "2,400". How much was it?'],
+    },
+    'help.example.description': {
+        kind: 'question',
+        variants: ['Something like "Naivas" or "Java House". What should I put?'],
+    },
+    'ask.amountWhyNeeded': {
+        kind: 'question',
+        variants: [
+            'I need a figure or there is nothing to record. A rough one is fine and you can '
+            + 'change it later. Roughly how much?',
+        ],
+    },
+    'ask.stuck': {
+        kind: 'statement',
+        variants: ["That one isn't landing. Let's try another way."],
+    },
 
     // Saving
     'approve.saved': { kind: 'terminal', variants: ['Approved and saved. It is in your history now.'] },

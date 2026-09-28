@@ -2,7 +2,9 @@ import type { DocumentType, LineItem, ParsedTransaction } from '../types';
 import { extractRawBlock, finalizeTransaction, deriveSubType } from './parsers';
 import { extractAmount, type AmountScanOptions } from './parsers/extractors/amount';
 import { DEFAULT_CURRENCY, detectCurrency, normalizeCurrency } from './parsers/extractors/currency';
-import { parseAmountAnswer } from './parsers/extractors/numeric';
+import { normalizeSpacedThousands, parseAmountAnswer } from './parsers/extractors/numeric';
+import { normalizePricedText } from './conversation/amountPhrases';
+import { copyEntry, render } from './conversation/copy';
 import { extractLineItems, extractSoleItem, type ItemisationResult } from './parsers/extractors/lineItems';
 import { extractParties } from './parsers/extractors/parties';
 import { extractCode } from './parsers/extractors/code';
@@ -12,7 +14,9 @@ import {
 } from './parsers/conversationalDate';
 import { normalizeForKeywords } from './parsers/fuzzy';
 import { isPartySpan, PARTY_NAME_SOURCE, trimToName } from './parsers/names';
-import { normalizeSwahiliNumerals, SWAHILI_FROM_RE, swahiliVerbDirection } from './parsers/swahili';
+import {
+    normalizeShengDenominations, normalizeSwahiliNumerals, SWAHILI_FROM_RE, swahiliVerbDirection,
+} from './parsers/swahili';
 import { hasTransactionVerb } from './parsers/classify';
 import { partyFollowOn } from './partyQuestion';
 import { fmtAmountProse, hasUsableDate } from './transactionDisplay';
@@ -34,7 +38,8 @@ const TYPED: AmountScanOptions = { allowBare: true };
 // character offsets and the line-item extractor reads amounts by offset. Every
 // stage below must see the SAME string.
 function readable(text: string): string {
-    return normalizeForKeywords(normalizeSwahiliNumerals(text));
+    return normalizePricedText(normalizeForKeywords(
+        normalizeSpacedThousands(normalizeShengDenominations(normalizeSwahiliNumerals(text)))));
 }
 export { parseConversationalDate };
 
@@ -126,6 +131,13 @@ export interface DescriptionResult {
     // it is not an amount ("3100" on its own), but it is plainly an attempt at
     // one, and answering it with "I didn't follow" would be wrong.
     hasNumber: boolean;
+    // The thing the message named, when it named one and gave no price for it.
+    // "Bought lunch" says what was bought and nothing else; before this the
+    // words were simply dropped, so the very next question was "How much was
+    // it?" about a message that had just said what "it" was. Not a field on
+    // the record — the draft has one description slot and it is filled by
+    // priced goods — but enough to put the subject back into the question.
+    namedGoods: string | null;
     missing: Array<'amount' | 'recipient' | 'date'>;
 }
 
@@ -352,6 +364,7 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
         direction,
         confidence: missing.length === 0 ? 'high' : missing.length >= 3 ? 'none' : 'partial',
         hasTransactionShape: hasTransactionVerb(text),
+        namedGoods: extractNamedGoods(text),
         hasNumber: /\d/.test(text),
         missing,
     };
@@ -363,6 +376,26 @@ export function extractDescription(typed: string, now: Date = new Date()): Descr
 // first run of them, which turned "100k USD" into 100 and threw the currency
 // away. It now goes through the same shorthand parser and the same currency
 // recognition as every other path.
+// What a message says was bought, when it says nothing about the price.
+//
+// Deliberately narrow: a transaction verb, then the goods, stopping at the
+// first thing that is plainly not part of the name. Anything with a figure in
+// it goes through the ordinary item extractors instead and never reaches here.
+const NAMED_GOODS_RE =
+    /\b(?:bought|buy|paid\s+for|got|purchased|spent\s+on|had|took|ordered)\s+(?:some\s+|a\s+|an\s+|the\s+|my\s+)?([a-z][a-z\s'-]{1,30}?)(?=$|[,.!?]|\s+(?:for|at|on|from|to|with|yesterday|today|last|this)\b)/i;
+
+// Words that name no thing, so a "description" made only of them is none.
+const EMPTY_GOODS = /^(?:it|that|this|them|one|some|thing|things|stuff|something|money|cash)$/i;
+
+export function extractNamedGoods(text: string): string | null {
+    if (/\d/.test(text)) return null;
+    const m = NAMED_GOODS_RE.exec(readable(text));
+    if (!m) return null;
+    const named = m[1].trim().replace(/\s+/g, ' ');
+    if (!named || EMPTY_GOODS.test(named)) return null;
+    return named;
+}
+
 export interface AmountAnswer {
     amount: number | null;
     // Stated in this answer, if it was. null means "say nothing about it" —
@@ -579,7 +612,11 @@ export function buildConfirmSentence(f: ConfirmFields): string {
         return `${i.description}${qty} ${money(i.amount)}`;
     };
     const lead = items && items.length > 0
-        ? items.map(itemText).join(', ') + (items.length > 1 ? ` — total ${money(f.amount ?? 0)}` : '')
+        ? (items.length > 1
+            ? render(copyEntry('confirm.itemsTotal').variants[0], {
+                items: items.map(itemText).join(', '), total: money(f.amount ?? 0),
+            })
+            : items.map(itemText).join(', '))
         // A draft can reach this sentence without a recipient — the cancel
         // flow's "keep what I have" ends the questions wherever they stood. An
         // absent one is simply left out; interpolating it produced the literal
@@ -600,7 +637,9 @@ export function buildConfirmSentence(f: ConfirmFields): string {
     if (f.dateLabel) parts.push(`on ${f.dateLabel}`);
     else if (f.dateSkipped) parts.push('with no date');
 
-    return `${parts.join(', ')}${assumedCurrencyNote(f.currency)}. Right?`;
+    return render(copyEntry('confirm.tail').variants[0], {
+        body: `${parts.join(', ')}${assumedCurrencyNote(f.currency)}`,
+    });
 }
 
 // The question to put when a message priced things in two currencies.
@@ -621,7 +660,7 @@ export function mixedCurrencyQuestion(currencies: string[]): string {
 // came to be filed as Shillings. Stated inside the confirmation rather than as
 // an extra question, so the common case costs no additional turn.
 export function assumedCurrencyNote(currency: CurrencyLock): string {
-    return currency.explicit ? '' : " — I've assumed Kenyan Shillings, since none was mentioned";
+    return currency.explicit ? '' : copyEntry('confirm.assumedCurrency').variants[0];
 }
 
 // Builds a self-reported ParsedTransaction from captured conversational

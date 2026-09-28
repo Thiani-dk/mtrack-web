@@ -22,103 +22,94 @@ M-Track  Paste your M-Pesa, Airtel Money or bank messages. If you do not have th
 
 ### A2 · Ignores the options and types a transaction · expense_summary
 
-_fail: a typed transaction at the mode question is answered with "tap one of the options"; nothing is extracted_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 850 yesterday
-M-Track  Tap one of the options above so I know what we're making.   [open.tapOne]
-   ^ MISSES: expected open.assumeOwn, said open.tapOne
-   ^ MISSES: amount: got null, wanted 850; date: got null, wanted "2026-09-27"
+M-Track  I'll put that down as your own spending. Say if it was for a customer instead.   [open.assumeOwn]
+M-Track  Ksh 850, Lunch, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### A3 · Types the mode in their own words · expense_summary
 
-_fail: "it's for a customer" is not mapped to a mode_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  it's for a customer
-M-Track  Tap one of the options above so I know what we're making.   [open.tapOne]
-   ^ MISSES: documentType: got "expense_summary", wanted "point_of_sale"
+M-Track  What's the business name?   [mode.posName]
 ```
 
 ### A3b · Says the mode as a relationship · expense_summary
 
-_fail: "for my boss" is not mapped to a mode_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  for my boss
-M-Track  Tap one of the options above so I know what we're making.   [open.tapOne]
-   ^ MISSES: documentType: got "expense_summary", wanted "on_behalf_of"
+M-Track  Who was this for?   [mode.oboParty]
 ```
 
 ### A3c · Says it is their own · expense_summary
 
-_fail: "my own" is not mapped to a mode_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  my own
-M-Track  Tap one of the options above so I know what we're making.   [open.tapOne]
-   ^ MISSES: expected mode.ownPrompt, said open.tapOne
+M-Track  Paste your M-Pesa, Airtel Money or bank messages. If you do not have the message for something, just tell me what you spent and when.   [mode.ownPrompt]
 ```
 
 ### A4 · Asks what the options mean · expense_summary
 
-_fail: there is no answer to "what do these mean?"_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  what do these mean?
-M-Track  Tap one of the options above so I know what we're making.   [open.tapOne]
-   ^ MISSES: expected open.modeExplained, said open.tapOne
-   ^ MISSES: expected options ["own","point_of_sale","on_behalf_of"], got []
+M-Track  My own spending is a record of what you paid out. A receipt for a customer is proof of purchase you hand over. Money I spent for someone else is a claim, so they can pay you back.   [open.modeExplained]
+M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?  { My own spending | A receipt for a customer | Money I spent for someone else }   [open.modeQuestion]
 ```
 
 ### A5 · Pastes M-Pesa messages at the mode question · expense_summary
 
-_fail: a pasted M-Pesa message at the mode question is not parsed_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  TFG4H5J6K7 Confirmed. Ksh500.00 paid to NAIVAS LIMITED on 27/9/26 at 1:15 PM. New M-PESA balance is Ksh1,200.00. Transaction cost, Ksh0.00.
-M-Track  Tap one of the options above so I know what we're making.   [open.tapOne]
-   ^ MISSES: expected open.assumeOwn, said open.tapOne
-   ^ MISSES: expected 1 recorded line(s), got 0
+M-Track  I'll put that down as your own spending. Say if it was for a customer instead.   [open.assumeOwn]
 ```
 
 ### A6 · Greets · expense_summary
 
-_fail: a greeting gets the "tap one of the options" fallback_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  hi
-M-Track  Tap one of the options above so I know what we're making.   [open.tapOne]
-   ^ MISSES: expected open.greetBack, said open.tapOne
-   ^ MISSES: expected options ["own","point_of_sale","on_behalf_of"], got []
+M-Track  Hello.   [open.greetBack]
+M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?  { My own spending | A receipt for a customer | Money I spent for someone else }   [open.modeQuestion]
 ```
 
 ### A6b · Greets in Swahili or Sheng · expense_summary
 
-_fail: Swahili and Sheng greetings likewise_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  niaje
-M-Track  Tap one of the options above so I know what we're making.   [open.tapOne]
-   ^ MISSES: expected open.greetBack, said open.tapOne
-   ^ MISSES: said open.tapOne, which it should not have
+M-Track  Hello.   [open.greetBack]
+M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?  { My own spending | A receipt for a customer | Money I spent for someone else }   [open.modeQuestion]
 ```
 
 ### A7 · Off-topic at the opening · expense_summary
@@ -144,7 +135,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 ```
@@ -157,7 +148,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 ```
@@ -170,7 +161,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Say skip to leave it out. What was the Ksh 3,100 to Bacon for?   [purpose.ask]
 ```
@@ -210,44 +201,44 @@ M-Track  A rough date is fine, and I'd rather leave it blank than guess. When wa
 
 ### B3 · Item only · expense_summary
 
-_fail: the answer to the next question does not reflect back what was already said_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought lunch
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the lunch? And how much?   [ask.dateFor]
 You says  yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: reply did not echo lunch: "How much was it? And who was that to?"
+M-Track  27 September 2026, got it.   [ack.answer]
+M-Track  How much was the lunch? And who was that to?   [ask.amountFor]
 ```
 
 ### B3 · Item only · point_of_sale
 
-_fail: the answer to the next question does not reflect back what was already said_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought lunch
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the lunch? And how much?   [ask.dateFor]
 You says  yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: reply did not echo lunch: "How much was it? And what did they buy?"
+M-Track  27 September 2026, got it.   [ack.answer]
+M-Track  How much was the lunch? And what did they buy?   [ask.amountFor]
 ```
 
 ### B3 · Item only · on_behalf_of
 
-_fail: the answer to the next question does not reflect back what was already said_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought lunch
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the lunch? And how much?   [ask.dateFor]
 You says  yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: reply did not echo lunch: "How much was it? And where was it spent?"
+M-Track  27 September 2026, got it.   [ack.answer]
+M-Track  How much was the lunch? And where was it spent?   [ask.amountFor]
 ```
 
 ### B4 · Date only · expense_summary
@@ -291,7 +282,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100, tomatoes for 400 and airtime for 30 yesterday
-M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30 — total Ksh 3,530, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B5 · Several purchases in one message · point_of_sale
@@ -302,7 +293,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100, tomatoes for 400 and airtime for 30 yesterday
-M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30 — total Ksh 3,530, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B5 · Several purchases in one message · on_behalf_of
@@ -313,46 +304,40 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100, tomatoes for 400 and airtime for 30 yesterday
-M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30 — total Ksh 3,530, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B6 · Self-correction within one message · expense_summary
 
-_fail: "500, no 600" in one message leaves the amount empty_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 500, no 600, yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 600
-   ^ MISSES: reply did not echo 600: "How much was it? And who was that to?"
+M-Track  Ksh 600, Lunch, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B6 · Self-correction within one message · point_of_sale
 
-_fail: "500, no 600" in one message leaves the amount empty_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 500, no 600, yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 600
-   ^ MISSES: reply did not echo 600: "How much was it? And what did they buy?"
+M-Track  Ksh 600, Lunch, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B6 · Self-correction within one message · on_behalf_of
 
-_fail: "500, no 600" in one message leaves the amount empty_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 500, no 600, yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 600
-   ^ MISSES: reply did not echo 600: "How much was it? And where was it spent?"
+M-Track  Ksh 600, Lunch, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B7 · Approximate amount · expense_summary
@@ -363,7 +348,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch about 500 yesterday
-M-Track  Ksh 500, Lunch about, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 500, Lunch about, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B7 · Approximate amount · point_of_sale
@@ -374,7 +359,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch about 500 yesterday
-M-Track  Ksh 500, Lunch about, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 500, Lunch about, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B7 · Approximate amount · on_behalf_of
@@ -385,46 +370,40 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch about 500 yesterday
-M-Track  Ksh 500, Lunch about, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 500, Lunch about, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B7b · A range asks which figure to use · expense_summary
 
-_fail: a range is not recognised; no choice is offered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch was 400 or 500 yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: expected amount.whichOfRange, said ask.amount, follow.party.expense_summary
-   ^ MISSES: expected options ["400","500"], got []
+M-Track  Two figures there and no way for me to pick. Which one should I put down?  { Ksh 400 | Ksh 500 }   [amount.whichOfRange]
 ```
 
 ### B7b · A range asks which figure to use · point_of_sale
 
-_fail: a range is not recognised; no choice is offered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch was 400 or 500 yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: expected amount.whichOfRange, said ask.amount, follow.party.point_of_sale
-   ^ MISSES: expected options ["400","500"], got []
+M-Track  Two figures there and no way for me to pick. Which one should I put down?  { Ksh 400 | Ksh 500 }   [amount.whichOfRange]
 ```
 
 ### B7b · A range asks which figure to use · on_behalf_of
 
-_fail: a range is not recognised; no choice is offered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch was 400 or 500 yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: expected amount.whichOfRange, said ask.amount, follow.party.on_behalf_of
-   ^ MISSES: expected options ["400","500"], got []
+M-Track  Two figures there and no way for me to pick. Which one should I put down?  { Ksh 400 | Ksh 500 }   [amount.whichOfRange]
 ```
 
 ### B8 · Non-KES currency locks and is named · expense_summary
@@ -462,155 +441,143 @@ M-Track  $200, Chip, on 27 September 2026. Right?   [confirm.summary]
 
 ### B9 · Arithmetic, with the working echoed · expense_summary
 
-_fail: "three sodas at 150 each" reads 150, not 450, and shows no working_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  three sodas at 150 each yesterday
-M-Track  Ksh 150, Three sodas, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
-   ^ MISSES: amount: got 150, wanted 450
-   ^ MISSES: reply did not echo 3 x Ksh 150: "Ksh 150, Three sodas, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?"
+M-Track  3 x Ksh 150 is Ksh 450.   [ack.arithmetic]
+M-Track  Sodas (3 x Ksh 150) Ksh 450, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B9 · Arithmetic, with the working echoed · point_of_sale
 
-_fail: "three sodas at 150 each" reads 150, not 450, and shows no working_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  three sodas at 150 each yesterday
-M-Track  Ksh 150, Three sodas, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
-   ^ MISSES: amount: got 150, wanted 450
-   ^ MISSES: reply did not echo 3 x Ksh 150: "Ksh 150, Three sodas, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?"
+M-Track  3 x Ksh 150 is Ksh 450.   [ack.arithmetic]
+M-Track  Sodas (3 x Ksh 150) Ksh 450, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B9 · Arithmetic, with the working echoed · on_behalf_of
 
-_fail: "three sodas at 150 each" reads 150, not 450, and shows no working_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  three sodas at 150 each yesterday
-M-Track  Ksh 150, Three sodas, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
-   ^ MISSES: amount: got 150, wanted 450
-   ^ MISSES: reply did not echo 3 x Ksh 150: "Ksh 150, Three sodas, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?"
+M-Track  3 x Ksh 150 is Ksh 450.   [ack.arithmetic]
+M-Track  Sodas (3 x Ksh 150) Ksh 450, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B9b · Addition in one message · expense_summary
 
-_fail: "500 plus 300" is not summed_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 500 plus 300 for the matatu yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 800
+M-Track  Ksh 500 plus Ksh 300 is Ksh 800.   [ack.arithmetic]
+M-Track  Ksh 800, Lunch, for matatu, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B9b · Addition in one message · point_of_sale
 
-_fail: "500 plus 300" is not summed_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 500 plus 300 for the matatu yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 800
+M-Track  Ksh 500 plus Ksh 300 is Ksh 800.   [ack.arithmetic]
+M-Track  Ksh 800, Lunch, for matatu, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B9b · Addition in one message · on_behalf_of
 
-_fail: "500 plus 300" is not summed_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 500 plus 300 for the matatu yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 800
+M-Track  Ksh 500 plus Ksh 300 is Ksh 800.   [ack.arithmetic]
+M-Track  Ksh 800, Lunch, for matatu, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B10 · Split bill · expense_summary
 
-_fail: a split bill is not recognised_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  we split 3000 between 3 of us yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: expected amount.splitBill, said ask.amount, follow.party.expense_summary
-   ^ MISSES: expected options ["1000","3000"], got []
+M-Track  Should I record your share or the whole bill?  { My share, Ksh 1,000 | The whole Ksh 3,000 }   [amount.splitBill]
 ```
 
 ### B10 · Split bill · point_of_sale
 
-_fail: a split bill is not recognised_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  we split 3000 between 3 of us yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: expected amount.splitBill, said ask.amount, follow.party.point_of_sale
-   ^ MISSES: expected options ["1000","3000"], got []
+M-Track  Should I record your share or the whole bill?  { My share, Ksh 1,000 | The whole Ksh 3,000 }   [amount.splitBill]
 ```
 
 ### B10 · Split bill · on_behalf_of
 
-_fail: a split bill is not recognised_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  we split 3000 between 3 of us yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: expected amount.splitBill, said ask.amount, follow.party.on_behalf_of
-   ^ MISSES: expected options ["1000","3000"], got []
+M-Track  Should I record your share or the whole bill?  { My share, Ksh 1,000 | The whole Ksh 3,000 }   [amount.splitBill]
 ```
 
 ### B11 · Tip or extra · expense_summary
 
-_fail: a tip is not added to the total_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 850 plus 50 tip yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 900
-   ^ MISSES: reply did not echo 850, 50: "How much was it? And who was that to?"
+M-Track  Ksh 850 plus Ksh 50 tip is Ksh 900.   [ack.arithmetic]
+M-Track  Ksh 900, Lunch, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B11 · Tip or extra · point_of_sale
 
-_fail: a tip is not added to the total_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 850 plus 50 tip yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 900
-   ^ MISSES: reply did not echo 850, 50: "How much was it? And what did they buy?"
+M-Track  Ksh 850 plus Ksh 50 tip is Ksh 900.   [ack.arithmetic]
+M-Track  Ksh 900, Lunch, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B11 · Tip or extra · on_behalf_of
 
-_fail: a tip is not added to the total_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 850 plus 50 tip yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 900
-   ^ MISSES: reply did not echo 850, 50: "How much was it? And where was it spent?"
+M-Track  Ksh 850 plus Ksh 50 tip is Ksh 900.   [ack.arithmetic]
+M-Track  Ksh 900, Lunch, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B12 · Money coming back · expense_summary
@@ -621,83 +588,78 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  got 500 back from Naivas yesterday
-M-Track  Ksh 500 from Naivas, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 500 from Naivas, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B13 · Nothing paid · expense_summary
 
-_fail: "it was free" still produces a zero-amount confirmation rather than saying there is nothing to record_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch yesterday, it was free
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: expected commit.nothingToRecord, said ask.amount, follow.party.expense_summary
+M-Track  Nothing changed hands, so there's nothing for me to record there. Anything else to add?   [commit.nothingToRecord]
 ```
 
 ### B13 · Nothing paid · point_of_sale
 
-_fail: "it was free" still produces a zero-amount confirmation rather than saying there is nothing to record_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch yesterday, it was free
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: expected commit.nothingToRecord, said ask.amount, follow.party.point_of_sale
+M-Track  Nothing changed hands, so there's nothing for me to record there. Anything else to add?   [commit.nothingToRecord]
 ```
 
 ### B13 · Nothing paid · on_behalf_of
 
-_fail: "it was free" still produces a zero-amount confirmation rather than saying there is nothing to record_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch yesterday, it was free
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: expected commit.nothingToRecord, said ask.amount, follow.party.on_behalf_of
+M-Track  Nothing changed hands, so there's nothing for me to record there. Anything else to add?   [commit.nothingToRecord]
 ```
 
 ### B14 · Sheng money words · expense_summary
 
-_fail: "soo moja" does not resolve to 100_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch soo moja yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 100
+M-Track  Ksh 100, Lunch, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B14b · Sheng: mbao, thao, ngiri, 2k, bob · expense_summary
 
-_fail: "mbao" and "thao tano" do not resolve_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  matatu mbao yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: amount: got null, wanted 20
+M-Track  Ksh 20, Matatu, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
+M-Track  Added. Set which way that one went above, then tell me the next.   [commit.addedDirection]
 You says  rent thao tano yesterday
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: amount: got null, wanted 5000
+M-Track  Ksh 5,000, Rent, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+M-Track  If you've got the M-Pesa messages for these, copy them in. They carry the exact date and reference number, which makes this much harder to argue with.   [nudge.efficiency]
 ```
 
 ### B15 · Formatting variants · expense_summary
 
-_fail: "1,200/-", "Kes1200" and "KSh 1 200" do not all resolve_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  lunch 1,200/- yesterday
-M-Track  Ksh 1,200, Lunch, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 1,200, Lunch, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Set which way that one went above, then tell me the next.   [commit.addedDirection]
 You says  coffee Kes1200 yesterday
@@ -706,8 +668,57 @@ M-Track  If you've got the M-Pesa messages for these, copy them in. They carry t
 You says  yes
 M-Track  Added. Set which way that one went above, then tell me the next.   [commit.addedDirection]
 You says  fuel KSh 1 200 yesterday
-M-Track  Ksh 1, Fuel, on 27 September 2026. Right?   [confirm.summary]
-   ^ MISSES: amount: got 1, wanted 1200
+M-Track  Ksh 1,200, Fuel, on 27 September 2026. Right?   [confirm.summary]
+```
+
+### B17 · Relative dates people actually use · expense_summary
+
+_pass_
+
+```
+M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
+M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
+You says  bought bacon for 3100 last night
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+You says  yes
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+You says  bought bacon for 3100 two nights ago
+M-Track  Ksh 3,100 to Bacon, on 26 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+M-Track  If you've got the M-Pesa messages for these, copy them in. They carry the exact date and reference number, which makes this much harder to argue with.   [nudge.efficiency]
+You says  yes
+M-Track  That's on the document. Add another, or tap Approve when it looks right.   [commit.added]
+You says  bought bacon for 3100 three days ago
+M-Track  Ksh 3,100 to Bacon, on 25 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+You says  yes
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
+You says  bought bacon for 3100 a couple of days ago
+M-Track  Ksh 3,100 to Bacon, on 26 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+You says  yes
+M-Track  That's on the document. Add another, or tap Approve when it looks right.   [commit.added]
+You says  bought bacon for 3100 two weeks ago
+M-Track  Ksh 3,100 to Bacon, on 14 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+```
+
+### B18 · A relative phrase never leaks into the description · expense_summary
+
+_pass_
+
+```
+M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
+M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
+You says  lunch at Java House 850 last night
+M-Track  Ksh 850, Lunch at Java House, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+```
+
+### B19 · A person is a payee, goods are not · expense_summary
+
+_pass_
+
+```
+M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
+M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
+You says  sent 500 to Kevin yesterday
+M-Track  Ksh 500 to Kevin, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### B16 · All caps and no punctuation · expense_summary
@@ -718,99 +729,99 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  BOUGHT BACON FOR 3100 YESTERDAY
-M-Track  Ksh 3,100 to BACON, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to BACON, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ## C. Clarifying questions
 
 ### C1 · Answers the question asked · expense_summary
 
-_fail: accepting an answer says nothing back about it_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
+M-Track  27 September 2026, got it.   [ack.answer]
+M-Track  How much was the bacon? And who was that to?   [ask.amountFor]
 You says  3100
+M-Track  Got it, Ksh 3,100.   [ack.answer]
 M-Track  Who was it paid to?   [ask.party.expense_summary]
-   ^ MISSES: reply did not echo 3,100: "Who was it paid to?"
 ```
 
 ### C1 · Answers the question asked · point_of_sale
 
-_fail: accepting an answer says nothing back about it_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
+M-Track  27 September 2026, got it.   [ack.answer]
+M-Track  How much was the bacon? And what did they buy?   [ask.amountFor]
 You says  3100
+M-Track  Got it, Ksh 3,100.   [ack.answer]
 M-Track  What did they buy?   [ask.party.point_of_sale]
-   ^ MISSES: reply did not echo 3,100: "What did they buy?"
 ```
 
 ### C1 · Answers the question asked · on_behalf_of
 
-_fail: accepting an answer says nothing back about it_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
+M-Track  27 September 2026, got it.   [ack.answer]
+M-Track  How much was the bacon? And where was it spent?   [ask.amountFor]
 You says  3100
+M-Track  Got it, Ksh 3,100.   [ack.answer]
 M-Track  Where was this spent?   [ask.party.on_behalf_of]
-   ^ MISSES: reply did not echo 3,100: "Where was this spent?"
 ```
 
 ### C2 · Answers a different question · expense_summary
 
-_fail: an amount given in reply to the date question is discarded_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  3100
 M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
-   ^ MISSES: amount: got null, wanted 3100
 ```
 
 ### C2 · Answers a different question · point_of_sale
 
-_fail: an amount given in reply to the date question is discarded_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  3100
 M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
-   ^ MISSES: amount: got null, wanted 3100
 ```
 
 ### C2 · Answers a different question · on_behalf_of
 
-_fail: an amount given in reply to the date question is discarded_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  3100
 M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
-   ^ MISSES: amount: got null, wanted 3100
 ```
 
 ### C3 · Answers two at once · expense_summary
@@ -821,8 +832,9 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  yesterday, 3100
+M-Track  27 September 2026, got it.   [ack.answer]
 M-Track  Who was it paid to?   [ask.party.expense_summary]
 ```
 
@@ -834,8 +846,9 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  yesterday, 3100
+M-Track  27 September 2026, got it.   [ack.answer]
 M-Track  What did they buy?   [ask.party.point_of_sale]
 ```
 
@@ -847,8 +860,9 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  yesterday, 3100
+M-Track  27 September 2026, got it.   [ack.answer]
 M-Track  Where was this spent?   [ask.party.on_behalf_of]
 ```
 
@@ -869,44 +883,41 @@ M-Track  Paste the M-Pesa messages, or tell me what you spent and when.   [mode.
 
 ### C4b · Not sure, on the required amount · expense_summary
 
-_fail: "I don't know" on the amount is not handled; no reason is given and no rough figure offered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
+M-Track  How much was the bacon? And who was that to?   [ask.amountFor]
 You says  I don't know
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: expected ask.amountWhyNeeded, said ask.amountRetry
+M-Track  I need a figure or there is nothing to record. A rough one is fine and you can change it later. Roughly how much?   [ask.amountWhyNeeded]
 ```
 
 ### C4b · Not sure, on the required amount · point_of_sale
 
-_fail: "I don't know" on the amount is not handled; no reason is given and no rough figure offered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
+M-Track  How much was the bacon?   [ask.amountFor]
 You says  I don't know
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: expected ask.amountWhyNeeded, said ask.amountRetry
+M-Track  I need a figure or there is nothing to record. A rough one is fine and you can change it later. Roughly how much?   [ask.amountWhyNeeded]
 ```
 
 ### C4b · Not sure, on the required amount · on_behalf_of
 
-_fail: "I don't know" on the amount is not handled; no reason is given and no rough figure offered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
+M-Track  How much was the bacon? And where was it spent?   [ask.amountFor]
 You says  I don't know
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: expected ask.amountWhyNeeded, said ask.amountRetry
+M-Track  I need a figure or there is nothing to record. A rough one is fine and you can change it later. Roughly how much?   [ask.amountWhyNeeded]
 ```
 
 ### C5 · Asks why · expense_summary
@@ -917,7 +928,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  why do you need the date?
 M-Track  Anything readable works: "yesterday", "last Friday", "4 May". I will say back how I read it, and I'd rather leave it blank than guess.
 
@@ -932,7 +943,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  why do you need the date?
 M-Track  Anything readable works: "yesterday", "last Friday", "4 May". I will say back how I read it, and I'd rather leave it blank than guess.
 
@@ -947,7 +958,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  why do you need the date?
 M-Track  Anything readable works: "yesterday", "last Friday", "4 May". I will say back how I read it, and I'd rather leave it blank than guess.
 
@@ -956,107 +967,104 @@ Back to it: A rough date is fine, and I'd rather leave it blank than guess. When
 
 ### C6 · Asks for an example · expense_summary
 
-_fail: there is no answer to "like what?"_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  like what?
-M-Track  I don't have a good answer for that one, sorry.
-
-Back to it: A rough date is fine, and I'd rather leave it blank than guess. When was that?   [meta.answerAndResume]
-   ^ MISSES: expected help.example, said meta.answerAndResume
+M-Track  Something like "yesterday", "last Friday" or "4 May". When was it?   [help.example.date]
 ```
 
 ### C6 · Asks for an example · point_of_sale
 
-_fail: there is no answer to "like what?"_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  like what?
-M-Track  I don't have a good answer for that one, sorry.
-
-Back to it: A rough date is fine, and I'd rather leave it blank than guess. When was that?   [meta.answerAndResume]
-   ^ MISSES: expected help.example, said meta.answerAndResume
+M-Track  Something like "yesterday", "last Friday" or "4 May". When was it?   [help.example.date]
 ```
 
 ### C6 · Asks for an example · on_behalf_of
 
-_fail: there is no answer to "like what?"_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  like what?
-M-Track  I don't have a good answer for that one, sorry.
-
-Back to it: A rough date is fine, and I'd rather leave it blank than guess. When was that?   [meta.answerAndResume]
-   ^ MISSES: expected help.example, said meta.answerAndResume
+M-Track  Something like "yesterday", "last Friday" or "4 May". When was it?   [help.example.date]
 ```
 
 ### C7 · Fails to answer twice, then the strategy changes · expense_summary
 
-_fail: the date question repeats in the same shape rather than changing strategy_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  asdf
 M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
 You says  qwer
 M-Track  Let's leave the date off this one rather than guess. You can tap it on the document to set it later.   [date.giveUp]
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: expected to be asking field-date, was field-amount
+M-Track  How much was the bacon? And who was that to?   [ask.amountFor]
 You says  zxcv
 M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
+You says  qwerty
+M-Track  That one isn't landing. Let's try another way.   [ask.stuck]
+M-Track  I'm not getting there by asking, so let's try something else.  { Paste the message instead | Skip this one | Start over }   [zero.escape]
 ```
 
 ### C7 · Fails to answer twice, then the strategy changes · point_of_sale
 
-_fail: the date question repeats in the same shape rather than changing strategy_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  asdf
 M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
 You says  qwer
 M-Track  Let's leave the date off this one rather than guess. You can tap it on the document to set it later.   [date.giveUp]
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: expected to be asking field-date, was field-amount
+M-Track  How much was the bacon? And what did they buy?   [ask.amountFor]
 You says  zxcv
 M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
+You says  qwerty
+M-Track  That one isn't landing. Let's try another way.   [ask.stuck]
+M-Track  I'm not getting there by asking, so let's try something else.  { Paste the message instead | Skip this one | Start over }   [zero.escape]
 ```
 
 ### C7 · Fails to answer twice, then the strategy changes · on_behalf_of
 
-_fail: the date question repeats in the same shape rather than changing strategy_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  asdf
 M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
 You says  qwer
 M-Track  Let's leave the date off this one rather than guess. You can tap it on the document to set it later.   [date.giveUp]
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: expected to be asking field-date, was field-amount
+M-Track  How much was the bacon? And where was it spent?   [ask.amountFor]
 You says  zxcv
 M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
+You says  qwerty
+M-Track  That one isn't landing. Let's try another way.   [ask.stuck]
+M-Track  I'm not getting there by asking, so let's try something else.  { Paste the message instead | Skip this one | Start over }   [zero.escape]
 ```
 
 ## D. Enrichment
@@ -1069,16 +1077,16 @@ _fail: enrichment questions do not exist_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  food 500 yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: expected enrich.where, said ask.amount, follow.party.expense_summary
+M-Track  Ksh 500, Food, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+   ^ MISSES: expected enrich.where, said confirm.summary
 You says  Java House
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: expected enrich.what, said ask.amountRetry
-   ^ MISSES: reply did not echo Java House: "A figure on its own is enough. How much was it?"
+M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
+   ^ MISSES: expected enrich.what, said confirm.reject
+   ^ MISSES: reply did not echo Java House: "No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?"
 You says  chicken wings
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: expected to be asking confirm, was field-amount
-   ^ MISSES: reply did not echo Java House: "A figure on its own is enough. How much was it?"
+M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
+   ^ MISSES: expected to be asking confirm, was field-date
+   ^ MISSES: reply did not echo Java House: "I couldn't work out a date from that. Try something like '13 March' or '4 days ago'."
 ```
 
 ### D1b · Enrichment is skippable, and stops after two skips · expense_summary
@@ -1089,32 +1097,31 @@ _fail: enrichment questions do not exist_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  food 500 yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: expected enrich.where, said ask.amount, follow.party.expense_summary
+M-Track  Ksh 500, Food, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+   ^ MISSES: expected enrich.where, said confirm.summary
    ^ MISSES: expected options ["skip"], got []
 You says  skip
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: expected enrich.what, said ask.amountRetry
+M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
+   ^ MISSES: expected enrich.what, said confirm.reject
 You says  skip
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: expected to be asking confirm, was field-amount
+M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
+   ^ MISSES: expected to be asking confirm, was field-date
 You says  yes
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
+M-Track  Let's leave the date off this one rather than guess. You can tap it on the document to set it later.   [date.giveUp]
+M-Track  How much was it? And who was that to?   [ask.amount]
 You says  transport 200 yesterday
-M-Track  Who was it paid to?   [ask.party.expense_summary]
-   ^ MISSES: expected to be asking confirm, was field-recipient
+M-Track  Ksh 200, Transport, with no date, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### D2 · Specific description earns no enrichment question · expense_summary
 
-_fail: enrichment questions do not exist (this one asserts they stay silent, and fails on the missing confirm)_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  chicken wings 500 yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: expected to be asking confirm, was field-amount
+M-Track  Ksh 500, Chicken wings, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### D3 · Volunteers detail later, unprompted · expense_summary
@@ -1125,14 +1132,15 @@ _fail: a detail volunteered later is not attached_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  food 500 yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
+M-Track  Ksh 500, Food, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  skip
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
+M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
 You says  skip
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
+M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
 You says  oh, it was at Java
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: reply did not echo Java: "A figure on its own is enough. How much was it?"
+M-Track  Let's leave the date off this one rather than guess. You can tap it on the document to set it later.   [date.giveUp]
+M-Track  How much was it? And who was that to?   [ask.amount]
+   ^ MISSES: reply did not echo Java: "Let's leave the date off this one rather than guess. You can tap it on the document to set it later. How much was it? And who was that to?"
 ```
 
 ### D4 · Asks to be asked more · expense_summary
@@ -1143,14 +1151,15 @@ _fail: "ask me more" is not handled_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  food 500 yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
+M-Track  Ksh 500, Food, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  skip
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
+M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
 You says  skip
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
+M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
 You says  ask me more
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: expected enrich.where, said ask.amountRetry
+M-Track  Let's leave the date off this one rather than guess. You can tap it on the document to set it later.   [date.giveUp]
+M-Track  How much was it? And who was that to?   [ask.amount]
+   ^ MISSES: expected enrich.where, said date.giveUp, ask.amount, follow.party.expense_summary
 ```
 
 ### D5 · point_of_sale generic item earns exactly one question · point_of_sale
@@ -1161,11 +1170,10 @@ _fail: the point-of-sale order question does not exist_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  stuff 500 yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: expected enrich.order, said ask.amount, follow.party.point_of_sale
+M-Track  What did they buy?   [ask.party.point_of_sale]
+   ^ MISSES: expected enrich.order, said ask.party.point_of_sale
 You says  two sodas and a mandazi
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: expected to be asking confirm, was field-amount
+M-Track  Ksh 500, two sodas and a mandazi, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### D6 · on_behalf_of does not double-ask against the purpose walk · on_behalf_of
@@ -1176,52 +1184,49 @@ _fail: no enrichment exists to check against the purpose walk_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  food 500 yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: expected the on_behalf_of party question, said ask.amount, follow.party.on_behalf_of
+M-Track  Ksh 500, Food, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+   ^ MISSES: expected the on_behalf_of party question, said confirm.summary
 ```
 
 ## E. Confirmation
 
 ### E1 · Yes variants save · expense_summary
 
-_fail: "sawa" is not read as yes_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  sawa
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected 1 recorded line(s), got 0
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 ```
 
 ### E1 · Yes variants save · point_of_sale
 
-_fail: "sawa" is not read as yes_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  sawa
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected 1 recorded line(s), got 0
+M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 ```
 
 ### E1 · Yes variants save · on_behalf_of
 
-_fail: "sawa" is not read as yes_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  sawa
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected 1 recorded line(s), got 0
+M-Track  Say skip to leave it out. What was the Ksh 3,100 to Bacon for?   [purpose.ask]
 ```
 
 ### E1b · "yesterday" is never a yes · expense_summary
@@ -1232,9 +1237,9 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that?   [ask.date]
+M-Track  When was the bacon?   [ask.dateFor]
 You says  yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### E1b · "yesterday" is never a yes · point_of_sale
@@ -1245,9 +1250,9 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that?   [ask.date]
+M-Track  When was the bacon?   [ask.dateFor]
 You says  yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### E1b · "yesterday" is never a yes · on_behalf_of
@@ -1258,309 +1263,280 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that?   [ask.date]
+M-Track  When was the bacon?   [ask.dateFor]
 You says  yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### E1c · Swahili and emoji yes · expense_summary
 
-_fail: "ndio" and a thumbs-up are not read as yes_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  ndio
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected 1 recorded line(s), got 0
-You says  bought airtime for 50 yesterday
-M-Track  Ksh 50 to Airtime, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
-You says  👍
 M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
-   ^ MISSES: expected 2 recorded line(s), got 1
+You says  bought airtime for 50 yesterday
+M-Track  Ksh 50 to Airtime, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
+M-Track  If you've got the M-Pesa messages for these, copy them in. They carry the exact date and reference number, which makes this much harder to argue with.   [nudge.efficiency]
+You says  👍
+M-Track  That's on the document. Add another, or tap Approve when it looks right.   [commit.added]
 ```
 
 ### E2 · Bare no asks what is off · expense_summary
 
-_fail: a bare "no" wipes the draft and restarts from the date instead of asking what is off_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  no
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected confirm.whatIsOff, said confirm.reject
-   ^ MISSES: expected options ["amount","date","description"], got []
+M-Track  No problem. Which part is wrong?  { The amount | The date | What it was for | Start this one again }   [confirm.whatIsOff]
 ```
 
 ### E2 · Bare no asks what is off · point_of_sale
 
-_fail: a bare "no" wipes the draft and restarts from the date instead of asking what is off_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  no
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected confirm.whatIsOff, said confirm.reject
-   ^ MISSES: expected options ["amount","date","description"], got []
+M-Track  No problem. Which part is wrong?  { The amount | The date | What it was for | Start this one again }   [confirm.whatIsOff]
 ```
 
 ### E2 · Bare no asks what is off · on_behalf_of
 
-_fail: a bare "no" wipes the draft and restarts from the date instead of asking what is off_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  no
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected confirm.whatIsOff, said confirm.reject
-   ^ MISSES: expected options ["amount","date","description"], got []
+M-Track  No problem. Which part is wrong?  { The amount | The date | What it was for | Start this one again }   [confirm.whatIsOff]
 ```
 
 ### E2b · Swahili no · expense_summary
 
-_fail: "hapana" likewise_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  hapana
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected confirm.whatIsOff, said confirm.reject
+M-Track  No problem. Which part is wrong?  { The amount | The date | What it was for | Start this one again }   [confirm.whatIsOff]
 ```
 
 ### E3 · One-step correction · expense_summary
 
-_fail: "no, 600" is read as a rejection, not a one-step correction_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  no, 600
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: amount: got null, wanted 600
-   ^ MISSES: reply did not echo 600: "No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?"
-   ^ MISSES: expected to be asking confirm, was field-date
+M-Track  Updated — Ksh 3,100 → Ksh 600.   [correction.applied]
+M-Track  Ksh 600 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### E3 · One-step correction · point_of_sale
 
-_fail: "no, 600" is read as a rejection, not a one-step correction_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  no, 600
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: amount: got null, wanted 600
-   ^ MISSES: reply did not echo 600: "No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?"
-   ^ MISSES: expected to be asking confirm, was field-date
+M-Track  Updated — Ksh 3,100 → Ksh 600.   [correction.applied]
+M-Track  Ksh 600 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### E3 · One-step correction · on_behalf_of
 
-_fail: "no, 600" is read as a rejection, not a one-step correction_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  no, 600
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: amount: got null, wanted 600
-   ^ MISSES: reply did not echo 600: "No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?"
-   ^ MISSES: expected to be asking confirm, was field-date
+M-Track  Updated — Ksh 3,100 → Ksh 600.   [correction.applied]
+M-Track  Ksh 600 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### E4 · Names the field · expense_summary
 
-_fail: "change the date to Monday" is not applied_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  change the date to Monday
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: amount: got null, wanted 3100; date: got null, wanted "2026-09-21"
+M-Track  Updated — the date is 21 September 2026.   [correction.applied]
+M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### E4 · Names the field · point_of_sale
 
-_fail: "change the date to Monday" is not applied_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  change the date to Monday
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: amount: got null, wanted 3100; date: got null, wanted "2026-09-21"
+M-Track  Updated — the date is 21 September 2026.   [correction.applied]
+M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### E4 · Names the field · on_behalf_of
 
-_fail: "change the date to Monday" is not applied_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  change the date to Monday
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: amount: got null, wanted 3100; date: got null, wanted "2026-09-21"
+M-Track  Updated — the date is 21 September 2026.   [correction.applied]
+M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### E5 · Adds an item at confirmation · expense_summary
 
-_fail: "also add airtime 50" is read as a rejection_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  also add airtime 50
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: amount: got null, wanted 3150
-   ^ MISSES: expected confirm.added, said confirm.reject
+M-Track  Added. Bacon Ksh 3,100, Add airtime Ksh 50, total Ksh 3,150, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.added]
 ```
 
 ### E5 · Adds an item at confirmation · point_of_sale
 
-_fail: "also add airtime 50" is read as a rejection_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  also add airtime 50
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: amount: got null, wanted 3150
-   ^ MISSES: expected confirm.added, said confirm.reject
+M-Track  Added. Bacon Ksh 3,100, Add airtime Ksh 50, total Ksh 3,150, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.added]
 ```
 
 ### E5 · Adds an item at confirmation · on_behalf_of
 
-_fail: "also add airtime 50" is read as a rejection_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  also add airtime 50
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: amount: got null, wanted 3150
-   ^ MISSES: expected confirm.added, said confirm.reject
+M-Track  Added. Bacon Ksh 3,100, Add airtime Ksh 50, total Ksh 3,150, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.added]
 ```
 
 ### E6 · Removes an item · expense_summary
 
-_fail: there is no way to remove an item_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  remove the airtime
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: amount: got null, wanted 3500; lineItems: got [], wanted [["Bacon",3100],["Tomatoes",400]]
+M-Track  Dropped Airtime. Bacon Ksh 3,100, Tomatoes Ksh 400, total Ksh 3,500, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.removed]
 ```
 
 ### E6 · Removes an item · point_of_sale
 
-_fail: there is no way to remove an item_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  remove the airtime
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: amount: got null, wanted 3500; lineItems: got [], wanted [["Bacon",3100],["Tomatoes",400]]
+M-Track  Dropped Airtime. Bacon Ksh 3,100, Tomatoes Ksh 400, total Ksh 3,500, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.removed]
 ```
 
 ### E6 · Removes an item · on_behalf_of
 
-_fail: there is no way to remove an item_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  remove the airtime
-M-Track  A figure on its own is enough. How much was it?   [ask.amountRetry]
-   ^ MISSES: amount: got null, wanted 3500; lineItems: got [], wanted [["Bacon",3100],["Tomatoes",400]]
+M-Track  Dropped Airtime. Bacon Ksh 3,100, Tomatoes Ksh 400, total Ksh 3,500, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.removed]
 ```
 
 ### E7 · Ambiguous hold · expense_summary
 
-_fail: "hold on" wipes the draft_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  hold on
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected confirm.holding, said confirm.reject
-   ^ MISSES: amount: got null, wanted 3100
+M-Track  Take your time. What would you like to change?   [confirm.holding]
 ```
 
 ### E7 · Ambiguous hold · point_of_sale
 
-_fail: "hold on" wipes the draft_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  hold on
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected confirm.holding, said confirm.reject
-   ^ MISSES: amount: got null, wanted 3100
+M-Track  Take your time. What would you like to change?   [confirm.holding]
 ```
 
 ### E7 · Ambiguous hold · on_behalf_of
 
-_fail: "hold on" wipes the draft_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  hold on
-M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
-   ^ MISSES: expected confirm.holding, said confirm.reject
-   ^ MISSES: amount: got null, wanted 3100
+M-Track  Take your time. What would you like to change?   [confirm.holding]
 ```
 
 ## F. After saving
@@ -1573,7 +1549,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 ```
@@ -1586,7 +1562,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 ```
@@ -1599,58 +1575,54 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Say skip to leave it out. What was the Ksh 3,100 to Bacon for?   [purpose.ask]
 ```
 
 ### F2 · Undo points at where documents are removed · expense_summary
 
-_fail: "undo" is not answered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 You says  undo
-M-Track  I couldn't pick anything out of that. One thing at a time works best, like 'bought bacon for 3100'. What did you spend on, and how much?   [zero.ask1]
-   ^ MISSES: expected after.undo, said zero.ask1
+M-Track  I cannot take a saved document back off here. Open it from your history and remove it there. If a line is wrong, tell me which and I will change it.   [after.undo]
 ```
 
 ### F3 · Send it to my boss · expense_summary
 
-_fail: "send it to my boss" is not answered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 You says  send it to my boss
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
-M-Track  If you've got the M-Pesa messages for these, copy them in. They carry the exact date and reference number, which makes this much harder to argue with.   [nudge.efficiency]
-   ^ MISSES: expected after.share, said ask.date, follow.amount, nudge.efficiency
+M-Track  I cannot send anything myself. Tap Share on the document to pass it to WhatsApp or email, or Save it as a PDF first and attach that.   [after.share]
 ```
 
 ### F4 · Make it a PDF · expense_summary
 
-_fail: "make it a pdf" is not answered_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 You says  make it a pdf
-M-Track  I can tell something needs changing but not what to. What should it be instead?   [correction.unresolved]
-   ^ MISSES: expected help.export, said correction.unresolved
+M-Track  Once a receipt is approved you can save it as a PDF or a web page, or share it straight from here.   [help.export]
 ```
 
 ### F5 · Another one · expense_summary
@@ -1661,61 +1633,55 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Tell me the next one, or tap Approve when the document looks right.   [commit.added]
 You says  another one
-M-Track  I couldn't pick anything out of that. One thing at a time works best, like 'bought bacon for 3100'. What did you spend on, and how much?   [zero.ask1]
+M-Track  Ready for the next one. Tell me what you spent, or paste the message.   [after.another]
 ```
 
 ## G. Corrections mid-flow
 
 ### G1 · Corrects an earlier item by name · expense_summary
 
-_fail: a named item correction does not reach the right item from this phrasing_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually the bacon was 3500
-M-Track  Got it — Ksh 3,500.   [correction.applied]
-M-Track  Who was it paid to?   [ask.party.expense_summary]
-   ^ MISSES: reply did not echo 3,100: "Got it — Ksh 3,500. Who was it paid to?"
-   ^ MISSES: amount: got 3500, wanted 3930
+M-Track  Updated — Bacon: Ksh 3,100 → Ksh 3,500. New total Ksh 3,930.   [correction.applied]
+M-Track  Bacon Ksh 3,500, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,930, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### G1 · Corrects an earlier item by name · point_of_sale
 
-_fail: a named item correction does not reach the right item from this phrasing_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually the bacon was 3500
-M-Track  Got it — Ksh 3,500.   [correction.applied]
-M-Track  What did they buy?   [ask.party.point_of_sale]
-   ^ MISSES: reply did not echo 3,100: "Got it — Ksh 3,500. What did they buy?"
-   ^ MISSES: amount: got 3500, wanted 3930
+M-Track  Updated — Bacon: Ksh 3,100 → Ksh 3,500. New total Ksh 3,930.   [correction.applied]
+M-Track  Bacon Ksh 3,500, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,930, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### G1 · Corrects an earlier item by name · on_behalf_of
 
-_fail: a named item correction does not reach the right item from this phrasing_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually the bacon was 3500
-M-Track  Got it — Ksh 3,500.   [correction.applied]
-M-Track  Where was this spent?   [ask.party.on_behalf_of]
-   ^ MISSES: reply did not echo 3,100: "Got it — Ksh 3,500. Where was this spent?"
-   ^ MISSES: amount: got 3500, wanted 3930
+M-Track  Updated — Bacon: Ksh 3,100 → Ksh 3,500. New total Ksh 3,930.   [correction.applied]
+M-Track  Bacon Ksh 3,500, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,930, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### G2 · Corrects the date · expense_summary
@@ -1726,10 +1692,10 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually it was on Monday
 M-Track  Updated — the date is 21 September 2026.   [correction.applied]
-M-Track  Ksh 3,100 to Bacon, on 21 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### G2 · Corrects the date · point_of_sale
@@ -1740,10 +1706,10 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually it was on Monday
 M-Track  Updated — the date is 21 September 2026.   [correction.applied]
-M-Track  Ksh 3,100 to Bacon, on 21 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### G2 · Corrects the date · on_behalf_of
@@ -1754,55 +1720,49 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually it was on Monday
 M-Track  Updated — the date is 21 September 2026.   [correction.applied]
-M-Track  Ksh 3,100 to Bacon, on 21 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 21 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### G3 · Ambiguous target offers the candidates · expense_summary
 
-_fail: an ambiguous correction target is applied rather than asked about_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
-M-Track  How much was it? And who was that to?   [ask.amount]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually it was 3500
-M-Track  Got it — Ksh 3,500.   [correction.applied]
-M-Track  Who was it paid to?   [ask.party.expense_summary]
-   ^ MISSES: expected correction.ambiguous, said correction.applied, ask.party.expense_summary
+M-Track  Which one — Bacon, or Tomatoes, or Airtime?  { Bacon (Ksh 3,100) | Tomatoes (Ksh 400) | Airtime (Ksh 30) }   [correction.ambiguous]
 ```
 
 ### G3 · Ambiguous target offers the candidates · point_of_sale
 
-_fail: an ambiguous correction target is applied rather than asked about_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
-M-Track  How much was it? And what did they buy?   [ask.amount]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually it was 3500
-M-Track  Got it — Ksh 3,500.   [correction.applied]
-M-Track  What did they buy?   [ask.party.point_of_sale]
-   ^ MISSES: expected correction.ambiguous, said correction.applied, ask.party.point_of_sale
+M-Track  Which one — Bacon, or Tomatoes, or Airtime?  { Bacon (Ksh 3,100) | Tomatoes (Ksh 400) | Airtime (Ksh 30) }   [correction.ambiguous]
 ```
 
 ### G3 · Ambiguous target offers the candidates · on_behalf_of
 
-_fail: an ambiguous correction target is applied rather than asked about_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bacon 3100, tomatoes 400 and airtime 30 yesterday
-M-Track  How much was it? And where was it spent?   [ask.amount]
+M-Track  Bacon Ksh 3,100, Tomatoes Ksh 400, Airtime Ksh 30, total Ksh 3,530, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  actually it was 3500
-M-Track  Got it — Ksh 3,500.   [correction.applied]
-M-Track  Where was this spent?   [ask.party.on_behalf_of]
-   ^ MISSES: expected correction.ambiguous, said correction.applied, ask.party.on_behalf_of
+M-Track  Which one — Bacon, or Tomatoes, or Airtime?  { Bacon (Ksh 3,100) | Tomatoes (Ksh 400) | Airtime (Ksh 30) }   [correction.ambiguous]
 ```
 
 ## H. Cancel and restart
@@ -1848,7 +1808,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  never mind
 M-Track  You've got Ksh 3,100, Bacon down already. Scrap the whole thing, or keep it and stop here?  { Discard everything | Keep what I have }   [cancel.confirm]
 ```
@@ -1861,7 +1821,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  never mind
 M-Track  You've got Ksh 3,100, Bacon down already. Scrap the whole thing, or keep it and stop here?  { Discard everything | Keep what I have }   [cancel.confirm]
 ```
@@ -1874,7 +1834,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  never mind
 M-Track  You've got Ksh 3,100, Bacon down already. Scrap the whole thing, or keep it and stop here?  { Discard everything | Keep what I have }   [cancel.confirm]
 ```
@@ -1887,7 +1847,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  start over
 M-Track  You've got Ksh 3,100, Bacon down already. Scrap the whole thing, or keep it and stop here?  { Discard everything | Keep what I have }   [cancel.confirm]
 ```
@@ -1902,7 +1862,7 @@ _fail: the answer bank has an entry but the question shape is not matched here_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  what can you do?
 M-Track  Tell me what you spent and when, in your own words, and I turn it into a receipt or an expense summary you can save or send.
 
@@ -1918,7 +1878,7 @@ _fail: the answer bank has an entry but the question shape is not matched here_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  what can you do?
 M-Track  Tell me what you spent and when, in your own words, and I turn it into a receipt or an expense summary you can save or send.
 
@@ -1934,7 +1894,7 @@ _fail: the answer bank has an entry but the question shape is not matched here_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  what can you do?
 M-Track  Tell me what you spent and when, in your own words, and I turn it into a receipt or an expense summary you can save or send.
 
@@ -1950,7 +1910,7 @@ _fail: the paste how-to is not reached from this phrasing_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  how do I paste messages?
 M-Track  In your SMS app, press and hold the message, tap Copy, then tap the Paste button next to the message box here. I'll read the amount, the date and who it went to.
 
@@ -1966,7 +1926,7 @@ _fail: the paste how-to is not reached from this phrasing_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  how do I paste messages?
 M-Track  In your SMS app, press and hold the message, tap Copy, then tap the Paste button next to the message box here. I'll read the amount, the date and who it went to.
 
@@ -1982,7 +1942,7 @@ _fail: the paste how-to is not reached from this phrasing_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  how do I paste messages?
 M-Track  In your SMS app, press and hold the message, tap Copy, then tap the Paste button next to the message box here. I'll read the amount, the date and who it went to.
 
@@ -1998,7 +1958,7 @@ _fail: there is no privacy answer_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  is my data safe?
 M-Track  I don't have a good answer for that one, sorry.
 
@@ -2014,7 +1974,7 @@ _fail: there is no privacy answer_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  is my data safe?
 M-Track  I don't have a good answer for that one, sorry.
 
@@ -2030,7 +1990,7 @@ _fail: there is no privacy answer_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  is my data safe?
 M-Track  I don't have a good answer for that one, sorry.
 
@@ -2258,7 +2218,7 @@ _fail: general knowledge is not recognised as off-topic_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  what's the capital of France?
 M-Track  I don't have a good answer for that one, sorry.
 
@@ -2274,7 +2234,7 @@ _fail: general knowledge is not recognised as off-topic_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  what's the capital of France?
 M-Track  I don't have a good answer for that one, sorry.
 
@@ -2290,7 +2250,7 @@ _fail: general knowledge is not recognised as off-topic_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  what's the capital of France?
 M-Track  I don't have a good answer for that one, sorry.
 
@@ -2440,8 +2400,8 @@ _fail: "send 500 to Kevin" is mined for data instead of being refused honestly_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  send 500 to Kevin
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that?   [ask.date]
-   ^ MISSES: expected edge.cannotMoveMoney, said ask.date
+M-Track  When was the kevin?   [ask.dateFor]
+   ^ MISSES: expected edge.cannotMoveMoney, said ask.dateFor
    ^ MISSES: amount: got 500, wanted null
 ```
 
@@ -2453,8 +2413,8 @@ _fail: "send 500 to Kevin" is mined for data instead of being refused honestly_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  send 500 to Kevin
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that?   [ask.date]
-   ^ MISSES: expected edge.cannotMoveMoney, said ask.date
+M-Track  When was the kevin?   [ask.dateFor]
+   ^ MISSES: expected edge.cannotMoveMoney, said ask.dateFor
    ^ MISSES: amount: got 500, wanted null
 ```
 
@@ -2466,8 +2426,8 @@ _fail: "send 500 to Kevin" is mined for data instead of being refused honestly_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  send 500 to Kevin
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that?   [ask.date]
-   ^ MISSES: expected edge.cannotMoveMoney, said ask.date
+M-Track  When was the kevin?   [ask.dateFor]
+   ^ MISSES: expected edge.cannotMoveMoney, said ask.dateFor
    ^ MISSES: amount: got 500, wanted null
 ```
 
@@ -2479,7 +2439,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  sent 500 to Kevin yesterday
-M-Track  Ksh 500 to Kevin, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 500 to Kevin, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### J5b · Past tense is data, not a request · point_of_sale
@@ -2490,7 +2450,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  sent 500 to Kevin yesterday
-M-Track  Ksh 500 to Kevin, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 500 to Kevin, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### J5b · Past tense is data, not a request · on_behalf_of
@@ -2501,7 +2461,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  sent 500 to Kevin yesterday
-M-Track  Ksh 500 to Kevin, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 500 to Kevin, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 ```
 
 ### J5c · Check my balance · expense_summary
@@ -2756,8 +2716,8 @@ _fail: good news is not acknowledged_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  I got paid today
-M-Track  How much was it? And who was that to?   [ask.amount]
-   ^ MISSES: expected emotion.goodNews, said ask.amount, follow.party.expense_summary
+M-Track  How much was the paid? And who was that to?   [ask.amountFor]
+   ^ MISSES: expected emotion.goodNews, said ask.amountFor, follow.party.expense_summary
 ```
 
 ### K3 · Good news · point_of_sale
@@ -2768,8 +2728,8 @@ _fail: good news is not acknowledged_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  I got paid today
-M-Track  How much was it? And what did they buy?   [ask.amount]
-   ^ MISSES: expected emotion.goodNews, said ask.amount, follow.party.point_of_sale
+M-Track  How much was the paid?   [ask.amountFor]
+   ^ MISSES: expected emotion.goodNews, said ask.amountFor
 ```
 
 ### K3 · Good news · on_behalf_of
@@ -2780,8 +2740,8 @@ _fail: good news is not acknowledged_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  I got paid today
-M-Track  How much was it? And where was it spent?   [ask.amount]
-   ^ MISSES: expected emotion.goodNews, said ask.amount, follow.party.on_behalf_of
+M-Track  How much was the paid? And where was it spent?   [ask.amountFor]
+   ^ MISSES: expected emotion.goodNews, said ask.amountFor, follow.party.on_behalf_of
 ```
 
 ### K4 · Clear crisis language pauses the flow · expense_summary
@@ -2869,7 +2829,7 @@ _pass_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 You says  bought bacon for 3100 yesterday
 M-Track  No problem, let's go through it. A rough date is fine, and I'd rather leave it blank than guess. When was that?   [confirm.reject]
 ```
@@ -2918,49 +2878,49 @@ Back to it: Paste your M-Pesa, Airtel Money or bank messages. If you do not have
 
 ### L5 · Bare numbers at every stage · expense_summary
 
-_fail: a bare number in reply to the date question is discarded_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  3100
 M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
-   ^ MISSES: amount: got null, wanted 3100
 You says  27/9/26
+M-Track  27 September 2026, got it.   [ack.answer]
 M-Track  Who was it paid to?   [ask.party.expense_summary]
 ```
 
 ### L5 · Bare numbers at every stage · point_of_sale
 
-_fail: a bare number in reply to the date question is discarded_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  3100
 M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
-   ^ MISSES: amount: got null, wanted 3100
 You says  27/9/26
+M-Track  27 September 2026, got it.   [ack.answer]
 M-Track  What did they buy?   [ask.party.point_of_sale]
 ```
 
 ### L5 · Bare numbers at every stage · on_behalf_of
 
-_fail: a bare number in reply to the date question is discarded_
+_pass_
 
 ```
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  3100
 M-Track  I couldn't work out a date from that. Try something like '13 March' or '4 days ago'.   [date.retry]
-   ^ MISSES: amount: got null, wanted 3100
 You says  27/9/26
+M-Track  27 September 2026, got it.   [ack.answer]
 M-Track  Where was this spent?   [ask.party.on_behalf_of]
 ```
 
@@ -2972,9 +2932,9 @@ _fail: an SMS pasted mid-capture is not narrated_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  bought bacon
-M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And how much?   [ask.date]
+M-Track  When was the bacon? And how much?   [ask.dateFor]
 You says  TFG4H5J6K7 Confirmed. Ksh500.00 paid to NAIVAS LIMITED on 27/9/26 at 1:15 PM. New M-PESA balance is Ksh1,200.00. Transaction cost, Ksh0.00.
-M-Track  TFG4H5J Ksh 6,000, NAIVAS LIMITED on 27/9/26 at 1:15 PM Ksh 500, New M-PESA balance Ksh 1,200, Transaction Ksh 0 — total Ksh 7,700, on 27 September 2026. Right?   [confirm.summary]
+M-Track  TFG4H5J Ksh 6,000, NAIVAS LIMITED on 27/9/26 at 1:15 PM Ksh 500, New M-PESA balance Ksh 1,200, Transaction Ksh 0, total Ksh 7,700, on 27 September 2026. Right?   [confirm.summary]
    ^ MISSES: expected capture.smsMidFlow, said confirm.summary
 ```
 
@@ -2992,7 +2952,7 @@ M-Track  $200, Chip, on 27 September 2026. Right?   [confirm.summary]
 You says  yes
 M-Track  Added. Set which way that one went above, then tell me the next.   [commit.addedDirection]
 You says  bought bacon for 3100 yesterday
-M-Track  Ksh 3,100 to Bacon, on 27 September 2026 — I've assumed Kenyan Shillings, since none was mentioned. Right?   [confirm.summary]
+M-Track  Ksh 3,100 to Bacon, on 27 September 2026, taking that as Kenyan Shillings since none was named. Right?   [confirm.summary]
 M-Track  If you've got the M-Pesa messages for these, copy them in. They carry the exact date and reference number, which makes this much harder to argue with.   [nudge.efficiency]
 ```
 
@@ -3032,8 +2992,6 @@ _fail: spending questions are not answered_
 M-Track  I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, Airtel Money or bank messages, or just tell me what you spent.   [open.greeting]
 M-Track  What are we putting together? Your own spending, a receipt for a customer, or money you spent for someone else?   [open.modeQuestion]
 You says  total so far?
-M-Track  I don't have a good answer for that one, sorry.
-
-Back to it: Paste your M-Pesa, Airtel Money or bank messages. If you do not have the message for something, just tell me what you spent and when.   [meta.answerAndResume]
-   ^ MISSES: expected spend.none, said meta.answerAndResume
+M-Track  A rough date is fine, and I'd rather leave it blank than guess. When was that? And who was that to?   [ask.date]
+   ^ MISSES: expected spend.none, said ask.date, follow.party.expense_summary
 ```

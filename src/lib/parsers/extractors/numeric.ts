@@ -20,10 +20,16 @@ export interface NumericToken {
     start: number;
     end: number;
     // Whether a shorthand multiplier was applied, for tests and diagnostics.
-    multiplier: 1 | 100 | 1_000 | 1_000_000;
+    // Sheng denominations widened this from the three English shorthands to
+    // any value in the table; the shape of the rule is unchanged.
+    multiplier: number;
 }
 
-const MULTIPLIERS: Record<string, 100 | 1_000 | 1_000_000> = {
+// The one multiplier table. amount.ts carried a second copy of this for
+// months; the two agreed on the English shorthands and disagreed on the
+// Swahili ones, so "elfu tatu" was three thousand in free text and three when
+// it was the answer to "How much was it?". Exported, and imported there.
+export const MULTIPLIERS: Record<string, number> = {
     k: 1_000, thousand: 1_000, thousands: 1_000,
     m: 1_000_000, million: 1_000_000, millions: 1_000_000, mn: 1_000_000,
     // Swahili, normalised into this form upstream: "elfu tatu" arrives here as
@@ -32,11 +38,22 @@ const MULTIPLIERS: Record<string, 100 | 1_000 | 1_000_000> = {
     // reads an ANSWER — so "elfu tatu" was three thousand in free text and
     // three when it was the reply to "How much was it?".
     elfu: 1_000, mia: 100,
+    // Sheng denominations, normalised into this form upstream by
+    // normalizeShengDenominations: "soo mbili" arrives here as "2 soo". Values
+    // verified in at least two independent sources; see SHENG_DENOMINATIONS.
+    kobole: 5, ashuu: 10, mbao: 20, finje: 50, chwani: 50, chuani: 50,
+    soo: 100, so: 100, rwabe: 200, thao: 1_000, ngiri: 1_000,
 };
 
+// The multiplier alternatives, longest first, so "million" is not consumed as
+// a bare "m" with "illion" left over and "soo" is not consumed as "so" with a
+// stray "o". Generated from the table rather than written out beside it.
+export const MULTIPLIER_ALTERNATION = Object.keys(MULTIPLIERS)
+    .sort((a, b) => b.length - a.length)
+    .join('|');
+
 // A number, optionally comma-grouped and/or decimal, optionally followed by a
-// shorthand multiplier. The multiplier alternatives are ordered longest-first
-// so "million" is not consumed as a bare "m" with "illion" left over.
+// shorthand multiplier.
 // The multiplier ends where a letter does not follow — except that a currency
 // code may run straight on from it ("100kUSD"), which is still a multiplier
 // and a currency, not a word. The number itself carries no trailing boundary:
@@ -44,7 +61,7 @@ const MULTIPLIERS: Record<string, 100 | 1_000 | 1_000_000> = {
 const MULT_GUARD = `(?:(?![A-Za-z])|(?=${CURRENCY_SUFFIX_SOURCE}))`;
 const NUMBER_RE = new RegExp(
     String.raw`(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)`
-    + `(?:\\s*(millions|million|thousands|thousand|elfu|mia|mn|k|m)${MULT_GUARD})?`,
+    + `(?:\\s*(${MULTIPLIER_ALTERNATION})${MULT_GUARD})?`,
     'gi',
 );
 
@@ -99,4 +116,17 @@ export function parseAmountAnswer(text: string): number | null {
     if (NO_CHARGE_RE.test(text.trim())) return 0;
     const value = parseNumeric(text);
     return value != null && value >= 0 ? value : null;
+}
+
+// "KSh 1 200" is one thousand two hundred, written the way a lot of the world
+// writes thousands. A space is only read as a group separator when a currency
+// token stands immediately in front of the number, because a bare "1 200" in
+// free text is far more likely to be two separate numbers.
+const SPACED_THOUSANDS_RE = new RegExp(
+    String.raw`(\b(?:${CURRENCY_SUFFIX_SOURCE})\s*\.?\s*)(\d{1,3})((?:\s\d{3})+)\b`, 'gi',
+);
+
+export function normalizeSpacedThousands(text: string): string {
+    return text.replace(SPACED_THOUSANDS_RE, (_w, lead: string, head: string, rest: string) =>
+        `${lead}${head}${rest.replace(/\s/g, '')}`);
 }

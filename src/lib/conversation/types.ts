@@ -10,7 +10,13 @@ import type { CopyId, CopyKind } from './copy';
 export type PendingPrompt =
     | 'mode' | 'business-name' | 'party-name' | 'purpose'
     | 'field-date' | 'field-amount' | 'field-recipient' | 'confirm'
-    | 'purpose-label' | 'zero-escape' | 'cancel-confirm' | 'correction-target' | 'input';
+    | 'purpose-label' | 'zero-escape' | 'cancel-confirm' | 'correction-target'
+    // Two honest readings of one figure (a range, a split bill). Settled by a
+    // tap rather than guessed.
+    | 'amount-choice'
+    // Which field the user said was wrong at the confirmation.
+    | 'confirm-field'
+    | 'input';
 
 // One thing the bot says. `copyId` is what the scenario harness asserts on, so
 // wording can be rewritten without touching a test.
@@ -60,6 +66,15 @@ export interface ConvState {
     variantCursor: Record<string, number>;
     // The copy id of the last thing the bot said, for notRepeatOfPrevious.
     lastCopyId: CopyId | null;
+    // What the user said they bought, before any price was attached to it.
+    // Used to name the subject of the next question ("How much was the
+    // lunch?") and, once a price lands, to fill the description on the
+    // document types whose description slot IS the goods.
+    namedGoods: string | null;
+    // Consecutive answers that failed to settle the slot being asked about,
+    // whichever slot that is. The date slot has always had its own cap; every
+    // other question could be put in the same words forever.
+    slotAttempts: number;
 }
 
 // Work the conversation cannot do itself because it belongs to storage, to the

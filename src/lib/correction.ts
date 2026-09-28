@@ -26,6 +26,47 @@ export type CorrectionTarget =
     | { kind: 'date' }
     | { kind: 'currency' };
 
+// Taking a line back off a draft. Its own shape, because it changes the total
+// and has to say which line went and what the total is now.
+export interface RemovalOutcome {
+    kind: 'removed' | 'notFound';
+    draft: CaptureDraft;
+    item: string;
+}
+
+const REMOVE_RE = /^\s*(?:please\s+)?(?:remove|drop|delete|take\s+off|take\s+out|lose|scrap|get\s+rid\s+of)\b\s*(?:the\s+)?(.+?)\s*(?:line|item|one)?\s*$/i;
+
+// A removal, or null when the message is not one. Deliberately anchored at the
+// start: "I paid to remove the tree" is not an instruction to this flow.
+export function resolveRemoval(draft: CaptureDraft, text: string): RemovalOutcome | null {
+    const m = REMOVE_RE.exec(text);
+    if (!m) return null;
+    const named = m[1].trim();
+    const items = draft.lineItems ?? [];
+    if (items.length === 0) return null;
+
+    const words = contentWords(named);
+    const scored = items
+        .map((item, index) => ({ index, item, score: referenceScore(item, words) }))
+        .filter(c => c.score > 0)
+        .sort((a, b) => b.score - a.score);
+    if (scored.length === 0 || (scored.length > 1 && scored[0].score === scored[1].score)) {
+        return { kind: 'notFound', draft, item: named };
+    }
+
+    const gone = items[scored[0].index];
+    const left = items.filter((_, i) => i !== scored[0].index);
+    return {
+        kind: 'removed',
+        item: gone.description,
+        draft: left.length === 1
+            // One line left is not an itemisation any more, and printing it as
+            // a list of one with a "total" of itself reads as a form.
+            ? { ...draft, lineItems: left, amount: totalOf(left) }
+            : { ...draft, lineItems: left.length > 0 ? left : null, amount: left.length > 0 ? totalOf(left) : null },
+    };
+}
+
 export type CorrectionOutcome =
     // Applied, with the before-and-after to show the user.
     | { kind: 'applied'; draft: CaptureDraft; echo: string; target: CorrectionTarget }

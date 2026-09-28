@@ -1,7 +1,9 @@
 import type { LineItem } from '../../../types';
 import { extractAmountMatches, type AmountScanOptions } from './amount';
 import { normalizeForKeywords } from '../fuzzy';
-import { normalizeSwahiliNumerals, SWAHILI_VERBS } from '../swahili';
+import { normalizeShengDenominations, normalizeSwahiliNumerals, SWAHILI_VERBS } from '../swahili';
+import { normalizeSpacedThousands } from './numeric';
+import { normalizePricedText } from '../../conversation/amountPhrases';
 
 // Reading an itemised list out of one typed message.
 //
@@ -306,7 +308,10 @@ function collectItems(typed: string, opts: AmountScanOptions): { items: LineItem
     // Typed input gets the typo/merged-word pass before anything reads it, so
     // "somebacon" reaches the description as "bacon" rather than as itself.
     // Idempotent, so a caller that has already normalised loses nothing.
-    const text = opts.allowBare ? normalizeForKeywords(normalizeSwahiliNumerals(typed)) : typed;
+    const text = opts.allowBare
+        ? normalizePricedText(normalizeForKeywords(
+            normalizeSpacedThousands(normalizeShengDenominations(normalizeSwahiliNumerals(typed)))))
+        : typed;
 
     const items: LineItem[] = [];
     const currencies = new Set<string>();

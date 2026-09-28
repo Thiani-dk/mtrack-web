@@ -148,9 +148,16 @@ export function composeDraftAnswer(
         const dateResult = parseConversationalDate(answer, now);
         const accepted = dateResult.confidence === 'exact' && dateResult.date != null;
         if (!accepted) {
-            // Nothing about the date changes, but a currency the answer named
-            // is still worth keeping.
-            return { draft: { ...draft, currency: absorbed.currency }, accepted: false, dateResult };
+            // The date slot stays open, but everything else the answer carried
+            // is kept. Asked "when was that?" and answered "3100", the flow
+            // used to throw the figure away and then ask for it a turn later,
+            // which is the single most obvious way to look like you were not
+            // listening. Only the date itself is untouched.
+            return {
+                draft: { ...withAddition, ...absorbed, date: draft.date, dateAmbiguous: draft.dateAmbiguous, dateInterpretation: draft.dateInterpretation, dateSkipped: draft.dateSkipped },
+                accepted: false,
+                dateResult,
+            };
         }
         return {
             accepted: true,
@@ -173,7 +180,13 @@ export function composeDraftAnswer(
         // bug this whole path was rebuilt around.
         const reply = parseAmountReply(answer);
         if (reply.amount == null && absorbed.amount == null) {
-            return { draft: { ...draft, currency: absorbed.currency }, accepted: false, dateResult: null };
+            // Same rule as the date slot: the answer failed to close THIS slot,
+            // and anything else it carried is still kept.
+            return {
+                draft: { ...withAddition, ...absorbed, amount: draft.amount, lineItems: draft.lineItems },
+                accepted: false,
+                dateResult: null,
+            };
         }
         return {
             accepted: true,
@@ -192,7 +205,11 @@ export function composeDraftAnswer(
     // description — the typed answer IS the description, whatever else it carries.
     const recipient = answer.trim();
     if (!recipient) {
-        return { draft: { ...draft, currency: absorbed.currency }, accepted: false, dateResult: null };
+        return {
+            draft: { ...withAddition, ...absorbed, recipient: draft.recipient },
+            accepted: false,
+            dateResult: null,
+        };
     }
     return {
         accepted: true,

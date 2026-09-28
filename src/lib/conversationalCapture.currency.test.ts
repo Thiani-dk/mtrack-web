@@ -181,8 +181,8 @@ describe('the confirmation sentence', () => {
             ...base, amount: 45_000, currency: UNSTATED_CURRENCY, recipient: 'Kevin',
         });
         expect(sentence).toBe(
-            "Ksh 45,000 from Kevin, on 11 September 2026 — I've assumed Kenyan Shillings, "
-            + 'since none was mentioned. Right?',
+            'Ksh 45,000 from Kevin, on 11 September 2026, taking that as Kenyan Shillings '
+            + 'since none was named. Right?',
         );
     });
 

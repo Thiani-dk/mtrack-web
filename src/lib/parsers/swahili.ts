@@ -77,6 +77,69 @@ export function normalizeSwahiliNumerals(text: string): string {
         .replace(SWAHILI_DIGIT_RE, (_w, mult: string, digits: string) => `${digits} ${mult.toLowerCase()}`);
 }
 
+// ── Sheng denominations ──────────────────────────────────────────────────────
+
+// Money words that name an amount rather than a count. One extensible table,
+// with a verification rule attached to it.
+//
+// A slang term is only added here once its value has been confirmed in at
+// least two independent sources. Sheng is not standardised and shifts by
+// generation and neighbourhood, so a term someone "is fairly sure about" is a
+// term that will one day file a 1,000-shilling line as 20. The sources for
+// every entry below are listed in the pass report.
+//
+// Deliberately NOT added, despite being attested: "punch" (500). It is an
+// ordinary English noun and a plausible thing to buy, and a table entry that
+// turns "bought punch for 200" into 500 would be worse than not knowing the
+// word at all.
+export const SHENG_DENOMINATIONS: Record<string, number> = {
+    kobole: 5,
+    ashuu: 10,
+    mbao: 20,
+    finje: 50,
+    chwani: 50,
+    chuani: 50,
+    soo: 100,
+    so: 100,
+    rwabe: 200,
+    thao: 1000,
+    ngiri: 1000,
+};
+
+const DENOM_SOURCE = Object.keys(SHENG_DENOMINATIONS).join('|');
+
+// "soo mbili" is two hundred: the denomination leads and the count follows,
+// the same order as "elfu tatu". Rewritten into "2 soo" so the amount
+// extractor's existing multiplier machinery reads it, exactly as the Swahili
+// numerals are.
+const SHENG_COUNTED_RE = new RegExp(
+    String.raw`\b(${DENOM_SOURCE})\s+(${Object.keys(UNITS).join('|')})\b`, 'gi',
+);
+const SHENG_DIGIT_RE = new RegExp(String.raw`\b(${DENOM_SOURCE})\s+(\d+)\b`, 'gi');
+const SHENG_DIGIT_FIRST_RE = new RegExp(String.raw`\b(\d+)\s*(${DENOM_SOURCE})\b`, 'gi');
+const SHENG_BARE_RE = new RegExp(String.raw`\b(${DENOM_SOURCE})\b`, 'gi');
+
+// Whether the message already states a figure the amount extractor would take.
+// A bare denomination word is only read as money when nothing else in the
+// message is: "mbao" is also Swahili for timber, and "bought mbao for 500"
+// must stay five hundred shillings of boards, not twenty.
+const HAS_OTHER_FIGURE = /\d/;
+
+export function normalizeShengDenominations(text: string): string {
+    let out = text
+        .replace(SHENG_COUNTED_RE, (whole, denom: string, unit: string) => {
+            const n = UNITS[unit.toLowerCase()];
+            return n ? `${n} ${denom.toLowerCase()}` : whole;
+        })
+        .replace(SHENG_DIGIT_RE, (_w, denom: string, digits: string) => `${digits} ${denom.toLowerCase()}`)
+        .replace(SHENG_DIGIT_FIRST_RE, (_w, digits: string, denom: string) => `${digits} ${denom.toLowerCase()}`);
+
+    if (!HAS_OTHER_FIGURE.test(out)) {
+        out = out.replace(SHENG_BARE_RE, (_w, denom: string) => `1 ${denom.toLowerCase()}`);
+    }
+    return out;
+}
+
 // ── Prepositions ─────────────────────────────────────────────────────────────
 
 // Extends the existing structural direction inference rather than needing a
