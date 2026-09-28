@@ -186,13 +186,6 @@ const DEMO_ELSE_PROMPTS: Record<string, string> = {
     purpose: 'What was it for?',
 };
 
-const LEAD_INS = [
-    "Here's what stood out.",
-    'A few things I noticed.',
-    'Worth knowing:',
-    'Quick read on this lot:',
-];
-
 // A parsed-transaction count at or below this counts as "small" — worth
 // saying so plainly rather than promising a rich summary.
 const SMALL_RESULT_THRESHOLD = 3;
@@ -315,9 +308,9 @@ async function deliverInsights(
 
     if (!insightsEligible) {
         if (scoped.length === 0) {
-            await emitBotText("I couldn't find any transactions in that. Try copying the full message from your SMS app.");
+            await emitBotText(copyEntry('batch.nothingFound').variants[0]);
         } else {
-            await emitBotText("Here's the document. Check it over, edit anything, then tap Approve.");
+            await emitBotText(copyEntry('batch.documentReady').variants[0]);
         }
     } else if (scoped.length === 0) {
         // Every transaction was excluded (holds, failed, verification
@@ -325,9 +318,11 @@ async function deliverInsights(
         // still no receipt to build, so say so plainly instead of
         // promising "here's your summary" and then showing no receipt card
         // at all, which the guard below would otherwise silently skip.
-        await emitBotText("I couldn't find any transactions in that. Try copying the full message from your SMS app, starting from the MPESA confirmation.");
+        await emitBotText(copyEntry('batch.nothingFoundFull').variants[0]);
     } else if (scoped.length <= SMALL_RESULT_THRESHOLD) {
-        await emitBotText(`Only ${scoped.length} transaction${scoped.length === 1 ? '' : 's'} in there, but here's what I found.`);
+        await emitBotText(render(copyEntry('batch.small').variants[0], {
+            count: scoped.length, plural: scoped.length === 1 ? '' : 's',
+        }));
     } else {
         const dayCount = computeDaySpan(scoped);
         const context: InsightContext = {
@@ -340,9 +335,9 @@ async function deliverInsights(
         const insights = generateInsights(scoped, context);
 
         if (insights.length === 0) {
-            await emitBotText("All sorted. Nothing unusual this time, but here's your summary.");
+            await emitBotText(copyEntry('batch.nothingUnusual').variants[0]);
         } else {
-            await emitBotText(pickRandom(LEAD_INS));
+            await emitBotText(pickRandom([...copyEntry('batch.leadIn').variants]));
 
             for (const insight of insights) {
                 await sleep(400);
@@ -382,7 +377,9 @@ async function deliverInsights(
     }
     if (unresolved.length > MAX_DIRECTION_QUESTIONS) {
         await sleep(300);
-        await emitBotText(`${unresolved.length - MAX_DIRECTION_QUESTIONS} more like that are marked on the document for you to set.`);
+        await emitBotText(render(copyEntry('batch.moreDirections').variants[0], {
+            count: unresolved.length - MAX_DIRECTION_QUESTIONS,
+        }));
     }
 }
 
@@ -1051,7 +1048,7 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
         }
 
         await sleep(300);
-        addMessage({ role: 'bot', kind: 'text', text: 'Approved and saved. It is in your history now.' });
+        addMessage({ role: 'bot', kind: 'text', text: copyEntry('approve.saved').variants[0] });
     }, [isDemoSession, activeSession, persistDocument, setDocFlow, updateMessage, recordSession, addMessage]);
 
     const handleNearDuplicateKeep = useCallback((messageId: string) => {
@@ -1291,25 +1288,30 @@ export function ChatScreen({ demoMode, resumeSessionId, onBack, onOpenActiveMode
             if (demoFlow?.step === 'paste') return 'Send the message like a real one...';
             if (demoFlow?.awaitingText === 'amount') return 'Amount in Ksh...';
             if (demoFlow?.awaitingText) return 'Type your answer...';
-            return 'Tap an option above...';
+            return copyEntry('placeholder.tapOption').variants[0];
         }
+        const hint = (id: Parameters<typeof copyEntry>[0], params?: Record<string, string | number>) =>
+            render(copyEntry(id).variants[0], params);
         switch (docFlow?.pending) {
-            case 'mode': return 'Tap an option above...';
-            case 'zero-escape': return 'Tap an option above...';
-            case 'cancel-confirm': return 'Tap an option above...';
-            case 'correction-target': return 'Tap the one you meant...';
-            case 'business-name': return 'Business name...';
-            case 'party-name': return 'Who it was for...';
-            case 'purpose': return "What it was for, or 'skip'...";
-            case 'field-date': return 'A rough date...';
+            case 'mode': return hint('placeholder.tapOption');
+            case 'zero-escape': return hint('placeholder.tapOption');
+            case 'cancel-confirm': return hint('placeholder.tapOption');
+            case 'correction-target': return hint('placeholder.correctionTarget');
+            case 'business-name': return hint('placeholder.businessName');
+            case 'party-name': return hint('placeholder.partyName');
+            case 'purpose': return hint('placeholder.purpose');
+            case 'field-date': return hint('placeholder.date');
             // Prompting "in Ksh" while the conversation is running in USD is
             // the same silent coercion this flow was fixed for.
             case 'field-amount': return docFlow.draft.currency.explicit
-                ? `Amount in ${docFlow.draft.currency.code}...`
-                : 'Amount...';
+                ? hint('placeholder.amountIn', { currency: docFlow.draft.currency.code })
+                : hint('placeholder.amount');
             case 'field-recipient': return partyPlaceholder(docFlow.documentType);
-            case 'confirm': return "'yes' to confirm, or tell me what's off...";
-            default: return 'Copy your messages, or describe what you spent...';
+            // "'yes' to confirm" belongs to the confirmation and nowhere else.
+            // It used to be the hint under every question in the flow.
+            case 'confirm': return hint('placeholder.confirm');
+            case 'purpose-label': return hint('placeholder.purpose');
+            default: return hint('placeholder.open');
         }
     })();
     const canCompose = isDemoSession || !!activeSession;

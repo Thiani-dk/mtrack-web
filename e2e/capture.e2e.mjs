@@ -329,7 +329,11 @@ check('a question is on the table', /When was that\?/.test(parked), parked.slice
 await say('wait, what currencies do you support?');
 const answered = await lastBotLine();
 check('the question is answered', /Shillings/.test(answered), answered.slice(0, 160));
-check('and the parked question comes straight back', /Anyway —/.test(answered) && /when was that/i.test(answered));
+// Not the connective's wording, which is registry copy and free to change,
+// but the two facts: the answer and the parked question arrive together, and
+// the question comes back with its own capital rather than lowercased mid-line.
+check('and the parked question comes straight back',
+    /Shillings/.test(answered) && /When was that\?/.test(answered));
 check('it is not treated as gibberish', !/couldn.t pick anything out/i.test(await transcript()));
 
 await say('yesterday');

@@ -202,15 +202,6 @@ function variant(id: CopyId): string {
     return new TurnBuilder({}).text(id);
 }
 
-// "Anyway — how much was it?" reads as one sentence; "Anyway — How much..."
-// reads as two glued together. A prompt that starts with a proper noun or an
-// acronym is left alone.
-function lowerFirst(text: string): string {
-    const [first] = text.split(' ');
-    if (!first || first.slice(1) !== first.slice(1).toLowerCase()) return text;
-    return text.charAt(0).toLowerCase() + text.slice(1);
-}
-
 // ── Choosing a mode ─────────────────────────────────────────────────────────
 
 export function chooseMode(state: ConvState, value: string): TurnResult {
@@ -294,7 +285,7 @@ function handleFlow(b: TurnBuilder, state: ConvState, text: string, ctx: TurnCon
             const parked = parkedQuestion(state);
             b.say('meta.answerAndResume', {
                 answer: b.text(answerOrAdmitCopyId(t)),
-                question: lowerFirst(parked.text),
+                question: parked.text,
             }, { resumedCopyId: parked.copyId });
             return state;
         }
@@ -570,7 +561,7 @@ function handleDescription(b: TurnBuilder, state: ConvState, text: string, ctx: 
         const parked = parkedQuestion(state);
         b.say('meta.answerAndResume', {
             answer: b.text(questionIds[0]),
-            question: lowerFirst(parked.text),
+            question: parked.text,
         }, { resumedCopyId: parked.copyId });
         return state;
     }

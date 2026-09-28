@@ -44,9 +44,8 @@ export const COPY = {
     'open.greeting': {
         kind: 'statement',
         variants: [
-            "I'm M-Track. Copy your M-Pesa, Airtel Money, or any transaction confirmation messages "
-            + "and send them here. I'll break down what you spent, spot patterns, and put together "
-            + 'a receipt you can download.',
+            "I'm M-Track. I keep a record of money that changed hands. Paste your M-Pesa, "
+            + 'Airtel Money or bank messages, or just tell me what you spent.',
         ],
     },
     'open.modeQuestion': {
@@ -67,48 +66,49 @@ export const COPY = {
         variants: ["Still here. Copy your messages whenever you're ready."],
     },
     'open.resumeDraft': {
-        kind: 'question',
+        kind: 'statement',
         variants: [
             'Picking up where we left off. Edit anything on the document, or tap Approve when it looks right.',
         ],
     },
     'open.tapOne': {
-        kind: 'question',
+        kind: 'statement',
         variants: ["Tap one of the options above so I know what we're making."],
     },
 
     // Mode prompts
     'mode.ownPrompt': {
-        kind: 'question',
+        kind: 'statement',
         variants: [
-            "Copy your M-Pesa, Airtel Money, or bank messages in. If you don't have the message "
-            + 'for something, just tell me what you spent and when.',
+            'Paste your M-Pesa, Airtel Money or bank messages. If you do not have the message for '
+            + 'something, just tell me what you spent and when.',
         ],
     },
     'mode.posName': { kind: 'question', variants: ["What's the business name?"] },
     'mode.posItem': {
-        kind: 'question',
+        kind: 'statement',
         variants: [
-            'Now tell me what they bought and the amount. You can paste the M-Pesa message instead if you have it.',
+            'Now tell me what they bought and the amount. You can paste the M-Pesa message instead '
+            + 'if you have it.',
         ],
     },
     'mode.oboParty': { kind: 'question', variants: ['Who was this for?'] },
     'mode.oboPurpose': {
         kind: 'question',
-        variants: ["What was it for? Say skip if you'd rather leave that out."],
+        variants: ["Say skip if you'd rather leave it out. What was it for?"],
     },
     'mode.oboInput': {
-        kind: 'question',
-        variants: ['Copy the M-Pesa messages, or tell me what you spent and when.'],
+        kind: 'statement',
+        variants: ['Paste the M-Pesa messages, or tell me what you spent and when.'],
     },
 
     // Slot questions
     'ask.date': {
         kind: 'question',
-        variants: ["When was that? A rough date is fine, but I'd rather leave it blank than guess."],
+        variants: ["A rough date is fine, and I'd rather leave it blank than guess. When was that?"],
     },
     'ask.amount': { kind: 'question', variants: ['How much was it?'] },
-    'ask.amountRetry': { kind: 'question', variants: ['How much was it? A figure is enough.'] },
+    'ask.amountRetry': { kind: 'question', variants: ['A figure on its own is enough. How much was it?'] },
     'ask.party.expense_summary': {
         kind: 'question',
         variants: ['Who was it paid to?', 'Who did that one go to?'],
@@ -174,42 +174,41 @@ export const COPY = {
     },
     'cancel.confirm': {
         kind: 'question',
-        variants: ["You've got {summary} down already \u2014 scrap the whole thing, or stop here and keep it?"],
+        variants: ["You've got {summary} down already. Scrap the whole thing, or keep it and stop here?"],
     },
     'cancel.option.discard': { kind: 'option', variants: ['Discard everything'] },
     'cancel.option.keep': { kind: 'option', variants: ['Keep what I have'] },
     'cancel.discarded': { kind: 'terminal', variants: ['Scrapped, all of it. Nothing was saved.'] },
-    'cancel.tapOne': { kind: 'question', variants: ['Tap one of the two above and I will do that.'] },
+    'cancel.tapOne': { kind: 'statement', variants: ['Tap one of the two above and I will do that.'] },
 
     // Not understood
     'zero.ask1': {
         kind: 'question',
         variants: [
-            "I couldn't pick anything out of that. Could you tell me what you bought and how much, "
-            + "one thing at a time? Like: 'bought bacon for 3100.'",
+            "I couldn't pick anything out of that. One thing at a time works best, like "
+            + "'bought bacon for 3100'. What did you spend on, and how much?",
         ],
     },
     'zero.ask2': {
         kind: 'question',
         variants: [
-            'Still not landing, sorry. One thing at a time might help. What did you spend money on, '
-            + 'and how much was it?',
+            'Still not landing, sorry. What did you spend money on, and how much was it?',
         ],
     },
     'zero.escape': {
-        kind: 'question',
+        kind: 'statement',
         variants: ["I'm not getting there by asking, so let's try something else."],
     },
     'zero.option.paste': { kind: 'option', variants: ['Paste the message instead'] },
     'zero.option.skip': { kind: 'option', variants: ['Skip this one'] },
     'zero.option.restart': { kind: 'option', variants: ['Start over'] },
     'zero.pasteReady': {
-        kind: 'question',
-        variants: ['Go ahead \u2014 paste the M-PESA message itself and I will read it from there.'],
+        kind: 'statement',
+        variants: ['Go ahead. Paste the M-Pesa message itself and I will read it from there.'],
     },
     'zero.cleared': { kind: 'question', variants: ['Cleared. What did you spend on?'] },
     'zero.tapOne': {
-        kind: 'question',
+        kind: 'statement',
         variants: ['Tap one of the options above and we will take it from there.'],
     },
 
@@ -225,7 +224,7 @@ export const COPY = {
         variants: ['I lost track of which one that was. Which item should change, and to what?'],
     },
     'correction.tapOne': {
-        kind: 'question',
+        kind: 'statement',
         variants: ['Tap one of the items above and tell me the new figure.'],
     },
 
@@ -236,29 +235,29 @@ export const COPY = {
     'help.currency': {
         kind: 'help',
         variants: [
-            "Kenyan Shillings by default, but I'll lock onto whatever you mention \u2014 USD, EUR, "
-            + 'GBP, TZS, UGX, RWF. Whichever you name first holds for the whole record.',
+            "Kenyan Shillings by default. I'll follow whatever you name instead: USD, EUR, GBP, "
+            + 'TZS, UGX or RWF. The first one you say holds for the whole record.',
         ],
     },
     'help.remove': {
         kind: 'help',
         variants: [
-            'Tell me which one and what it should be, or say "scratch that" \u2014 and when the '
-            + 'receipt is on screen you can leave a line out of it before approving.',
+            'Tell me which one and what it should be. Once the document is on screen you can '
+            + 'also leave a line out of it before approving.',
         ],
     },
     'help.edit': {
         kind: 'help',
         variants: [
-            'Just say what\'s wrong \u2014 "actually the bacon was 3500" \u2014 and I\'ll change '
-            + 'that one and show you what moved.',
+            'Just say what is wrong, like "actually the bacon was 3500". I will change that one '
+            + 'and show you what moved.',
         ],
     },
     'help.paste': {
         kind: 'help',
         variants: [
-            "Paste an M-PESA message straight in and I'll read the amount, the date and who it "
-            + 'went to out of it. The Paste button next to the message box does it in one tap.',
+            'In your SMS app, press and hold the message, tap Copy, then tap the Paste button '
+            + "next to the message box here. I'll read the amount, the date and who it went to.",
         ],
     },
     'help.export': {
@@ -278,8 +277,8 @@ export const COPY = {
     'help.date': {
         kind: 'help',
         variants: [
-            'Anything readable works \u2014 "yesterday", "last Friday", "4 May". I\'ll say back '
-            + "how I read it, and I'd rather leave it blank than guess.",
+            'Anything readable works: "yesterday", "last Friday", "4 May". I will say back how '
+            + "I read it, and I'd rather leave it blank than guess.",
         ],
     },
     'help.unknown': {
@@ -288,34 +287,93 @@ export const COPY = {
     },
 
     // Meta questions
-    'meta.answerAndResume': { kind: 'help', variants: ['{answer} Anyway \u2014 {question}'] },
+    'meta.answerAndResume': { kind: 'help', variants: ['{answer}\n\nBack to it: {question}'] },
     'meta.answerAfterData': { kind: 'help', variants: ['To answer your question: {answer}'] },
 
     // Committing a line
     'commit.added': {
-        kind: 'question',
-        variants: ['Added. Tell me the next one, or tap Approve when the document looks right.'],
+        kind: 'statement',
+        variants: [
+            'Added. Tell me the next one, or tap Approve when the document looks right.',
+            "That's on the document. Add another, or tap Approve when it looks right.",
+        ],
     },
     'commit.addedDirection': {
-        kind: 'question',
+        kind: 'statement',
         variants: ['Added. Set which way that one went above, then tell me the next.'],
     },
     // Purpose labelling (on_behalf_of)
     'purpose.ask': {
         kind: 'question',
-        variants: ['What was the {amount} to {party} for? Say skip to leave it out.'],
+        variants: ['Say skip to leave it out. What was the {amount} to {party} for?'],
     },
     'purpose.done': {
-        kind: 'question',
+        kind: 'statement',
         variants: ["That's every line explained. Tap Approve when the document looks right."],
     },
+
+    // Narrating a pasted batch
+    'batch.leadIn': {
+        kind: 'statement',
+        variants: [
+            "Here's what stood out.",
+            'A few things I noticed.',
+            'Worth knowing:',
+            'Quick read on this lot:',
+        ],
+    },
+    'batch.nothingFound': {
+        kind: 'statement',
+        variants: ['I could not find any transactions in that. Try pasting the full message from your SMS app.'],
+    },
+    'batch.nothingFoundFull': {
+        kind: 'statement',
+        variants: [
+            'I could not find any transactions in that. Try pasting the full message from your SMS '
+            + 'app, starting from the M-Pesa confirmation.',
+        ],
+    },
+    'batch.documentReady': {
+        kind: 'statement',
+        variants: ['Here is the document. Check it over, edit anything, then tap Approve.'],
+    },
+    'batch.small': {
+        kind: 'statement',
+        variants: ['Only {count} transaction{plural} in there, but here is what I found.'],
+    },
+    'batch.nothingUnusual': {
+        kind: 'statement',
+        variants: ['All sorted. Nothing unusual this time, but here is your summary.'],
+    },
+    'batch.moreDirections': {
+        kind: 'statement',
+        variants: ['{count} more like that are marked on the document for you to set.'],
+    },
+
+    // Composer placeholders. The hint under the user's thumb is bot copy too:
+    // it was telling people to type "'yes' to confirm" at questions that were
+    // not the confirmation.
+    'placeholder.tapOption': { kind: 'option', variants: ['Tap an option above...'] },
+    'placeholder.correctionTarget': { kind: 'option', variants: ['Tap the one you meant...'] },
+    'placeholder.businessName': { kind: 'option', variants: ['Business name...'] },
+    'placeholder.partyName': { kind: 'option', variants: ['Who it was for...'] },
+    'placeholder.purpose': { kind: 'option', variants: ["What it was for, or 'skip'..."] },
+    'placeholder.date': { kind: 'option', variants: ['A rough date...'] },
+    'placeholder.amount': { kind: 'option', variants: ['Amount...'] },
+    'placeholder.amountIn': { kind: 'option', variants: ['Amount in {currency}...'] },
+    'placeholder.party.expense_summary': { kind: 'option', variants: ['Who it was paid to...'] },
+    'placeholder.party.personal_note': { kind: 'option', variants: ['Who it was paid to...'] },
+    'placeholder.party.point_of_sale': { kind: 'option', variants: ['What they bought...'] },
+    'placeholder.party.on_behalf_of': { kind: 'option', variants: ['Where it was spent...'] },
+    'placeholder.confirm': { kind: 'option', variants: ["'yes' to confirm, or say what's off..."] },
+    'placeholder.open': { kind: 'option', variants: ['Paste your messages, or say what you spent...'] },
 
     // Saving
     'approve.saved': { kind: 'terminal', variants: ['Approved and saved. It is in your history now.'] },
     'system.error': {
         kind: 'statement',
         variants: [
-            'Something went wrong while I was working on that. Nothing was lost \u2014 try sending it again.',
+            'Something went wrong while I was working on that. Nothing was lost, try sending it again.',
         ],
     },
 } as const satisfies Record<string, CopyEntry>;

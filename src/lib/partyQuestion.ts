@@ -49,13 +49,6 @@ export function partyFollowOn(documentType: DocumentType): string {
 }
 
 // The input placeholder alongside it, in the same voice.
-const PARTY_PLACEHOLDERS: Record<DocumentType, string> = {
-    expense_summary: 'Who it was paid to...',
-    personal_note: 'Who it was paid to...',
-    point_of_sale: 'What they bought...',
-    on_behalf_of: 'Where it was spent...',
-};
-
 export function partyPlaceholder(documentType: DocumentType): string {
-    return PARTY_PLACEHOLDERS[documentType];
+    return copyEntry(`placeholder.party.${documentType}` as CopyId).variants[0];
 }
