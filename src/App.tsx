@@ -7,6 +7,7 @@ import { HistoryScreen } from './components/HistoryScreen';
 import { AllTimeScreen } from './components/AllTimeScreen';
 import { ChatScreen } from './components/chat/ChatScreen';
 import { ActiveModeScreen } from './components/activeMode/ActiveModeScreen';
+import { DayCardScreen } from './components/dayCard/DayCardScreen';
 
 export default function App() {
     // Route resolution: on mount, check for a session still 'awaiting_input'
@@ -18,6 +19,7 @@ export default function App() {
     const [step, setStep] = useState<AppStep | null>(null);
     const [chatDemoMode, setChatDemoMode] = useState(false);
     const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
+    const [dayCardDocumentId, setDayCardDocumentId] = useState<string | null>(null);
 
     useEffect(() => {
         (async () => {
@@ -97,6 +99,10 @@ export default function App() {
                             setResumeSessionId(sessionId);
                             setStep('chat');
                         }}
+                        onOpenDayCard={(documentId) => {
+                            setDayCardDocumentId(documentId);
+                            setStep('dayCard');
+                        }}
                     />
                 );
 
@@ -104,12 +110,24 @@ export default function App() {
                 return (
                     <ActiveModeScreen
                         onBack={() => setStep('home')}
-                        // The finished shift is a document like any other — it
-                        // is viewed and exported through history, not through a
-                        // second viewer built for this screen.
-                        onFinished={() => setStep('history')}
+                        // The finished shift lands on its own day card — the
+                        // shareable "how did today go" view built for exactly
+                        // this document type (Phase 3). It can still be
+                        // reopened later from History like any other document.
+                        onFinished={(documentId) => {
+                            setDayCardDocumentId(documentId);
+                            setStep('dayCard');
+                        }}
                     />
                 );
+
+            case 'dayCard':
+                return dayCardDocumentId ? (
+                    <DayCardScreen
+                        documentId={dayCardDocumentId}
+                        onBack={() => { setDayCardDocumentId(null); setStep('history'); }}
+                    />
+                ) : null;
 
             case 'allTime':
                 return (

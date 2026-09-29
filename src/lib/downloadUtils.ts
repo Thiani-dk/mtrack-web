@@ -21,6 +21,10 @@ export function downloadPDF(blob: Blob, filename: string): void {
     triggerDownload(blob, filename);
 }
 
+export function downloadPNG(blob: Blob, filename: string): void {
+    triggerDownload(blob, filename);
+}
+
 export function downloadCSV(content: string, filename: string): void {
     // A leading BOM so a spreadsheet app opening the file directly (rather
     // than importing it with an explicit encoding step) reads it as UTF-8

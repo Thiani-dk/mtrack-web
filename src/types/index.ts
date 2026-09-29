@@ -7,7 +7,8 @@ export type AppStep =
     | 'activeMode'
     | 'history'
     | 'chat'
-    | 'allTime';
+    | 'allTime'
+    | 'dayCard';
 
 export type TransactionSubType =
     | 'person_send'

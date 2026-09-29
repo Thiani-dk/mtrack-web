@@ -208,6 +208,13 @@ export function captureFromTyped(text: string, now: Date = new Date()): CaptureR
         date: r.date ?? now,
         purposeLabel: r.purposeLabel,
         lineItems: r.itemisation?.items ?? null,
+        // A typed line carries no message, which is the same fact a cash sale
+        // is honest about (see buildCashSale below) — there is no payment
+        // channel to name, whether the vendor reached this by typing a whole
+        // line or by tapping Cash and a preset. One tag for "no message
+        // behind this", not two, is what keeps the day card's M-Pesa/cash
+        // split (and its "hasCash" gate) meaning the same thing everywhere.
+        method: CASH_METHOD,
         // Everything captured here is a sale. A typed line carries no message
         // for the oracle to read, so the direction comes from the mode — and
         // is marked as assumed, exactly as a pasted unresolvable one is.

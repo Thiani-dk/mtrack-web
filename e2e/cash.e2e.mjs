@@ -11,6 +11,12 @@ const browser = await launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
 const page = await ctx.newPage();
 page.on('pageerror', e => check('no uncaught page errors', false, e.message));
+// A console.error (as opposed to an uncaught exception) is how React reports
+// a runaway render loop — it does not throw, so pageerror alone would miss
+// it. This exact check caught a real one (OverlayStackProvider's register/
+// unregister recreated every render, looping the moment any overlay opened).
+const consoleErrors = [];
+page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 
 const chip = name => page.locator(`.am-chips button[data-bucket="${name}"]`);
 const storedTransactions = () => page.evaluate(async () => {
@@ -133,6 +139,8 @@ check('the CSV has a header row and one row per transaction, no totals row',
     `rows=${csvContent.trim().split(/\r\n/).length} txns=${withLumpSums.length}`);
 
 await page.screenshot({ path: join(SHOT_DIR, 'cash-final.png') });
+
+check('no console errors along the way (the cash overlay opened and closed several times)', consoleErrors.length === 0, consoleErrors.join(' | '));
 
 await browser.close();
 finish();

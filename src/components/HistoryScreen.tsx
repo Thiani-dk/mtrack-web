@@ -13,6 +13,12 @@ interface HistoryScreenProps {
     onBack: () => void;
     onDemoClick: () => void;
     onResumeDraft: (sessionId: string) => void;
+    // A finished day card gets its own shareable preview (Phase 3) rather
+    // than the generic PDF re-download every other document type uses —
+    // that view is also where the sales-log export's customer-name-scrubbing
+    // reshape happens, so an approved daily_sales row must route here rather
+    // than through the plain "Save again" PDF path.
+    onOpenDayCard: (documentId: string) => void;
 }
 
 type FilterKey = 'all' | DocumentType;
@@ -85,13 +91,14 @@ function saleCountSuffix(doc: TrackedDocument): string {
 }
 
 function DocumentCard({
-    doc, onDelete, confirmingDelete, onRequestDelete, onResume,
+    doc, onDelete, confirmingDelete, onRequestDelete, onResume, onOpenDayCard,
 }: {
     doc: TrackedDocument;
     onDelete: (id: string) => void;
     confirmingDelete: boolean;
     onRequestDelete: (id: string | null) => void;
     onResume: (sessionId: string) => void;
+    onOpenDayCard: (documentId: string) => void;
 }) {
     const [downloading, setDownloading] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
@@ -157,6 +164,15 @@ function DocumentCard({
                     >
                         Continue
                     </motion.button>
+                ) : doc.documentType === 'daily_sales' ? (
+                    <motion.button
+                        onClick={() => onOpenDayCard(doc.id)}
+                        className="btn-primary flex-1 min-h-[40px] rounded-xl text-sm font-medium flex items-center justify-center gap-1.5"
+                        whileTap={{ scale: 0.97 }}
+                    >
+                        <CalendarDays className="w-3.5 h-3.5" />
+                        View card
+                    </motion.button>
                 ) : (
                     <motion.button
                         onClick={handleRedownload}
@@ -186,7 +202,7 @@ function DocumentCard({
     );
 }
 
-export function HistoryScreen({ onBack, onDemoClick, onResumeDraft }: HistoryScreenProps) {
+export function HistoryScreen({ onBack, onDemoClick, onResumeDraft, onOpenDayCard }: HistoryScreenProps) {
     const { documents, isLoading, isAvailable, deleteDocument } = useDocumentStore();
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
     const [filter, setFilter] = useState<FilterKey>('all');
@@ -280,6 +296,7 @@ export function HistoryScreen({ onBack, onDemoClick, onResumeDraft }: HistoryScr
                                 confirmingDelete={confirmDeleteId === doc.id}
                                 onRequestDelete={setConfirmDeleteId}
                                 onResume={onResumeDraft}
+                                onOpenDayCard={onOpenDayCard}
                             />
                         ))}
                     </AnimatePresence>

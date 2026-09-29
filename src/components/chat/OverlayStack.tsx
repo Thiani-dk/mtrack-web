@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 // Shared card-stack depth metaphor for every .glass-panel overlay in the
@@ -42,12 +42,19 @@ export function OverlayStackProvider({ children }: { children: ReactNode }) {
     const [stack, setStack] = useState<StackEntry[]>([]);
     const reducedMotion = useReducedMotion();
 
-    const register = (entry: StackEntry) => {
+    // Stable identities, always — every StackedPanel's registration effect
+    // depends on these, and an unstable function here (a plain closure,
+    // recreated on every provider render) would re-fire that effect on every
+    // render it causes, which re-fires it again, forever: an infinite loop
+    // that still happens to leave the DOM looking correct (each cycle's last
+    // write sticks before React's own update-depth guard cuts it off), so it
+    // was only ever visible as console warning spam, not a functional bug.
+    const register = useCallback((entry: StackEntry) => {
         setStack(prev => [...prev.filter(e => e.id !== entry.id), entry]);
-    };
-    const unregister = (id: string) => {
+    }, []);
+    const unregister = useCallback((id: string) => {
         setStack(prev => prev.filter(e => e.id !== id));
-    };
+    }, []);
 
     const showScrim = stack.some(e => e.scrim);
     const closeTop = () => {
