@@ -79,9 +79,16 @@ check('the detour did not answer the date question',
     /rough date/i.test(await hint() ?? ''), String(await hint()));
 
 // ── Answer it, then correct the figure in one message ──
+// "Yesterday" is relative to the real clock (there is no fixed-date test
+// harness for the live e2e app, unlike the unit scenarios), so the expected
+// wording is computed the same way rather than hardcoded — a hardcoded date
+// string here is exactly what made this check fail on every date but the one
+// it was written on.
 await say('yesterday');
 const confirmed = await transcript();
-check('the date is said back, in words', /27 September 2026/.test(confirmed), confirmed.slice(-200));
+const yesterday = new Date(Date.now() - 86400000);
+const yesterdayLabel = yesterday.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+check('the date is said back, in words', confirmed.includes(yesterdayLabel), confirmed.slice(-200));
 check('and the confirmation reads as English, not as a form',
     /for bacon/.test(confirmed) && !/to Bacon/.test(confirmed), confirmed.slice(-200));
 check('the composer hint says how to confirm, here and only here',

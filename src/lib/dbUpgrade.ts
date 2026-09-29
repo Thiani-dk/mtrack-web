@@ -14,7 +14,7 @@ import { computeCoveringDates } from './documentModel';
 // ---------------------------------------------------------------------------
 
 export const MTRACK_DB_NAME = 'mtrack-db';
-export const MTRACK_DB_VERSION = 5;
+export const MTRACK_DB_VERSION = 6;
 
 export const RECEIPTS_STORE = 'receipts';
 export const SESSIONS_STORE = 'sessions';
@@ -39,6 +39,24 @@ function migrateTransaction(t: ParsedTransaction): ParsedTransaction {
         purposeLabel: null,
         bucketLabel: legacy.bucketLabel ?? null,
     };
+}
+
+// Every document already in the store (draft or approved — a shift closed
+// mid-day is still saved as a draft, and must resume as one) whose
+// documentType is 'expense_summary' AND capturedViaActiveMode is true is an
+// Active Mode day wearing the wrong document type.
+export function isActiveModeExpenseSummary(doc: TrackedDocument): boolean {
+    return doc.documentType === 'expense_summary' && doc.capturedViaActiveMode === true;
+}
+
+// Flips the documentType to 'daily_sales' and changes nothing else:
+// transactions, activeMode (the bucket list and any pending capture),
+// merchantProfile, timestamps all carry across untouched. Idempotent by
+// construction — once a record's documentType is 'daily_sales',
+// isActiveModeExpenseSummary(doc) is false, so calling this again (or running
+// the whole upgrade again) touches nothing further.
+export function migrateToDailySales(doc: TrackedDocument): TrackedDocument {
+    return { ...doc, documentType: 'daily_sales' };
 }
 
 // A legacy StoredReceipt record, lifted into the unified document model. Every
@@ -102,6 +120,36 @@ export function applyUpgrade(db: IDBDatabase, txn: IDBTransaction | null): void 
                     // Leave the record as-is rather than abort the upgrade.
                 }
             }
+        };
+    }
+
+    // v6 — Active Mode gets its own document type. A day's trading is income,
+    // not spending (see documentPipeline.ts), and a document that reused
+    // expense_summary could in principle have been swept into insights or
+    // all-time totals by anything that later scanned approved expense
+    // summaries — a day's sales are the one thing that must never happen to.
+    //
+    // isActiveModeExpenseSummary / migrateToDailySales are pure and exported
+    // so the decision and the transform are unit-testable without a real
+    // IndexedDB (this project's convention is to test IndexedDB *wiring*
+    // through the browser e2e suite, and keep the actual logic in plain
+    // functions the unit suite can drive directly).
+    if (txn && db.objectStoreNames.contains(DOCUMENTS_STORE)) {
+        const documentsStore = txn.objectStore(DOCUMENTS_STORE);
+        const cursorReq = documentsStore.openCursor();
+        cursorReq.onsuccess = () => {
+            const cursor = cursorReq.result;
+            if (!cursor) return;
+            const doc = cursor.value as TrackedDocument;
+            if (isActiveModeExpenseSummary(doc)) {
+                try {
+                    cursor.update(migrateToDailySales(doc));
+                } catch {
+                    // A single malformed record must not abort the whole
+                    // upgrade — it is simply left as it was.
+                }
+            }
+            cursor.continue();
         };
     }
 

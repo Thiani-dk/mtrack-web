@@ -65,7 +65,6 @@ function model(lines: DocLine[], over: Partial<DocModel> = {}): DocModel {
         heroAmount: 'KES 84,300.00',
         heroSubtitle: null,
         heroMeta: `${lines.length} items  ·  1 – 31 Aug 2026`,
-        buckets: [],
         sectionLabel: 'EXPENSES',
         lines,
         totals: [

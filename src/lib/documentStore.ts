@@ -12,7 +12,7 @@ import {
 // Shared with receiptStore.ts, chatSessionStore.ts and allTimeStore.ts — all
 // four open the SAME 'mtrack-db'. Bump every one of these in lockstep, never
 // alone (see dbUpgrade.ts).
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 export function initDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {

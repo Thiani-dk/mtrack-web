@@ -1,4 +1,4 @@
-import type { DocumentType } from '../types';
+import type { ChatDocumentType } from '../types';
 import type { CaptureSlot } from './conversationalCapture';
 
 // Every real-world message shape that has broken extraction in this project,
@@ -70,7 +70,7 @@ export interface ExtractionShape {
     datedInMessage?: boolean;
     // Applies to every type unless a case overrides the pieces it can.
     expect?: ShapeExpectations;
-    byType: Record<DocumentType, ShapeCase>;
+    byType: Record<ChatDocumentType, ShapeCase>;
 }
 
 const WINGS = '2 buckets of chicken wings, one spicy, one sweet(honey dipped). worth 2999 ksh';

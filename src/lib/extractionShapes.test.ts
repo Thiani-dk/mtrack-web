@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DocumentType } from '../types';
+import type { ChatDocumentType } from '../types';
 import { composeDescription, composeDraftAnswer, emptyCaptureDraft, type CaptureDraft } from './captureDraft';
 import {
     buildSelfReportedTransaction, composeSlotQuestion, extractDescription, openSlots,
@@ -24,7 +24,7 @@ import { EXTRACTION_SHAPES, type ExtractionShape, type ShapeCase } from './extra
 
 const NOW = new Date('2026-09-12T09:00:00');
 
-const TYPES: readonly DocumentType[] = [
+const TYPES: readonly ChatDocumentType[] = [
     'expense_summary', 'personal_note', 'point_of_sale', 'on_behalf_of',
 ];
 
@@ -32,14 +32,14 @@ const TYPES: readonly DocumentType[] = [
 // which found two defects — a quantity dropped on the way in, and a sale
 // recorded as money out — that were invisible to a harness reading only the
 // draft. What the customer holds is the thing worth asserting.
-const docMeta = (documentType: DocumentType) => ({
+const docMeta = (documentType: ChatDocumentType) => ({
     documentType,
     coveringFrom: null,
     coveringTo: null,
     merchantProfile: { businessName: 'Kibanda', phone: null, location: null },
 } as unknown as DocRenderMeta);
 
-function documentFor(draft: CaptureDraft, documentType: DocumentType) {
+function documentFor(draft: CaptureDraft, documentType: ChatDocumentType) {
     const tx = buildSelfReportedTransaction({
         amount: draft.amount ?? 0,
         currency: draft.currency.code,
@@ -57,7 +57,7 @@ function documentFor(draft: CaptureDraft, documentType: DocumentType) {
 }
 
 // What the flow would ask next, word for word. Mirrors askNextField.
-function nextQuestion(draft: CaptureDraft, documentType: DocumentType): string | null {
+function nextQuestion(draft: CaptureDraft, documentType: ChatDocumentType): string | null {
     return composeSlotQuestion(openSlots(draft), {
         date: 'When was that?',
         amount: 'How much was it?',
@@ -65,7 +65,7 @@ function nextQuestion(draft: CaptureDraft, documentType: DocumentType): string |
     }, documentType)?.text ?? null;
 }
 
-function run(shape: ExtractionShape, documentType: DocumentType): {
+function run(shape: ExtractionShape, documentType: ChatDocumentType): {
     expected: ShapeCase; draft: CaptureDraft; settled: CaptureDraft; asked: string | null;
 } {
     const expected = shape.byType[documentType];

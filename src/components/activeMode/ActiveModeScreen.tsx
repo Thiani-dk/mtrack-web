@@ -82,6 +82,11 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
     // A one-line explanation of the screen-awake indicator, shown on tap
     // rather than sitting on screen permanently.
     const [wakeNoteOpen, setWakeNoteOpen] = useState(false);
+    // Tapping Finish with nothing recorded used to do nothing at all — the
+    // button was simply disabled. Enabled now, so a tap gets a plain answer
+    // ("nothing recorded yet") instead of silence, and an obvious way to keep
+    // going rather than a dead end.
+    const [finishNotice, setFinishNotice] = useState('');
 
     // The screen stays on for as long as this screen is open, and is handed
     // back the moment it unmounts. Nothing to show where the API does not
@@ -108,7 +113,7 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
             try {
                 const drafts = await getDrafts();
                 existing = drafts
-                    .filter(d => d.capturedViaActiveMode)
+                    .filter(d => d.documentType === 'daily_sales')
                     .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
             } catch {
                 // IndexedDB unavailable — start a fresh in-memory session
@@ -138,7 +143,7 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
         if (!hydrated || !sessionId) return;
         const doc = buildDraft({
             sessionId,
-            documentType: 'expense_summary',
+            documentType: 'daily_sales',
             merchantProfile: null,
             onBehalfOf: null,
             transactions,
@@ -223,11 +228,15 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
     const handleFinish = useCallback(async () => {
         if (!sessionId) return;
         const finalTransactions = pending ? [...transactions, fileInto(pending, UNSORTED)] : transactions;
-        if (finalTransactions.length === 0) return;
+        if (finalTransactions.length === 0) {
+            setFinishNotice("Nothing recorded yet. Paste a sale, or log a cash one, and Finish will be ready.");
+            setTimeout(() => setFinishNotice(''), 4000);
+            return;
+        }
 
         const doc = buildDraft({
             sessionId,
-            documentType: 'expense_summary',
+            documentType: 'daily_sales',
             merchantProfile: null,
             onBehalfOf: null,
             transactions: finalTransactions,
@@ -487,8 +496,7 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                         </button>
                         <button
                             onClick={handleFinish}
-                            disabled={transactions.length === 0 && !pending}
-                            className="rounded-full px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 whitespace-nowrap"
+                            className="rounded-full px-3 py-1.5 text-xs font-medium text-white whitespace-nowrap"
                             style={{ background: 'var(--accent)' }}
                         >
                             Finish
@@ -506,6 +514,11 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                     <p className="mt-1.5 text-[11px] text-[var(--text-muted)] leading-snug">
                         Your screen will stay on while this is open, so you don't have to keep
                         tapping it awake.
+                    </p>
+                )}
+                {finishNotice && (
+                    <p className="mt-1.5 text-[11px] text-[var(--accent)] leading-snug">
+                        {finishNotice}
                     </p>
                 )}
             </header>

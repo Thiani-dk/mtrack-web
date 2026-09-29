@@ -6,7 +6,7 @@ import { computeReceiptData, generateReceiptPDF, type DocRenderMeta } from '../l
 import { formatCovering, claimTotals } from '../lib/documentRender';
 import { fmt as fmtKsh } from '../lib/receiptGenerator';
 import { downloadPDF, getReceiptFilenames } from '../lib/downloadUtils';
-import { ArrowLeft, Download, Trash2, Inbox, FileText, StickyNote, ReceiptText, HandCoins } from 'lucide-react';
+import { ArrowLeft, Download, Trash2, Inbox, FileText, StickyNote, ReceiptText, HandCoins, CalendarDays } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 
 interface HistoryScreenProps {
@@ -23,6 +23,7 @@ const FILTERS: { key: FilterKey; label: string }[] = [
     { key: 'personal_note', label: 'Notes' },
     { key: 'point_of_sale', label: 'Receipts given' },
     { key: 'on_behalf_of', label: 'Claims' },
+    { key: 'daily_sales', label: 'Days' },
 ];
 
 const TYPE_META: Record<DocumentType, { label: string; Icon: typeof FileText }> = {
@@ -30,6 +31,7 @@ const TYPE_META: Record<DocumentType, { label: string; Icon: typeof FileText }> 
     personal_note: { label: 'Note', Icon: StickyNote },
     point_of_sale: { label: 'Receipt given', Icon: ReceiptText },
     on_behalf_of: { label: 'Claim', Icon: HandCoins },
+    daily_sales: { label: 'Day card', Icon: CalendarDays },
 };
 
 function relativeTime(ts: number): string {
@@ -71,6 +73,15 @@ function draftStage(doc: TrackedDocument): string {
     const n = doc.transactions.filter(t => !t.excludedFromReceipt).length;
     if (n === 0) return 'Draft, just started';
     return `Draft, ${n} item${n === 1 ? '' : 's'} so far, not approved`;
+}
+
+// A day card's row states the sale count alongside its date, since "how many
+// sales" is the second thing a vendor scanning their history wants to know —
+// the total alone does not say whether it was a big day or a few big sales.
+function saleCountSuffix(doc: TrackedDocument): string {
+    if (doc.documentType !== 'daily_sales') return '';
+    const n = doc.transactions.filter(t => !t.excludedFromReceipt).length;
+    return n === 0 ? '' : `  ·  ${n} sale${n === 1 ? '' : 's'}`;
 }
 
 function DocumentCard({
@@ -124,6 +135,7 @@ function DocumentCard({
                     <p className="text-sm font-semibold text-[var(--text-primary)] mt-0.5">{relativeTime(doc.updatedAt)}</p>
                     <p className="text-xs text-[var(--text-muted)] mt-0.5">
                         {isDraft ? draftStage(doc) : (covering || 'No dates')}
+                        {!isDraft && saleCountSuffix(doc)}
                     </p>
                 </div>
                 <div className="text-right flex-shrink-0">

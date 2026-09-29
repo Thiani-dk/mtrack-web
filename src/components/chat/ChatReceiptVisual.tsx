@@ -399,17 +399,23 @@ function CategoryList({ data, transactions }: { data: ReceiptData; transactions:
 
 // Kept in step with documentLayout.ts — the live card and the exported
 // document must not disagree on a title or a total label.
+// daily_sales never actually reaches this component — Active Mode builds and
+// finishes its own document without going through the chat's receipt card —
+// but the type is a real DocumentType now, so it still needs a real label
+// rather than a placeholder in case that ever changes.
 const TYPE_LABEL: Record<DocRenderMeta['documentType'], string> = {
     expense_summary: 'EXPENSE SUMMARY',
     personal_note: 'PERSONAL RECORD',
     point_of_sale: 'SALES RECEIPT',
     on_behalf_of: 'REIMBURSEMENT CLAIM',
+    daily_sales: 'DAY CARD',
 };
 const HERO_LABEL: Record<DocRenderMeta['documentType'], string> = {
     expense_summary: 'TOTAL SPENT',
     personal_note: 'TOTAL',
     point_of_sale: 'TOTAL PAID',
     on_behalf_of: 'TOTAL CLAIM',
+    daily_sales: 'TOTAL SALES',
 };
 
 export function ChatReceiptVisual({ data, meta, playEntrance, onLabelChange, onEditTransaction }: ChatReceiptVisualProps) {

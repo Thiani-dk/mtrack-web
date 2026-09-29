@@ -41,8 +41,22 @@ export type ExpenseLabel =
 // Unified document model (see documentStore.ts)
 // ---------------------------------------------------------------------------
 
-export type DocumentType = 'expense_summary' | 'personal_note' | 'point_of_sale' | 'on_behalf_of';
+export type DocumentType =
+    | 'expense_summary' | 'personal_note' | 'point_of_sale' | 'on_behalf_of'
+    // A day's trading, built through Active Mode. Income, not spending — see
+    // documentPipeline.ts, which keeps it out of insights and all-time totals
+    // the same way point_of_sale and on_behalf_of already are. Labelled
+    // "Day card" wherever a document type needs a human name.
+    | 'daily_sales';
 export type DocumentStatus = 'draft' | 'approved';
+
+// The four document types the conversational chat flow can build. daily_sales
+// is deliberately excluded — it is only ever produced by Active Mode's own
+// capture screen, never by a chat conversation, so nothing conversation-shaped
+// (a fixture, a per-type question, a scenario) needs a daily_sales case at
+// all, and forcing one into those Records would mean inventing meaningless
+// data for a path that can never be reached.
+export type ChatDocumentType = Exclude<DocumentType, 'daily_sales'>;
 
 // A single transaction's provenance, and — one level up — a whole document's.
 // 'sms_verified': produced by the SMS parsing pipeline.

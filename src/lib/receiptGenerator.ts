@@ -273,11 +273,15 @@ export async function generateReceiptPDF(transactions: ParsedTransaction[], meta
 
 // Plain-text summary for the Web Share API / clipboard fallback — deliberately
 // short, not the full receipt.
+// daily_sales has its own summary text in dayCard.ts (the day card's own
+// share fallback), so this branch of summariseReceiptForShare is never
+// actually reached for it — but the Record still needs a real entry.
 const DOC_NOUN: Record<DocRenderMeta['documentType'], string> = {
     expense_summary: 'Expense summary',
     personal_note: 'Personal record',
     point_of_sale: 'Receipt',
     on_behalf_of: 'Reimbursement claim',
+    daily_sales: 'Day card',
 };
 
 export function summariseReceiptForShare(transactions: ParsedTransaction[], meta: DocRenderMeta): string {
