@@ -9,7 +9,7 @@ import { buildDayCardExportLayout, renderDayCardPng } from '../../lib/dayCard/re
 import { salesLogTransactions } from '../../lib/dayCard/salesLog';
 import { DayCardPrimitivesView } from './DayCardPrimitivesView';
 import type { DayCardTheme } from '../../lib/dayCard/theme';
-import type { LayoutResult } from '../../lib/dayCard/primitives';
+import type { LayoutResult } from '../../lib/documentPrimitives';
 import { share } from '../../lib/shareUtils';
 import { downloadCSV, downloadPDF, downloadPNG } from '../../lib/downloadUtils';
 import { buildDailySalesCsv } from '../../lib/activeMode/csv';

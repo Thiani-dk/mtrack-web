@@ -8,6 +8,7 @@ import { AllTimeScreen } from './components/AllTimeScreen';
 import { ChatScreen } from './components/chat/ChatScreen';
 import { ActiveModeScreen } from './components/activeMode/ActiveModeScreen';
 import { DayCardScreen } from './components/dayCard/DayCardScreen';
+import { ReceiptScreen } from './components/receipt/ReceiptScreen';
 
 export default function App() {
     // Route resolution: on mount, check for a session still 'awaiting_input'
@@ -20,6 +21,7 @@ export default function App() {
     const [chatDemoMode, setChatDemoMode] = useState(false);
     const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
     const [dayCardDocumentId, setDayCardDocumentId] = useState<string | null>(null);
+    const [receiptDocumentId, setReceiptDocumentId] = useState<string | null>(null);
 
     useEffect(() => {
         (async () => {
@@ -103,6 +105,10 @@ export default function App() {
                             setDayCardDocumentId(documentId);
                             setStep('dayCard');
                         }}
+                        onOpenReceipt={(documentId) => {
+                            setReceiptDocumentId(documentId);
+                            setStep('receipt');
+                        }}
                     />
                 );
 
@@ -126,6 +132,14 @@ export default function App() {
                     <DayCardScreen
                         documentId={dayCardDocumentId}
                         onBack={() => { setDayCardDocumentId(null); setStep('history'); }}
+                    />
+                ) : null;
+
+            case 'receipt':
+                return receiptDocumentId ? (
+                    <ReceiptScreen
+                        documentId={receiptDocumentId}
+                        onBack={() => { setReceiptDocumentId(null); setStep('history'); }}
                     />
                 ) : null;
 

@@ -2,6 +2,7 @@ import type {
     ActiveModeState, DocumentType, MerchantProfile, OnBehalfOfContext, ParsedTransaction, TrackedDocument,
 } from '../types';
 import { reconcileDocument } from './documentModel';
+import { generateReceiptNumber } from './dbUpgrade';
 
 // Builds (or updates) the draft TrackedDocument that backs an in-progress
 // conversational document. Its id is the chat session's id — one draft per
@@ -23,6 +24,12 @@ export function buildDraft(params: {
     transactions: ParsedTransaction[];
     existing?: TrackedDocument | null;
     now?: number;
+    // point_of_sale only — set after the fact (like the day card's
+    // stallName), never during capture. Omitted leaves whatever the existing
+    // draft already had; only an explicit value (including '') changes it.
+    servedBy?: string | null;
+    tip?: number | null;
+    discount?: number | null;
 }): TrackedDocument {
     const now = params.now ?? Date.now();
     const base: TrackedDocument = params.existing ?? {
@@ -39,6 +46,13 @@ export function buildDraft(params: {
         coveringTo: null,
         capturedViaActiveMode: params.capturedViaActiveMode ?? false,
         activeMode: params.activeMode ?? null,
+        // Generated once, from the id this document will always keep — see
+        // generateReceiptNumber's own note on why this replaced a
+        // clock-read-on-every-render reference.
+        receiptNumber: generateReceiptNumber(params.sessionId, now),
+        servedBy: null,
+        tip: null,
+        discount: null,
     };
 
     return reconcileDocument({
@@ -50,5 +64,8 @@ export function buildDraft(params: {
         onBehalfOf: params.onBehalfOf,
         transactions: params.transactions,
         activeMode: params.activeMode !== undefined ? params.activeMode : base.activeMode,
+        servedBy: params.servedBy !== undefined ? params.servedBy : base.servedBy,
+        tip: params.tip !== undefined ? params.tip : base.tip,
+        discount: params.discount !== undefined ? params.discount : base.discount,
     }, now);
 }

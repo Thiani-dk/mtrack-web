@@ -8,7 +8,8 @@ export type AppStep =
     | 'history'
     | 'chat'
     | 'allTime'
-    | 'dayCard';
+    | 'dayCard'
+    | 'receipt';
 
 export type TransactionSubType =
     | 'person_send'
@@ -121,6 +122,24 @@ export interface TrackedDocument {
     // Drives the bucket-breakdown section in the report, and scopes the
     // direction-default exception. Never set retroactively.
     capturedViaActiveMode: boolean;
+    // A stable, human-scannable reference — generated once, from `id` and
+    // `createdAt`, and never regenerated (see generateReceiptNumber in
+    // dbUpgrade.ts). Every document has one, not just point_of_sale, since a
+    // reference that changes every time a document is re-rendered was a real,
+    // pre-existing bug (generateReceiptRef in receiptGenerator.ts, called
+    // fresh on every render from the current clock minute — two documents
+    // rendered in the same minute collided, and the same document rendered a
+    // minute apart disagreed with itself).
+    receiptNumber: string;
+    // ── point_of_sale (the sales receipt) only — null on every other type ──
+    // Set after the fact, like the day card's stallName; never asked for
+    // during capture.
+    servedBy: string | null;
+    // Reconciliation: an amount added or subtracted from the transactions'
+    // own total, each with its own printed line, rather than silently
+    // editing a transaction's amount to match what was actually paid.
+    tip: number | null;
+    discount: number | null;
 }
 
 export interface ParsedTransaction {

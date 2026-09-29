@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildDayCardPrimitives, CARD_WIDTH } from './layout';
 import { dayCardCompactHourLabel, type DayCardData } from './model';
-import { estimateTextWidth } from './primitives';
-import type { TextRun, Primitive, Rect } from './primitives';
+import { estimateTextWidth } from '../documentPrimitives';
+import type { TextRun, Primitive, Rect } from '../documentPrimitives';
 
 // Geometry, arithmetic-identity and determinism tests for the day card's
 // positioned-primitives layout. Uses the deterministic estimator rather than
@@ -78,7 +78,7 @@ describe('day card layout: geometry', () => {
                 expect(p.y).toBeGreaterThanOrEqual(0);
                 expect(p.x + p.width).toBeLessThanOrEqual(result.width + 0.5);
                 expect(p.y + p.height).toBeLessThanOrEqual(result.height + 0.5);
-            } else {
+            } else if (isTextRun(p)) {
                 const box = textBox(p);
                 expect(box.left).toBeGreaterThanOrEqual(-1);
                 expect(box.right).toBeLessThanOrEqual(result.width + 1);

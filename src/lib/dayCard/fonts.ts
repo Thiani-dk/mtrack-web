@@ -17,9 +17,13 @@
 const SERIF_FAMILY = 'Source Serif 4 Web';
 const SANS_FAMILY = 'Geist Web';
 
-export const DAY_CARD_FONT_FAMILY: Record<'serif' | 'sans', string> = {
+export const DAY_CARD_FONT_FAMILY: Record<import('../documentPrimitives').FontFamily, string> = {
     serif: SERIF_FAMILY,
     sans: SANS_FAMILY,
+    // The day card's own layout never emits a 'mono' run — this key exists
+    // only so the shared FontFamily type (day card + receipt) can be indexed
+    // generically by the shared canvas measurer / PNG backend without a cast.
+    mono: SANS_FAMILY,
 };
 
 function b64ToBuffer(b64: string): ArrayBuffer {

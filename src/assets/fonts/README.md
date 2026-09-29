@@ -14,6 +14,16 @@ in the real typefaces with no network. jsPDF 4.x parses `glyf` TrueType only.
   reads cleaner at 6-7pt. `@fontsource/geist-sans` ships as CFF/PostScript
   OpenType, so `geist-regular.ttf` here was converted cubic->quadratic
   (`otf2ttf` / cu2qu). Weight 400 only (the serif carries every bold).
+- **IBM Plex Mono** — the sales receipt only (see `receiptFontData.ts`, kept
+  in its own lazy chunk rather than `pdfFontData.ts` — the receipt no longer
+  shares a layout with the other three document types at all, so it has no
+  reason to share their font bundle either). A monospace face is the point:
+  the receipt's columns (quantity × price, running totals) line up the way a
+  real thermal-printer receipt's do, which a proportional face cannot fake.
+  `@fontsource/ibm-plex-mono` ships static (non-variable) `glyf`-flavoured
+  woff2 per weight, so no CFF conversion is needed here either. Weights 400
+  and 700 (body and totals/business name), same unicode subset as the other
+  two typefaces above.
 
 ## Steps
 
@@ -30,12 +40,23 @@ in the real typefaces with no network. jsPDF 4.x parses `glyf` TrueType only.
 5. Geist (`geist-regular.ttf`, `geist-variable-subset.woff2`): as before —
    subset the `@fontsource/geist-sans` 400 latin woff2, `otf2ttf` to glyf;
    subset the `@fontsource-variable/geist` woff2 for the HTML @font-face.
-6. base64 all five files into `src/lib/pdfFontData.ts` (see the generator
-   snippet in scratchpad, or inline: read each file, chunk at 120 chars).
+6. IBM Plex Mono (`ibm-plex-mono-{regular,bold}.ttf` / `.woff2`): `npm pack
+   @fontsource/ibm-plex-mono@5.2.5`; extract. No variable build exists for
+   this family, so merge the `latin` + `latin-ext` static woff2 per weight
+   (`fontTools.merge.Merger` — the `fonttools merge` CLI's own option parser
+   rejects ordinary `-o file.ttf`-style flags in this version; the Python API
+   sidesteps that) — each merged file is already `glyf`, so decompress
+   straight from woff2 (`TTFont(path); font.flavor = None; font.save(...)`,
+   no `otf2ttf` needed. `pyftsubset` each to the unicode set above, twice —
+   once uncompressed for the PDF `.ttf`, once `flavor=woff2` for HTML/canvas.
+7. base64 all files into `src/lib/pdfFontData.ts` (the three document types)
+   and `src/lib/receiptFontData.ts` (the sales receipt) — read each file,
+   chunk at 120 chars.
 
-The committed `.ttf` / `.woff2` files here are the source of truth;
-`pdfFontData.ts` is generated from them and is what the app imports — lazily,
-from `receiptGenerator`, so it lands in its own chunk fetched on first export.
+The committed `.ttf` / `.woff2` files here are the source of truth; the
+generated `*FontData.ts` modules are what the app imports — lazily, so each
+lands in its own chunk fetched only the first time that document type is
+exported.
 
 The interactive chat card (`ChatReceiptVisual`) instead uses
 `@fontsource-variable/source-serif-4`, imported from `src/index.css` as the

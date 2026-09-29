@@ -19,6 +19,11 @@ interface HistoryScreenProps {
     // reshape happens, so an approved daily_sales row must route here rather
     // than through the plain "Save again" PDF path.
     onOpenDayCard: (documentId: string) => void;
+    // An approved point_of_sale document gets its own thermal-receipt-style
+    // preview (Phase 4) — the sales-log-style reconciliation, servedBy field
+    // and every export live there now, not behind the plain "Save again" PDF
+    // path this row used before.
+    onOpenReceipt: (documentId: string) => void;
 }
 
 type FilterKey = 'all' | DocumentType;
@@ -91,7 +96,7 @@ function saleCountSuffix(doc: TrackedDocument): string {
 }
 
 function DocumentCard({
-    doc, onDelete, confirmingDelete, onRequestDelete, onResume, onOpenDayCard,
+    doc, onDelete, confirmingDelete, onRequestDelete, onResume, onOpenDayCard, onOpenReceipt,
 }: {
     doc: TrackedDocument;
     onDelete: (id: string) => void;
@@ -99,6 +104,7 @@ function DocumentCard({
     onRequestDelete: (id: string | null) => void;
     onResume: (sessionId: string) => void;
     onOpenDayCard: (documentId: string) => void;
+    onOpenReceipt: (documentId: string) => void;
 }) {
     const [downloading, setDownloading] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
@@ -173,6 +179,15 @@ function DocumentCard({
                         <CalendarDays className="w-3.5 h-3.5" />
                         View card
                     </motion.button>
+                ) : doc.documentType === 'point_of_sale' ? (
+                    <motion.button
+                        onClick={() => onOpenReceipt(doc.id)}
+                        className="btn-primary flex-1 min-h-[40px] rounded-xl text-sm font-medium flex items-center justify-center gap-1.5"
+                        whileTap={{ scale: 0.97 }}
+                    >
+                        <ReceiptText className="w-3.5 h-3.5" />
+                        View receipt
+                    </motion.button>
                 ) : (
                     <motion.button
                         onClick={handleRedownload}
@@ -202,7 +217,7 @@ function DocumentCard({
     );
 }
 
-export function HistoryScreen({ onBack, onDemoClick, onResumeDraft, onOpenDayCard }: HistoryScreenProps) {
+export function HistoryScreen({ onBack, onDemoClick, onResumeDraft, onOpenDayCard, onOpenReceipt }: HistoryScreenProps) {
     const { documents, isLoading, isAvailable, deleteDocument } = useDocumentStore();
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
     const [filter, setFilter] = useState<FilterKey>('all');
@@ -297,6 +312,7 @@ export function HistoryScreen({ onBack, onDemoClick, onResumeDraft, onOpenDayCar
                                 onRequestDelete={setConfirmDeleteId}
                                 onResume={onResumeDraft}
                                 onOpenDayCard={onOpenDayCard}
+                                onOpenReceipt={onOpenReceipt}
                             />
                         ))}
                     </AnimatePresence>

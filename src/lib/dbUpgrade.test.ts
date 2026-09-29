@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { TrackedDocument } from '../types';
-import { isActiveModeExpenseSummary, migrateToDailySales, MTRACK_DB_VERSION } from './dbUpgrade';
+import {
+    addReceiptNumber, generateReceiptNumber, isActiveModeExpenseSummary, migrateToDailySales,
+    MTRACK_DB_VERSION, needsReceiptNumber,
+} from './dbUpgrade';
 
 // The v6 migration: Active Mode gets its own document type instead of
 // reusing expense_summary. Tested as two plain functions — the decision
@@ -26,6 +29,10 @@ function preMigrationDraft(): TrackedDocument {
         coveringTo: null,
         capturedViaActiveMode: true,
         activeMode: { buckets: ['Unsorted', 'Combo sales'], pending: null },
+        receiptNumber: 'MT260101-00000',
+        servedBy: null,
+        tip: null,
+        discount: null,
     };
 }
 
@@ -128,6 +135,63 @@ describe('migrateToDailySales', () => {
         const once = migrateToDailySales(preMigrationDraft());
         const guardedTwice = isActiveModeExpenseSummary(once) ? migrateToDailySales(once) : once;
         expect(guardedTwice).toEqual(once);
+    });
+});
+
+// v7 — a stable receiptNumber, replacing the old generateReceiptRef's
+// read-the-clock-on-every-render bug (see dbUpgrade.ts's own comment).
+describe('generateReceiptNumber', () => {
+    it('is deterministic — the same id and createdAt always produce the same number', () => {
+        const a = generateReceiptNumber('active-123', 1_735_500_000_000);
+        const b = generateReceiptNumber('active-123', 1_735_500_000_000);
+        expect(a).toBe(b);
+    });
+
+    it('encodes the creation date, human-scannable', () => {
+        const number = generateReceiptNumber('any-id', new Date('2026-09-29T10:00:00').getTime());
+        expect(number.startsWith('MT260929-')).toBe(true);
+    });
+
+    it('two different ids on the same day produce different numbers', () => {
+        const now = Date.now();
+        const a = generateReceiptNumber('active-123', now);
+        const b = generateReceiptNumber('active-456', now);
+        expect(a).not.toBe(b);
+    });
+
+    it('the same document rendered a minute apart still agrees with itself (the bug this replaces)', () => {
+        const created = new Date('2026-09-29T10:00:00').getTime();
+        const renderedNow = generateReceiptNumber('active-123', created);
+        const renderedLater = generateReceiptNumber('active-123', created);
+        expect(renderedNow).toBe(renderedLater);
+    });
+});
+
+describe('needsReceiptNumber / addReceiptNumber', () => {
+    it('is true for a document saved before this field existed', () => {
+        const legacy = preMigrationDraft() as Partial<TrackedDocument>;
+        delete legacy.receiptNumber;
+        expect(needsReceiptNumber(legacy as TrackedDocument)).toBe(true);
+    });
+
+    it('is false once a document has one', () => {
+        expect(needsReceiptNumber(preMigrationDraft())).toBe(false);
+    });
+
+    it('backfills a stable number and defaults the receipt-only fields to null', () => {
+        const legacy = preMigrationDraft() as Partial<TrackedDocument>;
+        delete legacy.receiptNumber;
+        const migrated = addReceiptNumber(legacy as TrackedDocument);
+        expect(migrated.receiptNumber).toBe(generateReceiptNumber(migrated.id, migrated.createdAt));
+        expect(migrated.servedBy).toBeNull();
+        expect(migrated.tip).toBeNull();
+        expect(migrated.discount).toBeNull();
+    });
+
+    it('is idempotent — running it twice does not change an already-migrated document', () => {
+        const once = addReceiptNumber(preMigrationDraft());
+        const twice = addReceiptNumber(once);
+        expect(twice).toEqual(once);
     });
 });
 

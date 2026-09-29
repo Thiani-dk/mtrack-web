@@ -33,7 +33,7 @@ const DB_NAME = 'mtrack-db';
 // Shared with receiptStore.ts, chatSessionStore.ts and documentStore.ts — see
 // the comment on DB_VERSION in receiptStore.ts. All four must stay in sync.
 // Shared schema: dbUpgrade.ts / applyUpgrade.
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const AGGREGATE_STORE = 'aggregate';
 
 const STATS_KEY = 'all-time';
