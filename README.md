@@ -16,14 +16,14 @@ Four kinds of document come out of the same conversation, depending on what you'
 |---|---|
 | **Expense summary** | Your own spending, pulled from pasted messages |
 | **Personal note** | A transaction you have no message for — described from memory |
-| **Point of sale** | A receipt a merchant hands a customer, itemised |
+| **Point of sale** | A receipt a merchant hands a customer — a proper thermal-receipt-style document, itemised, with a QR code carrying its own facts for offline verification |
 | **Reimbursement claim** | Money spent on someone else's behalf, presented for repayment — fees included in the total, no approval workflow required |
 
 You pick a path by talking, not by filling in a form. The bot adapts to whichever is faster: paste a message and it extracts everything, or type a description and it asks only for whatever's genuinely still missing.
 
 ### Active Mode
 
-Built for a specific situation: a vendor running M-Track on a device next to their SMS app during a busy shift, logging one sale after another. Paste, tap a category bucket, done — two actions per sale, buckets created on the fly, nothing lost if the phone locks or the tab reloads mid-shift. Ends in a single report with a per-bucket breakdown of the day.
+Built for a specific situation: a vendor running M-Track on a device next to their SMS app during a busy shift, logging one sale after another. Paste an M-Pesa message and tap a category bucket, or tap Cash for a sale that was not — two or three actions per sale either way, buckets created on the fly, "Same again" for a repeat cash sale in one tap, nothing lost if the phone locks or the tab reloads mid-shift. Finishing the shift turns it into a day card: a dark, shareable image with the day's total, its busiest hour or biggest sale, and a bucket-by-bucket breakdown — plus a plain sales-log PDF and a CSV for a spreadsheet, with no customer names in either.
 
 ### The parser
 
@@ -107,6 +107,9 @@ Both scripts exit non-zero on failure and say exactly what was missing if the se
 | `e2e/paste.e2e.mjs` | The one-tap Paste button in both places it appears, against a stubbed clipboard: that it feeds the same capture path a manual paste does, that a refused clipboard shows one quiet line without blocking the manual fallback, and that it is absent where clipboard reading is unavailable. |
 | `e2e/onboarding.e2e.mjs` | That onboarding never describes a capability the device lacks — the walkthrough run with both APIs, neither, and one — plus the composer's Paste tip showing once and never returning. |
 | `e2e/viewport.e2e.mjs` | Layout at the constrained sizes Active Mode has to survive — 360×400, 640×280 and 360×210 (split screen with the keyboard open) — asserting the paste field, chip row, running total and Finish are all on screen, the `dvh` container tracks the viewport, and the chip row scrolls sideways with its last chip fully reachable. |
+| `e2e/cash.e2e.mjs` | Cash sales in Active Mode: the three-tap Cash → bucket → amount flow, presets drawn from the day's real history, "Same again" in one tap, Undo, the entries list, a lump sum, and the CSV export — each checked against the actual stored IndexedDB record. |
+| `e2e/dayCard.e2e.mjs` | That finishing a shift lands on the day card (not History), that a customer name never reaches it, that private notes render above it but never inside the exported image, the stall-name edit surviving a reload, the theme toggle, and that Share / Save image / the sales-log PDF / the CSV all actually produce a file. |
+| `e2e/receipt.e2e.mjs` | A point-of-sale receipt built through the real "a receipt for a customer" chat conversation, reopened from History onto its own thermal-receipt screen: the stable receipt number, the servedBy edit surviving a reload, and that Save image / Save as PDF / Save as web page all actually produce a file. |
 
 These exist because they catch a class of bug the unit suite structurally cannot: wiring. Focus behaviour, persistence timing, app routing after a backgrounded reload, and whether what a vendor sees matches what was saved. Two real bugs found this way — landing on HomeScreen instead of Active Mode after a reload, and the constrained-viewport layout — were invisible to `npm test`.
 

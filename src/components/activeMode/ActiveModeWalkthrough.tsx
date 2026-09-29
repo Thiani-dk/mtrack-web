@@ -126,8 +126,12 @@ export function ActiveModeWalkthrough({ onClose, onSeedBuckets }: ActiveModeWalk
                                 That's it.
                             </p>
                             <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                                The running total at the top updates as you go, and you can generate the day's
-                                report whenever your shift ends.
+                                Got paid in cash? Tap Cash instead of pasting — pick a bucket, pick the amount,
+                                done. "Same again" repeats your last cash sale in one tap.
+                            </p>
+                            <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                                The running total at the top updates as you go, and tapping Finish turns the
+                                whole shift into a shareable day card.
                             </p>
                         </>
                     )}
@@ -301,7 +305,8 @@ export function ActiveModeWalkthrough({ onClose, onSeedBuckets }: ActiveModeWalk
                         <>
                             <h2 className="text-lg font-semibold text-[var(--text-primary)]">You're set</h2>
                             <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                                Paste, tap a bucket, repeat. Add buckets anytime. Tap Finish when your shift's done.
+                                Paste or tap Cash, tap a bucket, repeat. Add buckets anytime. Tap Finish when
+                                your shift's done, and you'll get a day card to share.
                             </p>
                             <p className="text-xs text-[var(--text-muted)]">
                                 Need this again? It's behind the question mark at the top of the screen.
