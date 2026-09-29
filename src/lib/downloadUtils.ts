@@ -21,6 +21,14 @@ export function downloadPDF(blob: Blob, filename: string): void {
     triggerDownload(blob, filename);
 }
 
+export function downloadCSV(content: string, filename: string): void {
+    // A leading BOM so a spreadsheet app opening the file directly (rather
+    // than importing it with an explicit encoding step) reads it as UTF-8
+    // rather than guessing at the system codepage — the difference between a
+    // bucket name with an accent rendering correctly or not.
+    triggerDownload(new Blob(['\ufeff', content], { type: 'text/csv;charset=utf-8' }), filename);
+}
+
 // ── Content hashing ───────────────────────────────────────────────────────────
 //
 // SHA-256 via the Web Crypto API (built into every modern browser, no library

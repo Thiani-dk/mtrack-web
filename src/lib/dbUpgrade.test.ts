@@ -87,7 +87,7 @@ describe('migrateToDailySales', () => {
                     reversalOf: null, isReversed: false, amountVerified: false, balanceMismatch: false,
                     directionSource: 'keyword', directionDisputed: false, directionUnresolved: false,
                     directionAssumed: false, dataSource: 'sms_verified', lineItems: null,
-                    bucketLabel: null, purposeLabel: null,
+                    bucketLabel: null, purposeLabel: null, isLumpSum: false, lumpSumCount: null,
                 },
             },
         };
@@ -114,7 +114,7 @@ describe('migrateToDailySales', () => {
                 reversalOf: null, isReversed: false, amountVerified: false, balanceMismatch: false,
                 directionSource: 'keyword', directionDisputed: false, directionUnresolved: false,
                 directionAssumed: false, dataSource: 'sms_verified', lineItems: null,
-                bucketLabel: 'Combo sales', purposeLabel: null,
+                bucketLabel: 'Combo sales', purposeLabel: null, isLumpSum: false, lumpSumCount: null,
             }],
         };
         const after = migrateToDailySales(withTxns);

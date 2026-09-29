@@ -243,6 +243,8 @@ function SkippedRow({
             purposeLabel: null,
             bucketLabel: null,
             directionAssumed: false,
+            isLumpSum: false,
+            lumpSumCount: null,
         };
         setShowManualEntry(false);
         commitInclude(transaction);

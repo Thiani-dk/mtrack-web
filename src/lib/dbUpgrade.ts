@@ -38,6 +38,8 @@ function migrateTransaction(t: ParsedTransaction): ParsedTransaction {
         lineItems: null,
         purposeLabel: null,
         bucketLabel: legacy.bucketLabel ?? null,
+        isLumpSum: legacy.isLumpSum ?? false,
+        lumpSumCount: legacy.lumpSumCount ?? null,
     };
 }
 

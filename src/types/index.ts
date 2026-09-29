@@ -222,6 +222,21 @@ export interface ParsedTransaction {
     // from receiptLabel, which is a category from a fixed preset — do not
     // merge them or fall one back to the other.
     purposeLabel: string | null;
+
+    // ── Active Mode cash (Phase 2) ──
+    // A lump-sum cash entry bundles several sales the vendor never logged one
+    // at a time into a single total. Distinct from an ordinary sale (where
+    // isLumpSum is false and lumpSumCount is always null) because a lump sum
+    // is deliberately left out of the sale count and the average — counting
+    // it as "one sale" would understate the day, and guessing how many sales
+    // it actually was would be inventing data. false / null for every
+    // transaction that is not a lump sum, which is every transaction outside
+    // Active Mode and every ordinary (non-lump-sum) one inside it.
+    isLumpSum: boolean;
+    // How many individual sales this lump sum represents, when the vendor
+    // said — null when they did not, which is what excludes it from the sale
+    // count and the average rather than distorting either.
+    lumpSumCount: number | null;
 }
 
 // ---------------------------------------------------------------------------

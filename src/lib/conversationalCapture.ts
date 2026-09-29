@@ -713,11 +713,23 @@ export function buildSelfReportedTransaction(fields: {
     lineItems?: LineItem[] | null;
     // The Active Mode bucket this was filed into, when it was.
     bucketLabel?: string | null;
+    // The payment method, when it is known to be something other than the
+    // ordinary conversational default. Active Mode's cash capture passes
+    // 'cash'; everything else leaves this unset and gets 'transfer', as
+    // before.
+    method?: string;
+    // A lump-sum cash entry was never logged at one moment, so it carries no
+    // clock time even though it carries a date. See ParsedTransaction.time.
+    noTime?: boolean;
+    // Whether this is a lump sum, and how many individual sales it bundles —
+    // see ParsedTransaction.isLumpSum / lumpSumCount.
+    isLumpSum?: boolean;
+    lumpSumCount?: number | null;
 }): ParsedTransaction {
     const direction: DirectionResult = fields.direction ?? { type: 'sent', confidence: 30, source: 'unresolved' };
     const type = direction.type;
     const directionUnresolved = direction.source === 'unresolved';
-    const method = 'transfer';
+    const method = fields.method ?? 'transfer';
     // The date may deliberately be an invalid Date — the capture flow offers to
     // leave it off rather than guess. Nothing downstream may call toISOString
     // or toLocaleTimeString on one of those without checking first.
@@ -730,7 +742,9 @@ export function buildSelfReportedTransaction(fields: {
 
     return {
         date: fields.date,
-        time: dated ? fields.date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }) : '',
+        time: dated && !fields.noTime
+            ? fields.date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true })
+            : '',
         type,
         subType: deriveSubType(method, type, false, fields.recipient),
         amount: fields.amount,
@@ -747,7 +761,10 @@ export function buildSelfReportedTransaction(fields: {
         currency: fields.currency ?? 'KES',
         sender: type === 'received' ? fields.recipient : null,
         account: null,
-        provider: 'Self-reported',
+        // Known definitely to be cash, not merely unspecified — a more honest
+        // provider than the general "Self-reported" sentinel the ordinary
+        // conversational flow uses for a channel that really is unknown.
+        provider: method === 'cash' ? 'Cash' : 'Self-reported',
         method,
         merchant: null,
         merchantCategory: null,
@@ -780,5 +797,7 @@ export function buildSelfReportedTransaction(fields: {
         purposeLabel: fields.purposeLabel ?? null,
         bucketLabel: fields.bucketLabel ?? null,
         directionAssumed: false,
+        isLumpSum: fields.isLumpSum ?? false,
+        lumpSumCount: fields.lumpSumCount ?? null,
     };
 }

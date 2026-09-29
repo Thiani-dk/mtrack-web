@@ -140,3 +140,36 @@ small piece of work and I have not done it on my own authority because it will
 report violations in copy you may have deliberately worded that way.
 
 **Affects:** nothing in the scenario catalogue.
+
+---
+
+## D7. Cash in Active Mode, and a design note (Phase 2 of the cash/day-card/receipt pass)
+
+No decision is queued here — everything Phase 2 needed was within the
+explicitly authorised set (the `daily_sales` document type, the v6 migration,
+`cash` as a payment method with an optional lump-sum count) or was a plain
+implementation call with no owner-specific voice involved.
+
+**Worth recording anyway: the cash-entry interaction, chosen from three
+candidates.**
+
+1. **Chosen — an overlay.** A "Cash" chip opens a small panel: pick a bucket,
+   then pick an amount. Reuses the same `StackedPanel` visual language as the
+   existing bucket long-press menu.
+2. **Rejected — inline in the main capture area** (a segmented Cash/M-Pesa
+   toggle). Risked exactly the failure the viewport tests exist to catch: a
+   persistent extra row at 360×210 (the narrowest supported split-screen
+   height) leaves no margin to spare, where an overlay costs the base layout
+   nothing at all.
+3. **Rejected — long-press a bucket chip**, reusing the gesture already bound
+   to Rename/Delete. Screenshotted for comparison
+   (`e2e/screenshots/cash-design-B-rejected-longpress.png`): the two purposes
+   fight over one gesture, a vendor cannot tell before pressing which one they
+   will get, and reaching the amount step still needs a second screen after
+   it — no faster than the chosen design and considerably less discoverable.
+
+Screenshots of the chosen design's three steps are in
+`e2e/screenshots/cash-design-C-chosen-*.png`.
+
+**Affects:** nothing in the conversation scenario catalogue — Active Mode is a
+separate, non-conversational screen.

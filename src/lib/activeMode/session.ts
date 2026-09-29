@@ -288,3 +288,146 @@ export function findDuplicate(
 function minutesBetween(a: ParsedTransaction, b: ParsedTransaction): number {
     return Math.round(Math.abs(a.date.getTime() - b.date.getTime()) / 60000);
 }
+
+// ── Cash (Phase 2) ───────────────────────────────────────────────────────────
+//
+// M-Pesa arrives as a message; cash arrives as nothing but the vendor's word.
+// Everything below builds a self-reported transaction the same honest way
+// buildSelfReportedTransaction already does for the rest of the app — cash
+// gets its own payment method ('cash') and its own provider ('Cash', not the
+// generic "Self-reported" the wider conversational flow uses for a channel
+// that is genuinely unknown) so a cash sale never reads as anything other
+// than what it is.
+
+export const CASH_METHOD = 'cash';
+
+// A live cash sale: the vendor told M-Track about it as it happened, so it
+// gets a real clock time like any other capture. Filed directly with a bucket
+// (there is nothing further to resolve, unlike an M-Pesa paste which starts
+// as `pending` until a bucket is chosen) — the caller already has both the
+// bucket and the amount by the time this is called.
+export function buildCashSale(fields: { bucket: string; amount: number; now?: Date }): ParsedTransaction {
+    const now = fields.now ?? new Date();
+    return fileInto(
+        buildSelfReportedTransaction({
+            amount: fields.amount,
+            recipient: 'Cash sale',
+            date: now,
+            method: CASH_METHOD,
+            direction: { type: 'received', confidence: 90, source: 'keyword' },
+        }),
+        fields.bucket,
+    );
+}
+
+// A lump sum: several sales the vendor never logged one at a time, entered as
+// one total instead. Two things distinguish it from an ordinary cash sale
+// (see ParsedTransaction.isLumpSum): it carries no clock time, because it was
+// never logged at a moment, and its `count` may be null when the vendor did
+// not say how many sales it was — which is exactly what excludes it from the
+// sale count and the average rather than distorting either. `bucket: null`
+// files it as Unsorted, for a total not attributed to any one bucket ("one
+// overall" — see Phase 2.4).
+export function buildLumpSum(fields: {
+    bucket: string | null; amount: number; count: number | null; now?: Date;
+}): ParsedTransaction {
+    const now = fields.now ?? new Date();
+    return fileInto(
+        buildSelfReportedTransaction({
+            amount: fields.amount,
+            recipient: fields.count != null
+                ? `Cash, ${fields.count} sale${fields.count === 1 ? '' : 's'} (lump sum)`
+                : 'Cash (lump sum)',
+            date: now,
+            method: CASH_METHOD,
+            noTime: true,
+            isLumpSum: true,
+            lumpSumCount: fields.count,
+            direction: { type: 'received', confidence: 90, source: 'keyword' },
+        }),
+        fields.bucket ?? UNSORTED,
+    );
+}
+
+export function isCashSale(t: ParsedTransaction): boolean {
+    return t.method === CASH_METHOD;
+}
+
+// Several lump sums from one "Add cash for the day" submission — one row per
+// bucket the vendor filled in, plus an "overall" row for a total not
+// attributed to any bucket. Built through this rather than a bare loop over
+// buildLumpSum because the synthetic reference is seeded from amount +
+// millisecond timestamp (see extractCode) and nothing else distinguishes one
+// bucket's row from another's at the same instant — two rows with the same
+// amount, submitted in the same synchronous batch, would otherwise collide on
+// the very reference that "Undo" and the entries list rely on to tell them
+// apart. Staggering by a millisecond per row costs nothing a vendor could
+// ever notice and removes the collision entirely.
+export function buildLumpSumBatch(
+    rows: Array<{ bucket: string | null; amount: number; count: number | null }>,
+    now?: Date,
+): ParsedTransaction[] {
+    const base = (now ?? new Date()).getTime();
+    return rows.map((row, i) => buildLumpSum({ ...row, now: new Date(base + i) }));
+}
+
+// The amount presets offered for a bucket: its most frequently-filed amounts
+// today, most frequent first, at most `max`. Both M-Pesa and cash sales count
+// — the whole point is "what does this bucket usually go for", and a bucket's
+// typical prices don't care which channel a past sale arrived through.
+//
+// A lump sum is deliberately excluded. Its amount is an aggregate of several
+// sales, not a price anyone actually charged, and offering "Ksh 4,040" as a
+// one-tap preset for the next individual sale would be actively misleading —
+// worse than the plain keypad this whole feature exists to avoid needing.
+//
+// Ties broken by amount, descending: arbitrary but deterministic, so the same
+// day's data always offers the same four presets in the same order.
+export function presetAmounts(transactions: ParsedTransaction[], bucket: string, max = 4): number[] {
+    const counts = new Map<number, number>();
+    for (const t of transactions) {
+        if (t.isLumpSum) continue;
+        if (bucketOf(t) !== bucket) continue;
+        counts.set(t.amount, (counts.get(t.amount) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+        .sort(([aAmt, aN], [bAmt, bN]) => (bN - aN) || (bAmt - aAmt))
+        .slice(0, max)
+        .map(([amount]) => amount);
+}
+
+// The most recent live (non-lump-sum) cash sale, for "Same again" — a
+// one-tap repeat of the last cash sale's bucket and amount. Transactions are
+// appended in filing order, so the last one in the array is the most recent;
+// this does not fall back to scanning `date`, which a lump sum's rounded
+// timestamp could tie with a live entry's.
+export function lastCashSale(transactions: ParsedTransaction[]): ParsedTransaction | null {
+    for (let i = transactions.length - 1; i >= 0; i--) {
+        const t = transactions[i];
+        if (isCashSale(t) && !t.isLumpSum) return t;
+    }
+    return null;
+}
+
+// "Same again": a fresh cash sale with the same bucket and amount as `entry`,
+// logged now. Never mutates or duplicates `entry` itself — it is a new sale,
+// with its own time and its own (synthetic) reference.
+export function repeatCashSale(entry: ParsedTransaction, now?: Date): ParsedTransaction {
+    return buildCashSale({ bucket: bucketOf(entry), amount: entry.amount, now });
+}
+
+// Undo / remove one filed entry, M-Pesa or cash, by its transaction code.
+// Removing is the whole operation — nothing moves to Unsorted, unlike
+// deleting a bucket, because this is "that entry should not exist" rather
+// than "I no longer want this category".
+export function removeByCode(transactions: ParsedTransaction[], code: string): ParsedTransaction[] {
+    return transactions.filter(t => t.transactionCode !== code);
+}
+
+// Today's filed entries, most recent first — the compact list Phase 2.2.5
+// calls for, that "Undo" is the ten-second headline version of. Both cash and
+// M-Pesa, since a vendor reviewing what they filed does not think in terms of
+// which channel a sale arrived through.
+export function recentEntries(transactions: ParsedTransaction[], limit = 20): ParsedTransaction[] {
+    return [...transactions].reverse().slice(0, limit);
+}

@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { HelpCircle, Lightbulb, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Banknote, HelpCircle, Lightbulb, ListChecks, Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { ActiveModeState, ParsedTransaction, TrackedDocument } from '../../types';
 import {
-    addBucket, bucketSaleCount, bucketTallies, capture, dayTotal, deleteBucket,
-    emptyActiveModeState, fileInto, findDuplicate, isUnsorted, readActiveModeState,
-    renameBucket, UNSORTED,
+    addBucket, bucketOf, bucketSaleCount, bucketTallies, buildCashSale, buildLumpSumBatch,
+    capture, dayTotal, deleteBucket, emptyActiveModeState, fileInto, findDuplicate, isCashSale,
+    isUnsorted, lastCashSale, presetAmounts, readActiveModeState, recentEntries, removeByCode,
+    renameBucket, repeatCashSale, UNSORTED,
     type BucketError, type DuplicateWarning,
 } from '../../lib/activeMode/session';
+import { buildDailySalesCsv } from '../../lib/activeMode/csv';
+import { downloadCSV } from '../../lib/downloadUtils';
 import { getDrafts, saveDocument as saveApproved } from '../../lib/documentStore';
 import { StackedPanel } from '../chat/OverlayStack';
 import { buildDraft } from '../../lib/draftDocument';
@@ -87,6 +90,32 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
     // ("nothing recorded yet") instead of silence, and an obvious way to keep
     // going rather than a dead end.
     const [finishNotice, setFinishNotice] = useState('');
+
+    // ── Cash (Phase 2) ──
+    // The Cash flow is three taps: open it, pick a bucket, pick an amount.
+    // Modelled as an overlay (like the bucket long-press menu) rather than
+    // inline in the capture area, specifically so it can never affect the
+    // base layout's height — the one thing every constrained-viewport test in
+    // this screen exists to guard.
+    const [cashOpen, setCashOpen] = useState(false);
+    const [cashStep, setCashStep] = useState<'bucket' | 'amount' | 'keypad'>('bucket');
+    const [cashBucket, setCashBucket] = useState<string | null>(null);
+    const [keypadValue, setKeypadValue] = useState('');
+    // A brief, dismissible confirmation with an Undo — shown after ANY entry,
+    // cash or M-Pesa, filed or repeated. Cleared automatically after about
+    // ten seconds, or immediately once tapped.
+    const [lastAdded, setLastAdded] = useState<{ code: string; label: string } | null>(null);
+    const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // The compact list of today's entries (both cash and M-Pesa), each
+    // removable — the ten-second Undo above is the fast path; this is the
+    // "I want to check, or fix something from a few sales ago" path.
+    const [entriesOpen, setEntriesOpen] = useState(false);
+    // "Add cash for the day": one total (and an optional count) per bucket,
+    // for a vendor who will not log cash live. Reachable from the entries
+    // list at any time. `rows` is keyed by bucket name, with '' standing in
+    // for "Overall" — a total not attributed to any one bucket.
+    const [lumpSumOpen, setLumpSumOpen] = useState(false);
+    const [lumpSumRows, setLumpSumRows] = useState<Record<string, { amount: string; count: string }>>({});
 
     // The screen stays on for as long as this screen is open, and is handed
     // back the moment it unmounts. Nothing to show where the API does not
@@ -177,15 +206,38 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
     const tallies = bucketTallies(state, transactions);
     const total = dayTotal(transactions);
     const currency = transactions[0]?.currency ?? 'KES';
+    const lastCash = lastCashSale(transactions);
 
     // A capture arriving while one is still unfiled files the old one into
     // Unsorted. Never dropped, never blocking the new paste — a vendor too
     // slammed to categorise every sale still ends the day with every sale.
+    // A brief "Added — Undo" confirmation, for any entry however it arrived.
+    // Replaces whatever the previous one was, so filing three sales in a row
+    // only ever offers to undo the most recent — undoing an OLDER one is what
+    // the entries list further down is for.
+    const showUndo = useCallback((code: string, label: string) => {
+        if (undoTimer.current) clearTimeout(undoTimer.current);
+        setLastAdded({ code, label });
+        undoTimer.current = setTimeout(() => setLastAdded(null), 10000);
+    }, []);
+
+    const handleUndo = useCallback(() => {
+        if (!lastAdded) return;
+        if (undoTimer.current) clearTimeout(undoTimer.current);
+        setTransactions(prev => removeByCode(prev, lastAdded.code));
+        setLastAdded(null);
+    }, [lastAdded]);
+
+    useEffect(() => () => {
+        if (undoTimer.current) clearTimeout(undoTimer.current);
+    }, []);
+
     const commitPending = useCallback((into: string) => {
+        if (pending) showUndo(pending.transactionCode, `${fmtCurrency(pending.amount, pending.currency)} to ${isUnsorted(into) ? UNSORTED : into}`);
         setTransactions(prev => (pending ? [...prev, fileInto(pending, into)] : prev));
         setPending(null);
         setWarning(null);
-    }, [pending]);
+    }, [pending, showUndo]);
 
     const runCapture = useCallback((text: string) => {
         const result = capture(text);
@@ -219,6 +271,92 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
             if (draftText.trim()) runCapture(draftText);
         }
     };
+
+    // ── Cash (Phase 2) ──────────────────────────────────────────────────────
+    const closeCash = useCallback(() => {
+        setCashOpen(false);
+        setCashStep('bucket');
+        setCashBucket(null);
+        setKeypadValue('');
+        focusInput();
+    }, [focusInput]);
+
+    const openCash = useCallback(() => {
+        setCashStep('bucket');
+        setCashBucket(null);
+        setKeypadValue('');
+        setCashOpen(true);
+    }, []);
+
+    const chooseCashBucket = useCallback((bucket: string) => {
+        setCashBucket(bucket);
+        setCashStep('amount');
+    }, []);
+
+    // Files the sale and closes the whole overlay — the third and last of the
+    // three taps ("Cash", bucket, amount).
+    const fileCashAmount = useCallback((amount: number) => {
+        if (!cashBucket || !(amount > 0)) return;
+        const sale = buildCashSale({ bucket: cashBucket, amount });
+        setTransactions(prev => [...prev, sale]);
+        showUndo(sale.transactionCode, `${fmtCurrency(amount, 'KES')} to ${bucketOf(sale)}`);
+        closeCash();
+    }, [cashBucket, showUndo, closeCash]);
+
+    const submitKeypad = useCallback(() => {
+        const amount = parseFloat(keypadValue);
+        if (Number.isFinite(amount) && amount > 0) fileCashAmount(amount);
+    }, [keypadValue, fileCashAmount]);
+
+    // One tap: repeats the last cash sale's bucket and amount exactly, logged
+    // now. Needs no overlay at all — the whole point is that a run of
+    // identical sales costs one tap each after the first.
+    const handleSameAgain = useCallback(() => {
+        const last = lastCashSale(transactions);
+        if (!last) return;
+        const repeat = repeatCashSale(last);
+        setTransactions(prev => [...prev, repeat]);
+        showUndo(repeat.transactionCode, `${fmtCurrency(repeat.amount, repeat.currency)} to ${bucketOf(repeat)}`);
+    }, [transactions, showUndo]);
+
+    // ── Today's entries: the compact list, and CSV export ──────────────────
+    const handleRemoveEntry = useCallback((code: string) => {
+        setTransactions(prev => removeByCode(prev, code));
+        if (lastAdded?.code === code) setLastAdded(null);
+    }, [lastAdded]);
+
+    const handleExportCsv = useCallback(() => {
+        const csv = buildDailySalesCsv(transactions);
+        downloadCSV(csv, `mtrack-sales-${new Date().toISOString().slice(0, 10)}.csv`);
+    }, [transactions]);
+
+    // ── "Add cash for the day": one total per bucket, an optional count ────
+    const openLumpSum = useCallback(() => {
+        const initial: Record<string, { amount: string; count: string }> = {};
+        for (const b of state.buckets) initial[b] = { amount: '', count: '' };
+        setLumpSumRows(initial);
+        setLumpSumOpen(true);
+    }, [state.buckets]);
+
+    const closeLumpSum = useCallback(() => {
+        setLumpSumOpen(false);
+        focusInput();
+    }, [focusInput]);
+
+    const submitLumpSum = useCallback(() => {
+        const rows = Object.entries(lumpSumRows)
+            .map(([bucket, v]) => ({
+                bucket,
+                amount: parseFloat(v.amount),
+                count: v.count.trim() ? parseInt(v.count, 10) : null,
+            }))
+            .filter(r => Number.isFinite(r.amount) && r.amount > 0);
+        if (rows.length > 0) {
+            const batch = buildLumpSumBatch(rows);
+            setTransactions(prev => [...prev, ...batch]);
+        }
+        closeLumpSum();
+    }, [lumpSumRows, closeLumpSum]);
 
     // Finish moves the session from draft to approved, the same finalisation
     // step every other document type uses — nothing Active-Mode-specific
@@ -458,6 +596,256 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                     </div>
                 </StackedPanel>
             )}
+
+            {/* ── Cash: an overlay, not a change to the base layout, so it can
+                never push the paste field or the chips off a short viewport.
+                Three steps, one screen at a time, same tap-type-confirm shape
+                as the bucket menu above. ── */}
+            {cashOpen && (
+                <StackedPanel
+                    id="active-mode-cash"
+                    onClose={closeCash}
+                    className="fixed inset-0 flex items-center justify-center p-4"
+                >
+                    <div data-cash-panel className="glass-panel rounded-2xl p-4 space-y-3 w-full max-w-xs">
+                        {cashStep === 'bucket' && (
+                            <>
+                                <p className="text-xs font-semibold text-[var(--text-primary)]">Cash — which bucket?</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {state.buckets.map(name => (
+                                        <button
+                                            key={name}
+                                            data-cash-bucket={name}
+                                            onClick={() => chooseCashBucket(name)}
+                                            className="rounded-full border px-3 py-2 text-xs font-medium text-[var(--text-primary)]"
+                                            style={{ borderColor: 'var(--border-glass)', minHeight: 44 }}
+                                        >
+                                            {name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+
+                        {cashStep === 'amount' && cashBucket && (
+                            <>
+                                <p className="text-xs font-semibold text-[var(--text-primary)]">
+                                    Cash into {cashBucket} — how much?
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {presetAmounts(transactions, cashBucket).map(amount => (
+                                        <button
+                                            key={amount}
+                                            data-cash-amount={amount}
+                                            onClick={() => fileCashAmount(amount)}
+                                            className="rounded-full border px-3 py-2 text-xs font-medium tabular-nums text-[var(--text-primary)]"
+                                            style={{ borderColor: 'var(--border-glass)', minHeight: 44 }}
+                                        >
+                                            {fmtCurrency(amount, currency)}
+                                        </button>
+                                    ))}
+                                    <button
+                                        onClick={() => setCashStep('keypad')}
+                                        className="rounded-full border border-dashed px-3 py-2 text-xs text-[var(--text-secondary)]"
+                                        style={{ borderColor: 'var(--border-glass)', minHeight: 44 }}
+                                    >
+                                        Other
+                                    </button>
+                                </div>
+                            </>
+                        )}
+
+                        {cashStep === 'keypad' && (
+                            <>
+                                <p className="text-xs font-semibold text-[var(--text-primary)]">Amount, in Ksh</p>
+                                <p
+                                    data-cash-keypad-value
+                                    className="text-2xl font-semibold tabular-nums text-[var(--text-primary)] py-1"
+                                >
+                                    {keypadValue || '0'}
+                                </p>
+                                <div className="grid grid-cols-3 gap-1.5">
+                                    {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
+                                        <button
+                                            key={d}
+                                            onClick={() => setKeypadValue(v => (v.length < 7 ? v + d : v))}
+                                            className="rounded-xl text-lg font-medium text-[var(--text-primary)]"
+                                            style={{ background: 'var(--bg-elevated)', minHeight: 48 }}
+                                        >
+                                            {d}
+                                        </button>
+                                    ))}
+                                    <button
+                                        onClick={() => setKeypadValue(v => v.slice(0, -1))}
+                                        aria-label="Backspace"
+                                        className="rounded-xl text-sm font-medium text-[var(--text-secondary)]"
+                                        style={{ background: 'var(--bg-elevated)', minHeight: 48 }}
+                                    >
+                                        ⌫
+                                    </button>
+                                    <button
+                                        onClick={() => setKeypadValue(v => (v.length < 7 ? v + '0' : v))}
+                                        className="rounded-xl text-lg font-medium text-[var(--text-primary)]"
+                                        style={{ background: 'var(--bg-elevated)', minHeight: 48 }}
+                                    >
+                                        0
+                                    </button>
+                                    <button
+                                        onClick={submitKeypad}
+                                        disabled={!keypadValue}
+                                        className="btn-primary rounded-xl text-sm font-medium disabled:opacity-40"
+                                        style={{ minHeight: 48 }}
+                                    >
+                                        Done
+                                    </button>
+                                </div>
+                            </>
+                        )}
+
+                        <button
+                            onClick={closeCash}
+                            className="w-full text-xs py-1.5 rounded-lg text-[var(--text-muted)]"
+                            style={{ minHeight: 32 }}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </StackedPanel>
+            )}
+
+            {/* ── Today's entries: the compact list, each removable, plus CSV
+                export and the way into "Add cash for the day". ── */}
+            {entriesOpen && (
+                <StackedPanel
+                    id="active-mode-entries"
+                    onClose={() => setEntriesOpen(false)}
+                    className="fixed inset-0 flex items-center justify-center p-4"
+                >
+                    <div className="glass-panel rounded-2xl p-4 space-y-2.5 w-full max-w-sm max-h-[80vh] flex flex-col">
+                        <p className="text-xs font-semibold text-[var(--text-primary)]">Today's entries</p>
+                        <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5">
+                            {transactions.length === 0 && (
+                                <p className="text-xs text-[var(--text-muted)] py-4 text-center">Nothing filed yet.</p>
+                            )}
+                            {recentEntries(transactions).map(t => (
+                                <div
+                                    key={t.transactionCode}
+                                    data-entry={t.transactionCode}
+                                    className="flex items-center gap-2 rounded-lg px-2.5 py-2"
+                                    style={{ background: 'var(--bg-elevated)' }}
+                                >
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-medium text-[var(--text-primary)] truncate">
+                                            {bucketOf(t)}
+                                            {t.isLumpSum && ' · lump sum'}
+                                        </p>
+                                        <p className="text-[10px] text-[var(--text-muted)]">
+                                            {isCashSale(t) ? 'Cash' : 'M-Pesa'}{t.time ? ` · ${t.time}` : ''}
+                                        </p>
+                                    </div>
+                                    <p className="text-xs font-semibold tabular-nums text-[var(--text-primary)]">
+                                        {fmtCurrency(t.amount, t.currency)}
+                                    </p>
+                                    <button
+                                        onClick={() => handleRemoveEntry(t.transactionCode)}
+                                        aria-label="Remove entry"
+                                        className="flex-shrink-0 p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                        style={{ minHeight: 40, minWidth: 40 }}
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex gap-1.5 pt-1">
+                            <button
+                                onClick={openLumpSum}
+                                className="flex-1 text-xs px-2 py-2 rounded-lg text-[var(--text-secondary)]"
+                                style={{ background: 'var(--bg-elevated)', minHeight: 44 }}
+                            >
+                                Add cash for the day
+                            </button>
+                            <button
+                                onClick={handleExportCsv}
+                                disabled={transactions.length === 0}
+                                className="flex-1 text-xs px-2 py-2 rounded-lg text-[var(--text-secondary)] disabled:opacity-40"
+                                style={{ background: 'var(--bg-elevated)', minHeight: 44 }}
+                            >
+                                Export CSV
+                            </button>
+                        </div>
+                        <button
+                            onClick={() => setEntriesOpen(false)}
+                            className="w-full text-xs py-1.5 rounded-lg text-[var(--text-muted)]"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </StackedPanel>
+            )}
+
+            {/* ── "Add cash for the day": one total (and an optional count) per
+                bucket, for a vendor who will not log cash live. ── */}
+            {lumpSumOpen && (
+                <StackedPanel
+                    id="active-mode-lump-sum"
+                    onClose={closeLumpSum}
+                    className="fixed inset-0 flex items-center justify-center p-4"
+                >
+                    <div className="glass-panel rounded-2xl p-4 space-y-3 w-full max-w-sm max-h-[80vh] flex flex-col">
+                        <div>
+                            <p className="text-xs font-semibold text-[var(--text-primary)]">Add cash for the day</p>
+                            <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                                One total per bucket. The count is optional — leave it blank if you are not sure.
+                            </p>
+                        </div>
+                        <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
+                            {state.buckets.map(name => (
+                                <div key={name} className="space-y-1">
+                                    <p className="text-[11px] font-medium text-[var(--text-secondary)]">{name}</p>
+                                    <div className="flex gap-1.5">
+                                        <input
+                                            data-lump-amount={name}
+                                            inputMode="decimal"
+                                            placeholder="Total, Ksh"
+                                            value={lumpSumRows[name]?.amount ?? ''}
+                                            onChange={e => setLumpSumRows(prev => ({
+                                                ...prev, [name]: { amount: e.target.value, count: prev[name]?.count ?? '' },
+                                            }))}
+                                            className="flex-1 min-w-0 rounded-lg border px-2.5 text-xs bg-transparent text-[var(--text-primary)] outline-none"
+                                            style={{ borderColor: 'var(--border-glass)', minHeight: 44 }}
+                                        />
+                                        <input
+                                            data-lump-count={name}
+                                            inputMode="numeric"
+                                            placeholder="Count (optional)"
+                                            value={lumpSumRows[name]?.count ?? ''}
+                                            onChange={e => setLumpSumRows(prev => ({
+                                                ...prev, [name]: { amount: prev[name]?.amount ?? '', count: e.target.value },
+                                            }))}
+                                            className="w-28 flex-shrink-0 rounded-lg border px-2.5 text-xs bg-transparent text-[var(--text-primary)] outline-none"
+                                            style={{ borderColor: 'var(--border-glass)', minHeight: 44 }}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex gap-1.5">
+                            <button onClick={submitLumpSum} className="btn-primary flex-1 text-xs px-2 py-2 rounded-lg" style={{ minHeight: 44 }}>
+                                Add
+                            </button>
+                            <button
+                                onClick={closeLumpSum}
+                                className="text-xs px-3 py-2 rounded-lg text-[var(--text-muted)]"
+                                style={{ minHeight: 44 }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </StackedPanel>
+            )}
+
             {/* ── Header: the running day, and the way out. ── */}
             <header className="am-header flex-shrink-0 border-b border-[var(--border-glass)] px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
@@ -486,6 +874,14 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                                 <Lightbulb className="w-5 h-5" />
                             </button>
                         )}
+                        <button
+                            onClick={() => setEntriesOpen(true)}
+                            aria-label="Today's entries"
+                            title="Today's entries"
+                            className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                        >
+                            <ListChecks className="w-5 h-5" />
+                        </button>
                         <button
                             onClick={() => { setWalkthroughOpen(true); onShowWalkthrough?.(); }}
                             aria-label="How Active Mode works"
@@ -577,11 +973,60 @@ export function ActiveModeScreen({ onBack, onShowWalkthrough, onFinished }: Acti
                 )}
 
                 {captureError && <p className="text-xs text-[var(--text-muted)]">{captureError}</p>}
+
+                {/* A brief "Added — Undo" line, for any entry however it
+                    arrived. Inline in the scrolling capture area rather than
+                    a toast or a new fixed row, so it never costs the layout
+                    height a short viewport cannot spare. */}
+                {lastAdded && (
+                    <div
+                        className="rounded-xl border px-3 py-2 text-xs flex items-center justify-between gap-2"
+                        style={{ background: 'var(--accent-subtle)', borderColor: 'var(--border-glass-accent)' }}
+                    >
+                        <span className="text-[var(--text-secondary)] truncate">Added {lastAdded.label}.</span>
+                        <button
+                            onClick={handleUndo}
+                            className="flex-shrink-0 font-medium underline underline-offset-2 text-[var(--accent)]"
+                            style={{ minHeight: 32 }}
+                        >
+                            Undo
+                        </button>
+                    </div>
+                )}
             </div>
 
-            {/* ── Buckets. Horizontally scrollable, never wrapping. ── */}
+            {/* ── Buckets, Cash and Same-again all live in this one
+                horizontally-scrollable row. Cash and Same-again (when there is
+                a sale to repeat) are its first two chips, styled distinctly
+                from a bucket — this is deliberate: the row already scrolls
+                sideways rather than wrapping at every viewport this screen
+                supports (see viewport.e2e.mjs), so adding to it costs no new
+                vertical space at all, where a separate fixed bar would have
+                threatened the shortest supported height. ── */}
             <div className="flex-shrink-0 border-t border-[var(--border-glass)] px-4 py-2">
                 <div className="am-chips gap-2 pb-1" style={{ scrollbarWidth: 'thin' }}>
+                    {/* Cash: the first of its three taps. A filled chip, not
+                        an outline one like a bucket, since it starts an
+                        action rather than naming a category. */}
+                    <button
+                        onClick={openCash}
+                        className="flex-shrink-0 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-white whitespace-nowrap"
+                        style={{ background: 'var(--accent)', minHeight: 44 }}
+                    >
+                        <Banknote className="w-3.5 h-3.5" /> Cash
+                    </button>
+                    {/* Same again: one tap, once there is a cash sale to
+                        repeat. Absent until then, rather than disabled — a
+                        vendor's first sale of the day has nothing to repeat. */}
+                    {lastCash && (
+                        <button
+                            onClick={handleSameAgain}
+                            className="flex-shrink-0 flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] whitespace-nowrap"
+                            style={{ borderColor: 'var(--border-glass-accent)', minHeight: 44 }}
+                        >
+                            Same again · {fmtCurrency(lastCash.amount, lastCash.currency)}
+                        </button>
+                    )}
                     {tallies.map(b => (
                         <button
                             key={b.name}
